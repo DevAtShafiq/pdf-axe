@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>학력조회 확인서 — Academic Record Check Agreement</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #c8c8c8;
+    font-family: "Malgun Gothic", "맑은 고딕", "Batang", "바탕", Arial, sans-serif;
+    padding: 32px 16px;
+    min-height: 100vh;
+  }
+
+  .page {
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 25mm 20mm 20mm 25mm;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.28);
+    position: relative;
+    font-size: 9.5pt;
+    line-height: 1.6;
+    color: #111;
+  }
+
+  /* ── Header ── */
+  .doc-header {
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  .doc-title-kr {
+    font-size: 18pt;
+    font-weight: bold;
+    letter-spacing: 4px;
+    display: block;
+  }
+  .doc-title-en {
+    font-size: 11pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    display: block;
+    margin-top: 2px;
+  }
+
+  hr.thick {
+    border: none;
+    border-top: 2.5px solid #111;
+    margin: 8px 0;
+  }
+  hr.thin {
+    border: none;
+    border-top: 1px solid #111;
+    margin: 8px 0;
+  }
+
+  /* ── Notice section ── */
+  .section-label {
+    font-weight: bold;
+    font-size: 10pt;
+    margin: 10px 0 4px;
+  }
+
+  .notice-box {
+    border: 1px solid #444;
+    padding: 8px 12px;
+    font-size: 8.8pt;
+    line-height: 1.7;
+  }
+  .notice-box ol {
+    padding-left: 18px;
+  }
+  .notice-box li {
+    margin-bottom: 2px;
+  }
+  .notice-inline {
+    display: inline;
+  }
+  .notice-en {
+    color: #333;
+  }
+
+  /* ── Info sections ── */
+  .section-header {
+    background: #d9d9d9;
+    font-weight: bold;
+    font-size: 10pt;
+    text-align: center;
+    padding: 3px 8px;
+    border: 1px solid #888;
+    border-bottom: none;
+    margin-top: 12px;
+  }
+
+  table.form-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+  table.form-table td {
+    border: 1px solid #888;
+    padding: 4px 8px;
+    vertical-align: middle;
+  }
+  table.form-table td.label {
+    background: #f2f2f2;
+    font-weight: bold;
+    width: 42%;
+    white-space: nowrap;
+  }
+  table.form-table td.value {
+    min-height: 22px;
+  }
+
+  /* ── Degree checkboxes ── */
+  .checkbox-row {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+  .checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .cb {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid #333;
+    vertical-align: middle;
+  }
+
+  /* ── Attendance period ── */
+  .period-row {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    font-size: 8.8pt;
+  }
+  .period-blank {
+    display: inline-block;
+    min-width: 28px;
+    border-bottom: 1px solid #444;
+  }
+
+  /* ── Signature area ── */
+  .sig-section {
+    margin-top: 20px;
+  }
+  .sig-date {
+    text-align: center;
+    font-size: 10pt;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+  }
+  .sig-date span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .date-blank {
+    display: inline-block;
+    min-width: 40px;
+    border-bottom: 1px solid #333;
+  }
+  .sig-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .sig-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 9.5pt;
+  }
+  .sig-blank {
+    flex: 1;
+    border-bottom: 1px solid #333;
+    min-width: 200px;
+  }
+  .sig-confirm {
+    white-space: nowrap;
+    font-size: 9pt;
+    color: #444;
+  }
+
+  .addressee {
+    text-align: right;
+    font-weight: bold;
+    font-size: 11pt;
+    margin-top: 24px;
+    letter-spacing: 2px;
+  }
+
+  @media print {
+    body { background: white; padding: 0; }
+    .page { box-shadow: none; width: 100%; padding: 15mm 20mm; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Title -->
+  <div class="doc-header">
+    <span class="doc-title-kr">학력조회 확인서</span>
+    <span class="doc-title-en">Academic Record Check Agreement</span>
+  </div>
+  <hr class="thick">
+
+  <!-- Notice -->
+  <div class="section-label">유의사항&nbsp;(Notice)</div>
+  <div class="notice-box">
+    <ol>
+      <li>
+        외국대학에서 수학한 지원자는 필수로 제출해야 합니다.
+        <span class="notice-en">(This form is mandatory for applicants who graduated from college or university in foreign countries.)</span>
+      </li>
+      <li>
+        영어, 한국어로 기재하세요.
+        <span class="notice-en">(Please fill out in English or Korean.)</span>
+      </li>
+      <li>
+        이 문서를 수기로 작성하지 마시고 워드로 작성하십시오.
+        <span class="notice-en">(Please do not write by hand.)</span>
+      </li>
+      <li>
+        대한민국에서 학교를 졸업한 외국인 학생은 작성할 필요가 없습니다.
+        <span class="notice-en">(Students who graduated from a university in Korea do not need to submit this form.)</span>
+      </li>
+      <li>
+        기재한 정보가 허위로 판명될 경우 모든 책임은 학생에게 있습니다.
+        <span class="notice-en">(Any disadvantages occurred by providing false information will be responsible for a student by himself/herself.)</span>
+      </li>
+    </ol>
+  </div>
+
+  <!-- Applicant Information -->
+  <div class="section-header">지원자 정보&nbsp;(Applicant Information)</div>
+  <table class="form-table">
+    <tr>
+      <td class="label">성명&nbsp;(Name)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">생년월일&nbsp;(Date of Birth)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">지원학과&nbsp;(Department)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+  </table>
+
+  <!-- Academic Information -->
+  <div class="section-header" style="margin-top:10px;">출신학교 정보&nbsp;(Academic Information)</div>
+  <table class="form-table">
+    <tr>
+      <td class="label">졸업학교명&nbsp;(Name of University graduated)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">졸업학교주소&nbsp;(Address of University graduated)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">졸업학교 홈페이지&nbsp;(Web-site)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">학위종류&nbsp;(Type of Degree)</td>
+      <td class="value">
+        <div class="checkbox-row">
+          <div class="checkbox-item"><span class="cb"></span> 학사&nbsp;(Bachelor's Degree)</div>
+          <div class="checkbox-item"><span class="cb"></span> 석사&nbsp;(Master's Degree)</div>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td class="label">학위번호 혹은 학번&nbsp;(Degree of student no.)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">이수학과 및 전공&nbsp;(Department and major)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">졸업(예정)일자&nbsp;(Graduation (Expected) Date)</td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">재학기간 및 등록학기&nbsp;(Period of attendance)</td>
+      <td class="value">
+        <div class="period-row">
+          재학기간:&nbsp;
+          <span class="period-blank"></span>년&nbsp;
+          <span class="period-blank"></span>월 ~
+          <span class="period-blank"></span>년&nbsp;
+          <span class="period-blank"></span>월,&nbsp;
+          총 (<span class="period-blank"></span>)학기 이수
+        </div>
+        <div class="period-row" style="margin-top:3px; color:#555; font-size:8pt;">
+          From(Year/MM)&nbsp;&nbsp;&nbsp;To(Year/MM)&nbsp;&nbsp;&nbsp;Total (&nbsp;&nbsp;) semesters
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td class="label">학력조회 담당부서 / 담당자 성명<br><span style="font-weight:normal;font-size:8pt;">(Office/Name of staff in charge)</span></td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">학력조회 담당자 전화번호<br><span style="font-weight:normal;font-size:8pt;">(Phone Number of staff in charge)</span></td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">학력조회 담당자 팩스번호<br><span style="font-weight:normal;font-size:8pt;">(Fax Number of staff in charge)</span></td>
+      <td class="value">&nbsp;</td>
+    </tr>
+    <tr>
+      <td class="label">담당자 E-mail<br><span style="font-weight:normal;font-size:8pt;">(Email of staff in charge)</span></td>
+      <td class="value">&nbsp;</td>
+    </tr>
+  </table>
+
+  <hr class="thin" style="margin-top:16px;">
+
+  <!-- Date and Signature -->
+  <div class="sig-section">
+    <div class="sig-date">
+      <span><span class="date-blank"></span>년&nbsp;(Year)</span>
+      <span><span class="date-blank"></span>월&nbsp;(Month)</span>
+      <span><span class="date-blank"></span>일&nbsp;(Day)</span>
+    </div>
+    <div class="sig-lines">
+      <div class="sig-line">
+        <span style="white-space:nowrap;">지원자:&nbsp;</span>
+        <span class="sig-blank"></span>
+        <span class="sig-confirm">(확인)</span>
+      </div>
+      <div class="sig-line">
+        <span style="white-space:nowrap;">Applicant:&nbsp;</span>
+        <span class="sig-blank"></span>
+        <span class="sig-confirm">(signature)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Addressee -->
+  <div class="addressee">가천대학교 대학원 귀하</div>
+
+</div>
+</body>
+</html>

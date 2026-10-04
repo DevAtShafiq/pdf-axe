@@ -1,0 +1,18 @@
+# ── Core runtime (PyWebView v2 app) ──────────────────────────────────────────
+pywebview>=6.0.0
+Pillow>=10.0.0
+PyMuPDF>=1.24.0
+python-docx>=1.0.0
+openai>=1.40.0
+openpyxl>=3.1.0
+mss>=9.0.0
+pyzbar>=0.1.9
+
+# ── Windows-only ─────────────────────────────────────────────────────────────
+pywin32>=306; sys_platform == "win32"
+
+# ── Legacy Tkinter deps (still imported by student_folder_maker.py helpers) ──
+# These are pulled in transitively via sfm_bridge → student_folder_maker.
+# Can be removed once rename-template helpers are extracted to a standalone module.
+tkinterdnd2>=0.4.0
+tksheet>=7.2.0

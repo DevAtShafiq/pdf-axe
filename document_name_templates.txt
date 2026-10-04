@@ -1,0 +1,8 @@
+# Custom document rename templates (English-Korean, one per line).
+# One side may be blank for English-only or Korean-only templates.
+# Split is on the last hyphen. Lines starting with # are ignored.
+
+Recommendation Letter From High School Principal-고등학교 교장 추천서
+bachelor certificate & transcript with-학부 졸업증명서 및 성적증명서(아포스티유 포합)
+Recommendation Letter From university Principal-대학교  교장 추천서
+bachelor certificate-

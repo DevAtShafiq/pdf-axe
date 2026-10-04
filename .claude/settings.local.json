@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check js/dialogs.js)",
+      "Bash(node --check js/details.js)"
+    ]
+  }
+}

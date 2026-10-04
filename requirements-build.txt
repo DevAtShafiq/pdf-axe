@@ -1,0 +1,3 @@
+# Build: app runtime libs + PyInstaller + icon (Pillow also used by build_icon.py)
+-r requirements.txt
+pyinstaller>=6.0.0

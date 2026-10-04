@@ -1,0 +1,7 @@
+# Document Auto-Rename Log
+# Run : 2026-05-25 05:48:38
+# Mode: LIVE
+
+OK       | IMG_001.pdf                             | Passport.pdf                            | score=11  conf=100.0%
+OK       | scan_88.pdf                             | Trade_License.pdf                       | score=7  conf=87.5%
+OK       | unknown_scan.pdf                        | SSC_Certificate.pdf                     | score=8  conf=100.0%

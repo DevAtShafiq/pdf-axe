@@ -1,0 +1,10 @@
+login ui 
+payment gateway subscription base with monthly subscription
+1. Rename templates (name suggestion)- universal use
+2. File type conversion (img-><-pdf)
+3. File compression (pdf & img)
+4. QR code checking
+5.Real time storage hosting
+6. pdf split merge arrange (pdf handling)
+7. photo crop & Ai suit and tie wear
+

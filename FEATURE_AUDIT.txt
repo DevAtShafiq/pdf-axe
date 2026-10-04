@@ -1,0 +1,417 @@
+==============================================================================
+  STUDENT FOLDER MAKER — FEATURE AUDIT
+  Old Tkinter App  vs  New PyWebView UI
+  Generated: 2026-07-03
+==============================================================================
+
+Legend:
+  [✅ WIRED]   = Feature exists and is fully connected in the new UI
+  [⚠️ PARTIAL] = Feature exists but with reduced scope or minor gaps
+  [❌ MISSING] = Feature from old app not yet implemented in new UI
+
+==============================================================================
+  1. NAVIGATION & FILE BROWSER
+==============================================================================
+
+[✅ WIRED]  Browse / open folder (native dialog)             → btn-open-folder, browse_for_folder
+[✅ WIRED]  Navigate back / forward                          → btn-nav-back, btn-nav-forward
+[✅ WIRED]  Navigate up (parent folder)                      → btn-nav-up
+[✅ WIRED]  Drive list (get_drives)                          → file-tree.js sidebar drive list
+[✅ WIRED]  Folder tree (expand/collapse on arrow click)     → file-tree.js _loadTreeChildren
+[✅ WIRED]  Folder tree label click = navigate               → file-tree.js label click handler
+[✅ WIRED]  File list (list view)                            → file-tree.js list mode
+[✅ WIRED]  File list (thumbnail view)                       → file-tree.js thumb mode
+[✅ WIRED]  Toggle list / thumbnail view                     → btn-view-list, btn-view-thumb
+[✅ WIRED]  Search / filter filenames                        → search input, FileTree.applySearch
+[✅ WIRED]  Refresh file list                                → btn-refresh (F5)
+[✅ WIRED]  Undo last operation                              → btn-undo (Ctrl+Z)
+[✅ WIRED]  Redo                                             → btn-redo (Ctrl+Y)
+[❌ MISSING] Expand All folders in tree                      → old: "Expand All" menu item
+[❌ MISSING] Collapse All folders in tree                    → old: "Collapse All" menu item
+[❌ MISSING] Expand selected folder only                     → old: "Expand selected folder"
+[❌ MISSING] Collapse selected folder only                   → old: "Collapse selected folder"
+[❌ MISSING] Recent folders dropdown                         → old: recent folders in nav bar
+
+==============================================================================
+  2. FILE OPERATIONS (context menu & keyboard)
+==============================================================================
+
+[✅ WIRED]  Open file (native app)                           → context menu "Open" / Ctrl+Enter
+[✅ WIRED]  Show in Explorer                                 → context menu "Show in Explorer"
+[✅ WIRED]  Cut / Copy / Paste                               → Ctrl+X / C / V + context menu
+[✅ WIRED]  Rename (inline edit)                             → context menu "Rename" / F2
+[✅ WIRED]  New folder                                       → btn-new-folder / Ctrl+Shift+N
+[✅ WIRED]  Move to _to_review/ (soft delete)                → context menu "Move to Review" / Del
+[✅ WIRED]  Copy To… (pick destination)                      → context menu + More Menu → Copy To…
+[✅ WIRED]  Move To… (pick destination)                      → context menu + More Menu → Move To…
+[✅ WIRED]  Copy path to clipboard                           → context menu "Copy Path"
+[✅ WIRED]  Copy filename to clipboard                       → context menu "Copy Name"
+[✅ WIRED]  Translate name to Korean                         → context menu + btn-translate
+[✅ WIRED]  Similar Move (AI folder suggestion)              → context menu + More Menu
+[❌ MISSING] Open with (submenu of installed apps)           → old: cascading "Open with" submenu
+[❌ MISSING] Send To → submenu                               → old: Send To cascade
+[❌ MISSING] New Text Document                               → old: "New Text Document.txt" menu item
+[❌ MISSING] New folder in root (workspace root)             → old: "New folder in root"
+[❌ MISSING] Make Folder for File…                           → old: creates named folder for selected file
+[❌ MISSING] Root — Move to workspace root                   → old: "Root (move to workspace root)"
+[❌ MISSING] Delete (hard delete, to Recycle Bin)            → old: "Delete\tDel" (bridge: recycle_delete)
+
+==============================================================================
+  3. PDF OPERATIONS
+==============================================================================
+
+[✅ WIRED]  Combine / Merge PDFs                             → context menu + btn-combine-pdf
+[✅ WIRED]  Combine selected PDFs (multi-select)             → context menu "Combine PDFs…"
+[✅ WIRED]  Split PDF into single pages                      → context menu "Split PDF"
+[✅ WIRED]  Extract selected pages → new PDF                 → context menu "Extract Pages…" (dialog)
+[✅ WIRED]  Arrange / Reorder pages (drag)                   → Full View → Arrange, dialog #3
+[✅ WIRED]  Smart Split, Merge & Rename (GPT-4o)             → context menu + btn-smart-split (dialog #17)
+[✅ WIRED]  Split & Rename by student name (OCR)             → context menu "Split & Rename by OCR…" (dialog #22)
+[✅ WIRED]  OCR Rename (rename file by content)              → context menu "OCR Rename"
+[✅ WIRED]  Make OCR Searchable (embed text layer)           → context menu "Make OCR Searchable"
+[✅ WIRED]  Compress / Reduce PDF size                       → context menu + btn-compress-pdf (dialog #10)
+[✅ WIRED]  Place PDF on A4 (2/4/6/9-up)                    → context menu "Place on A4…" (dialog #5)
+[✅ WIRED]  ID Card on A4 (tile ×4)                          → context menu "ID Card on A4…" (dialog #6)
+[✅ WIRED]  Find Duplicate Pages                             → context menu "Find Duplicate Pages" (dialog #13)
+[✅ WIRED]  Rotate page CW / CCW (saves to disk)             → Full View PDF → ↺ / ↻ buttons
+[✅ WIRED]  Delete page from PDF                             → Full View PDF → 🗑 Del Page button
+[✅ WIRED]  Convert PDF pages to PNG                         → context menu "Convert to Images…" (dialog #21)
+[✅ WIRED]  Convert PDF pages to JPG                         → context menu "Convert to Images…" (dialog #21, format selector)
+[✅ WIRED]  Open PDF in Adobe Acrobat                        → context menu "Open with Acrobat"
+[✅ WIRED]  Print PDF (printer + range + copies)             → context menu "Print…" (dialog #7)
+[❌ MISSING] Rename by Document Type OCR                     → old: "Rename by Document Type (OCR)…" (distinct from ocr_rename)
+[❌ MISSING] Split multi-page PDFs in folder(s)              → old: bulk-split all PDFs in folder
+[❌ MISSING] College Photo Sheet (A4 · 600 DPI · CMYK)       → old: CollegePhotoSheetA4 action
+[❌ MISSING] Extract this page → New PDF (single page)       → old: separate single-page extract item
+
+==============================================================================
+  4. PDF FULL VIEW DIALOG
+==============================================================================
+
+[✅ WIRED]  Page-by-page rendering (high DPI)                → dialog #2 openFullView
+[✅ WIRED]  Previous / Next page navigation                  → fv-prev / fv-next buttons
+[✅ WIRED]  Jump to page by number input                     → fv-page-input
+[✅ WIRED]  Zoom selector (75 / 100 / 150 / 200 %)          → fv-zoom select
+[✅ WIRED]  Merge / Combine with other PDFs                  → fv-merge button
+[✅ WIRED]  Arrange / Reorder pages                          → fv-arrange button
+[✅ WIRED]  Rotate page CW                                   → fv-rot-cw button
+[✅ WIRED]  Rotate page CCW                                  → fv-rot-ccw button
+[✅ WIRED]  Delete current page                              → fv-del-page button
+[❌ MISSING] Append PDF (add pages to end)                   → old had "Add PDF…" button
+[❌ MISSING] Open Word source externally                     → old: open .docx source of Word-to-PDF
+[❌ MISSING] Open in Photoshop                               → old: shortcut to Photoshop
+
+==============================================================================
+  5. IMAGE OPERATIONS
+==============================================================================
+
+[✅ WIRED]  Image preview (full-res)                         → preview.js _openImage
+[✅ WIRED]  Check Passport Photo (AI quality check)          → context menu "Check Passport Photo" (dialog #15)
+[✅ WIRED]  Print image                                      → context menu "Print…" (dialog #7)
+[✅ WIRED]  AI Remove Background                             → Details panel "AI Photo Edit" → Remove Background
+[✅ WIRED]  AI Enhance Photo                                 → Details panel "AI Photo Edit" → Enhance Photo
+[✅ WIRED]  AI Upscale                                       → Details panel "AI Photo Edit" → Upscale
+[✅ WIRED]  AI Black & White                                 → Details panel "AI Photo Edit" → Black & White
+[❌ MISSING] Rotate image CW / CCW (thumbnail rotate)        → old: thumbnail right-click rotate
+[❌ MISSING] Flip Horizontal                                 → old: image adjustment dialog
+[❌ MISSING] Crop image                                      → old: crop tool in image editor
+[❌ MISSING] Resize image                                    → old: resize/adjust dialog
+[❌ MISSING] Color adjustments (brightness/contrast)         → old: Adjust… dialog
+
+==============================================================================
+  6. OFFICE DOCUMENT OPERATIONS
+==============================================================================
+
+[✅ WIRED]  Word (.docx) HTML preview                        → preview.js _openWord (getWordHtml)
+[✅ WIRED]  Excel HTML preview (first sheet)                 → preview.js _openExcel (getExcelHtml)
+[✅ WIRED]  Excel sheet tab selector (multi-sheet)           → preview.js dynamic sheet tabs
+[✅ WIRED]  Convert Office → PDF                             → context menu "Convert to PDF"
+[❌ MISSING] Convert Excel sheets to CSV                     → old: "Convert Excel sheets to CSV"
+[❌ MISSING] Render Excel as HTML (open in browser)          → old: "Render Excel as HTML (open in browser)"
+[❌ MISSING] Excel sheet editing (set cell values)           → old: excel.py tools via file_ops
+
+==============================================================================
+  7. ZIP / ARCHIVE OPERATIONS
+==============================================================================
+
+[✅ WIRED]  Zip selection                                    → context menu "Zip…" / Ctrl+Shift+Z / btn-zip
+[✅ WIRED]  Extract single ZIP here                          → context menu "Extract Here" / btn-unzip
+[✅ WIRED]  Extract multiple ZIPs (unzip_all)                → context menu "Extract All…" (multi-ZIP select)
+[✅ WIRED]  View ZIP contents before extracting              → context menu "View Contents…" (dialog #23)
+[❌ MISSING] Zip each subfolder separately                   → old: "Zip folders…" (zip_each_subfolder)
+[❌ MISSING] Unzip selected folders' ZIPs                    → old: "Unzip selected…"
+
+==============================================================================
+  8. STUDENT FOLDER MAKER (CORE FEATURE)
+==============================================================================
+
+[✅ WIRED]  Create student folders from name list            → Sidebar "Folders" panel (FolderMakerPanel)
+[✅ WIRED]  Browse destination folder                        → fm-dest-browse button in panel
+[✅ WIRED]  Confirmation gate for >10 folders                → FolderMakerPanel._run() confirm()
+[✅ WIRED]  Log output after creation                        → fm-log pre element
+[✅ WIRED]  Navigate to created folder                       → FileTree.navigate(r.dest)
+[✅ WIRED]  Create student folders (dialog shortcut)         → More Menu → "Create Student Folders…" (dialog #20)
+
+==============================================================================
+  9. WATCH FOLDER
+==============================================================================
+
+[✅ WIRED]  Start watching a folder                          → Sidebar "Watch" panel → ▶ Start Watch
+[✅ WIRED]  Stop watch                                       → panel → ⏹ Stop
+[✅ WIRED]  Browse folder to watch                           → watch-folder-browse button
+[✅ WIRED]  Live entry list (pending / done / error)         → watch-list with 4-second poll
+[✅ WIRED]  Clear completed entries                          → 🗑 Clear Done button
+[✅ WIRED]  Watch status in status bar                       → status-watch chip (5-second poll)
+[✅ WIRED]  Start watch from context menu (quick)            → context menu "Watch Folder" on directory
+
+==============================================================================
+  10. APOSTILLE MATCHER
+==============================================================================
+
+[✅ WIRED]  Apostille Merge dialog                           → context menu "Apostille Merge…" (dialog #4)
+[✅ WIRED]  Scan folder for document sets                    → dialog "Scan" button → scanApostilleRefs
+[✅ WIRED]  Run merge                                        → dialog "Run Merge" → processApostille
+[✅ WIRED]  Apostille panel (sidebar)                        → Sidebar "Apostille" → ApostillePanel
+[✅ WIRED]  Browse folder for apostille                      → ap-browse button
+
+==============================================================================
+  11. DOCUMENT NAME TEMPLATES & RENAME
+==============================================================================
+
+[✅ WIRED]  View / manage rename templates                   → More Menu → "Document Name Templates…" (dialog #8)
+[✅ WIRED]  Save new template                                → dialog "Save Template" → saveRenameTemplate
+[✅ WIRED]  Rename with autocomplete suggestions             → Details panel rename bar (filterSuggestions)
+[✅ WIRED]  Save name as template from rename bar            → Details panel "Save" button → saveNameTemplate
+[✅ WIRED]  Translate name to Korean (rename)                → Details panel "번역" button + context menu
+[✅ WIRED]  Change case (UPPER / Title / lower)              → More Menu → "Change Case…" (dialog #9)
+
+==============================================================================
+  12. DOCUMENT PREVIEW
+==============================================================================
+
+[✅ WIRED]  PDF preview (scrollable, page-by-page)           → preview.js _openPdf
+[✅ WIRED]  PDF zoom in / out / reset                        → Ctrl++ / Ctrl+- / Ctrl+0
+[✅ WIRED]  PDF page navigation (prev/next/jump)             → pdf-float-nav, fv-prev/fv-next
+[✅ WIRED]  PDF contextual toolbar (rotate, split, arrange)  → pdf-ctx-toolbar in preview panel
+[✅ WIRED]  Image preview (full resolution)                  → preview.js _openImage
+[✅ WIRED]  Word document HTML preview                       → preview.js _openWord
+[✅ WIRED]  Excel HTML preview with sheet tabs               → preview.js _openExcel + sheet tabs
+[✅ WIRED]  Plain text / code preview                        → preview.js _openText
+[✅ WIRED]  Full View dialog (double-click or toolbar)       → Dialogs.openFullView (dialog #2)
+
+==============================================================================
+  13. DETAILS / RIGHT PANEL
+==============================================================================
+
+[✅ WIRED]  File name display                                → details.js showFile
+[✅ WIRED]  File metadata (size, modified, type, pages)      → details.js _populateInfo
+[✅ WIRED]  Inline rename bar (F2)                           → details.js beginRename
+[✅ WIRED]  Autocomplete suggestions while renaming          → details.js _showAc
+[✅ WIRED]  Quick action buttons (Open, Show, Print, etc.)   → details.js _initQuickActions
+[✅ WIRED]  AI Photo Edit buttons (images only)              → details.js _initAiPhoto
+[✅ WIRED]  Multiple selection summary                       → details.js showMultiple
+
+==============================================================================
+  14. EXPIRY HEATMAP
+==============================================================================
+
+[✅ WIRED]  Scan folder for expiry dates                     → Sidebar "Heatmap" panel → 🔍 Scan
+[✅ WIRED]  Color-coded cards (expired/danger/warn/ok)       → HeatmapPanel._render()
+[✅ WIRED]  Browse folder to scan                            → hm-folder-browse button
+[✅ WIRED]  Open heatmap from More Menu                      → More Menu → "Document Expiry Heatmap"
+
+==============================================================================
+  15. SETTINGS & CONFIGURATION
+==============================================================================
+
+[✅ WIRED]  Settings dialog                                  → Sidebar "Settings" → openSettings (dialog #11)
+[✅ WIRED]  Set OpenAI / GPT API key                         → Settings dialog s-apikey field
+[✅ WIRED]  Default output folder                            → Settings dialog s-outfolder
+[✅ WIRED]  OCR language selector                            → Settings dialog s-ocrlang
+[✅ WIRED]  App theme (dark / light)                         → Settings dialog s-theme
+[✅ WIRED]  Watch folder auto-rename toggle                   → Settings dialog s-watchrename
+[✅ WIRED]  GPT cost tracker in status bar                   → cost-chip (10-second poll, click to reset)
+
+==============================================================================
+  16. CHECKLIST REPORT
+==============================================================================
+
+[✅ WIRED]  Generate checklist report (Word docx)            → context menu "Generate Report" on folder
+[✅ WIRED]  Report from More Menu                            → More Menu → "Generate Checklist Report"
+[✅ WIRED]  Report completion toast + event                  → app.js SFM.on('report_done')
+
+==============================================================================
+  17. QR CODE SCANNER
+==============================================================================
+
+[✅ WIRED]  Scan QR from screen                              → btn-qr + context menu "Scan QR from Screen"
+[✅ WIRED]  Show QR result in toast                          → app.js SFM.on('qr_result')
+
+==============================================================================
+  18. PASSPORT PHOTO CHECK
+==============================================================================
+
+[✅ WIRED]  Check passport photo quality (AI)                → context menu "Check Passport Photo" (dialog #15)
+[✅ WIRED]  Show pass/fail checklist                         → dialog renders r.checks array
+
+==============================================================================
+  19. TOOLBAR BUTTONS (main toolbar)
+==============================================================================
+
+[✅ WIRED]  Navigate Back                                    → btn-nav-back
+[✅ WIRED]  Navigate Forward                                 → btn-nav-forward
+[✅ WIRED]  Navigate Up                                      → btn-nav-up
+[✅ WIRED]  Open Folder                                      → btn-open-folder
+[✅ WIRED]  Refresh                                          → btn-refresh
+[✅ WIRED]  New Folder                                       → btn-new-folder
+[✅ WIRED]  Undo                                             → btn-undo
+[✅ WIRED]  Redo                                             → btn-redo
+[✅ WIRED]  List View                                        → btn-view-list
+[✅ WIRED]  Thumbnail View                                   → btn-view-thumb
+[✅ WIRED]  Combine PDFs                                     → btn-combine-pdf
+[✅ WIRED]  Smart Split & Merge                              → btn-smart-split
+[✅ WIRED]  Compress PDF                                     → btn-compress-pdf
+[✅ WIRED]  Zip selection                                    → btn-zip
+[✅ WIRED]  Unzip selection                                  → btn-unzip
+[✅ WIRED]  Translate to Korean                              → btn-translate
+[✅ WIRED]  Scan QR                                          → btn-qr
+[✅ WIRED]  More Actions menu                                → btn-more
+
+==============================================================================
+  20. KEYBOARD SHORTCUTS
+==============================================================================
+
+[✅ WIRED]  Ctrl+Enter    Open file                          → app.js _initKeyboard
+[✅ WIRED]  Ctrl+C        Copy                               → app.js
+[✅ WIRED]  Ctrl+X        Cut                                → app.js
+[✅ WIRED]  Ctrl+V        Paste                              → app.js
+[✅ WIRED]  Ctrl+Shift+N  New folder                         → app.js
+[✅ WIRED]  Ctrl+Shift+Z  Zip selection                      → app.js
+[✅ WIRED]  F2            Rename                             → app.js
+[✅ WIRED]  F5            Refresh                            → app.js
+[✅ WIRED]  Delete        Move to review                     → app.js
+[✅ WIRED]  Escape        Close context menu / dialog        → context-menu.js, dialogs.js
+[✅ WIRED]  Ctrl++ / -    Zoom in/out preview                → app.js
+[✅ WIRED]  Ctrl+0        Reset zoom                         → app.js
+
+==============================================================================
+  21. BRIDGE METHODS — WIRING SUMMARY
+==============================================================================
+
+[✅ WIRED]  apply_file_moves          → Similar Move dialog (applyFileMoves)
+[✅ WIRED]  browse_for_folder         → btn-open-folder, all Browse… buttons
+[✅ WIRED]  check_passport_photo      → context menu + dialog #15
+[✅ WIRED]  combine_files_to_pdf      → bridge wrapper (combineToPdf)
+[✅ WIRED]  compress_pdf              → bridge wrapper
+[✅ WIRED]  compress_pdf_async        → bridge wrapper (compressPdfAsync)
+[✅ WIRED]  compress_pdf_quality      → Compress PDF dialog #10 (quality selector)
+[✅ WIRED]  convert_to_pdf            → context menu "Convert to PDF"
+[✅ WIRED]  convert_to_pdf_async      → bridge wrapper (convertToPdfAsync)
+[✅ WIRED]  copy_files                → Copy To… dialog #18
+[✅ WIRED]  create_folder             → btn-new-folder / Ctrl+Shift+N
+[✅ WIRED]  create_student_folders    → Folders panel + dialog #20
+[✅ WIRED]  delete_pdf_page           → Full View → Del Page button
+[✅ WIRED]  extract_pdf_pages         → context menu → Extract Pages… dialog #12
+[✅ WIRED]  filter_rename_suggestions → Details panel rename autocomplete
+[✅ WIRED]  find_duplicate_pages      → context menu → dialog #13
+[✅ WIRED]  generate_report           → context menu + More Menu
+[✅ WIRED]  get_api_key               → Settings dialog
+[✅ WIRED]  get_checklist_labels      → bridge wrapper
+[✅ WIRED]  get_cost                  → cost-chip status bar
+[✅ WIRED]  get_desktop               → bridge wrapper
+[✅ WIRED]  get_docx_preview          → preview.js (getDocxPreview)
+[✅ WIRED]  get_drives                → file-tree.js drive sidebar
+[✅ WIRED]  get_excel_html            → preview.js Excel panel
+[✅ WIRED]  get_excel_sheets          → preview.js sheet tabs
+[✅ WIRED]  get_expiry_heatmap        → Heatmap panel
+[✅ WIRED]  get_file_info             → details.js _populateInfo
+[✅ WIRED]  get_file_type_icon        → file-tree.js icons
+[✅ WIRED]  get_file_type_icons_batch → file-tree.js batch icons
+[✅ WIRED]  get_home                  → app.js init (load home on start)
+[✅ WIRED]  get_image_preview         → preview.js _openImage
+[✅ WIRED]  get_open_with_commands    → bridge wrapper (getOpenWithCommands)
+[✅ WIRED]  get_pdf_page_as_png       → preview.js + Full View dialog
+[✅ WIRED]  get_pdf_page_count        → preview.js + Full View dialog
+[✅ WIRED]  get_pdf_thumbnail         → file-tree.js thumbnail mode
+[✅ WIRED]  get_rename_templates      → Templates dialog #8
+[✅ WIRED]  get_settings              → Settings dialog #11
+[✅ WIRED]  get_text_preview          → preview.js _openText
+[✅ WIRED]  get_word_html             → preview.js _openWord
+[✅ WIRED]  id_card_on_a4             → context menu → dialog #6
+[✅ WIRED]  list_folder               → file-tree.js loadFolder
+[✅ WIRED]  list_folder_recursive     → file-tree.js tree expansion
+[✅ WIRED]  list_printers             → Print dialog #7
+[✅ WIRED]  list_zip                  → context menu "View Contents…" → dialog #23
+[✅ WIRED]  make_ocr_searchable       → context menu "Make OCR Searchable"
+[✅ WIRED]  merge_pdfs                → Combine PDF dialog #1
+[✅ WIRED]  move_files                → Move To… dialog #19
+[✅ WIRED]  ocr_rename                → context menu "OCR Rename"
+[✅ WIRED]  open_folder_in_explorer   → context menu "Show in Explorer"
+[✅ WIRED]  open_native               → context menu "Open" / Ctrl+Enter
+[✅ WIRED]  open_with_acrobat         → context menu "Open with Acrobat"
+[✅ WIRED]  path_exists               → bridge wrapper (pathExists)
+[✅ WIRED]  pdf_to_images             → context menu → dialog #21
+[✅ WIRED]  place_pdf_on_a4           → context menu → dialog #5
+[✅ WIRED]  plan_similar_moves        → Similar Move dialog #14
+[✅ WIRED]  print_pdf                 → bridge wrapper
+[✅ WIRED]  print_pdf_range           → Print dialog #7 (range + copies)
+[✅ WIRED]  process_apostille         → Apostille dialog #4
+[✅ WIRED]  recycle_delete            → bridge wrapper (recycleDelete)
+[✅ WIRED]  rename_file               → inline rename, Change Case dialog #9
+[✅ WIRED]  reorder_pdf_pages         → Arrange Pages dialog #3
+[✅ WIRED]  reset_cost                → cost-chip click → resetCost
+[✅ WIRED]  rotate_pdf_page           → Full View ↺/↻ buttons
+[✅ WIRED]  run_ai_photo_action       → Details panel AI Photo Edit
+[✅ WIRED]  save_name_template        → Details rename bar "Save" button
+[✅ WIRED]  save_rename_template      → Templates dialog #8
+[✅ WIRED]  save_settings             → Settings dialog #11
+[✅ WIRED]  scan_apostille_refs       → Apostille dialog "Scan" button
+[✅ WIRED]  scan_qr_from_screen       → btn-qr + context menu
+[✅ WIRED]  set_api_key               → Settings dialog
+[✅ WIRED]  set_clipboard             → clipboard fallback
+[✅ WIRED]  set_window                → main_webview.py (internal)
+[✅ WIRED]  show_native_context_menu  → bridge wrapper
+[✅ WIRED]  smart_split_rename        → btn-smart-split + context menu (dialog #17)
+[✅ WIRED]  soft_delete               → context menu "Move to Review" / Del
+[✅ WIRED]  split_and_rename_ocr      → context menu → dialog #22
+[✅ WIRED]  split_pdf_pages           → context menu "Split PDF"
+[✅ WIRED]  translate_to_korean       → btn-translate + context menu
+[✅ WIRED]  unzip                     → btn-unzip + context menu "Extract Here"
+[✅ WIRED]  unzip_all                 → context menu "Extract All…" (multi-ZIP)
+[✅ WIRED]  watch_clear_completed     → Watch panel "Clear Done" button
+[✅ WIRED]  watch_get_entries         → Watch panel 4s poll + status bar 5s poll
+[✅ WIRED]  watch_start               → Watch panel ▶ Start + context menu "Watch Folder"
+[✅ WIRED]  watch_stop                → Watch panel ⏹ Stop
+[✅ WIRED]  zip_paths                 → btn-zip + context menu "Zip…"
+
+[⚠️ PARTIAL] get_open_with_commands  → Bridge wrapper exists; "Open with" submenu UI not built yet
+[⚠️ PARTIAL] recycle_delete          → Bridge wrapper exists; no UI trigger (uses soft_delete instead)
+
+==============================================================================
+  SUMMARY COUNTS
+==============================================================================
+
+  Total features audited:    ~130
+  ✅ Fully wired:            ~112
+  ⚠️ Partial / bridge-only:    2
+  ❌ Not yet in new UI:        ~16
+
+  REMAINING GAPS (priority order):
+  1. "Open with" submenu (get_open_with_commands already in bridge)
+  2. Expand All / Collapse All tree
+  3. Delete to Recycle Bin (recycle_delete in bridge, no UI trigger)
+  4. Rename by Document Type OCR (separate from ocr_rename)
+  5. Split multi-page PDFs in folder(s) (bulk split)
+  6. Zip each subfolder separately
+  7. Make Folder for File…
+  8. Move to workspace Root
+  9. New Text Document menu item
+ 10. Convert Excel sheets to CSV
+ 11. College Photo Sheet A4
+ 12. Image crop / resize / flip / adjust tools
+ 13. Append PDF to open document (Full View)
+ 14. Recent folders dropdown in nav bar
+ 15. Expand/collapse individual selected folder
+ 16. Excel cell editing
+
+==============================================================================

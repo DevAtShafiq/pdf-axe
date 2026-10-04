@@ -1,0 +1,198 @@
+/**
+ * bridge.js — Safe wrapper around window.pywebview.api
+ *
+ * Provides:
+ *   SFM.call(method, ...args)  → Promise<result>
+ *   SFM.on(event, handler)     → unsubscribe fn
+ *   SFM.emit(event, payload)   → dispatch locally (for testing)
+ *
+ * window.__sfm_event(event, payload) is called by Python to push events.
+ */
+
+const SFM = (() => {
+  const _listeners = {};   // event → [fn, ...]
+
+  // ── event bus ──────────────────────────────────────────────────────────────
+  function on(event, fn) {
+    if (!_listeners[event]) _listeners[event] = [];
+    _listeners[event].push(fn);
+    return () => off(event, fn);
+  }
+  function off(event, fn) {
+    if (_listeners[event])
+      _listeners[event] = _listeners[event].filter(f => f !== fn);
+  }
+  function emit(event, payload) {
+    (_listeners[event] || []).forEach(fn => {
+      try { fn(payload); } catch(e) { console.error('[SFM event]', event, e); }
+    });
+  }
+
+  // Python calls this to push events into JS
+  window.__sfm_event = (event, payload) => emit(event, payload);
+
+  // ── JS → Python logger ────────────────────────────────────────────────────
+  function _pylog(level, ...parts) {
+    const msg = parts.map(p => (typeof p === 'object' ? JSON.stringify(p) : String(p))).join(' ');
+    _getApi().then(api => api.log_js && api.log_js(level, msg)).catch(() => {});
+  }
+
+  // Global JS error → log file
+  window.onerror = (msg, src, line, col, err) => {
+    _pylog('error', `UNCAUGHT: ${msg} @ ${src}:${line}:${col}`);
+  };
+  window.addEventListener('unhandledrejection', e => {
+    _pylog('error', `UNHANDLED PROMISE: ${e.reason}`);
+  });
+
+  // ── api call wrapper ───────────────────────────────────────────────────────
+  async function call(method, ...args) {
+    const api = await _getApi();
+    if (!api[method]) {
+      _pylog('error', `Bridge: unknown method "${method}"`);
+      throw new Error(`Bridge: unknown method "${method}"`);
+    }
+    try {
+      const result = await api[method](...args);
+      if (result && result.ok === false) {
+        _pylog('warn', `${method} → error: ${result.error}`);
+      }
+      return result;
+    } catch(e) {
+      _pylog('error', `${method} threw: ${e}`);
+      throw e;
+    }
+  }
+
+  // ── wait for pywebview to initialise ──────────────────────────────────────
+  let _apiReady = null;
+  function _getApi() {
+    if (_apiReady) return _apiReady;
+    _apiReady = new Promise(resolve => {
+      function check() {
+        if (window.pywebview && window.pywebview.api) {
+          resolve(window.pywebview.api);
+        } else {
+          setTimeout(check, 50);
+        }
+      }
+      check();
+    });
+    return _apiReady;
+  }
+
+  // ── convenience wrappers ──────────────────────────────────────────────────
+  return {
+    call, on, off, emit,
+    // Folder / file system
+    listFolder:          (path)                    => call('list_folder', path),
+    listFolderRec:       (path, depth=3)           => call('list_folder_recursive', path, depth),
+    getDrives:           ()                        => call('get_drives'),
+    getHome:             ()                        => call('get_home'),
+    getDesktop:          ()                        => call('get_desktop'),
+    pathExists:          (path)                    => call('path_exists', path),
+    getFileTypeIcon:     (ext, size=18)            => call('get_file_type_icon', ext, size),
+    getFileTypeIconsBatch: (exts, size=18)         => call('get_file_type_icons_batch', exts, size),
+    getFileInfo:         (path)                    => call('get_file_info', path),
+    openNative:          (path)                    => call('open_native', path),
+    openFolder:          (path)                    => call('open_folder_in_explorer', path),
+    openWithAcrobat:     (paths)                   => call('open_with_acrobat', paths),
+    getOpenWithCommands: (path)                    => call('get_open_with_commands', path),
+    runOpenWith:         (argv, path)               => call('_run_open_with', argv, path),
+    showContextMenu:     (path, x, y)              => call('show_native_context_menu', path, x, y),
+    // File ops
+    renameFile:          (old, name)               => call('rename_file', old, name),
+    softDelete:          (paths)                   => call('soft_delete', paths),
+    recycleDelete:       (paths)                   => call('recycle_delete', paths),
+    copyFiles:           (paths, dest)             => call('copy_files', paths, dest),
+    moveFiles:           (paths, dest)             => call('move_files', paths, dest),
+    createFolder:        (parent, name)            => call('create_folder', parent, name),
+    createTextFile:      (parent, name)            => call('create_text_file', parent, name),
+    setClipboard:        (text)                    => call('set_clipboard', text),
+    planSimilarMoves:    (paths)                   => call('plan_similar_moves', paths),
+    applyFileMoves:      (plan)                    => call('apply_file_moves', plan),
+    // PDF thumbnails / pages
+    getPdfThumb:         (path, page=0, dpi=72)    => call('get_pdf_thumbnail', path, page, dpi),
+    getPdfPage:          (path, page, dpi=150)     => call('get_pdf_page_as_png', path, page, dpi),
+    getPdfPageCount:     (path)                    => call('get_pdf_page_count', path),
+    // Previews
+    getImagePreview:     (path, maxDim=1200)       => call('get_image_preview', path, maxDim),
+    getTextPreview:      (path)                    => call('get_text_preview', path),
+    getDocxPreview:      (path)                    => call('get_docx_preview', path),
+    getWordHtml:         (path)                    => call('get_word_html', path),
+    getExcelHtml:        (path, sheet='')          => call('get_excel_html', path, sheet),
+    getExcelSheets:      (path)                    => call('get_excel_sheets', path),
+    getDocAsPdf:         (path)                    => call('get_doc_as_pdf', path),
+    // PDF ops
+    mergePdfs:           (paths, out)              => call('merge_pdfs', paths, out),
+    splitPdf:            (path, dir)               => call('split_pdf_pages', path, dir),
+    compressPdf:         (path, out)               => call('compress_pdf', path, out),
+    compressPdfQuality:  (path, quality='ebook', out='') => call('compress_pdf_quality', path, quality, out),
+    compressPdfAsync:    (path, out='')            => call('compress_pdf_async', path, out),
+    rotatePage:          (path, page, deg)         => call('rotate_pdf_page', path, page, deg),
+    deletePage:          (path, page)              => call('delete_pdf_page', path, page),
+    reorderPages:        (path, order, out)        => call('reorder_pdf_pages', path, order, out),
+    buildPdfFromPages:   (pages, out, replace=false) => call('build_pdf_from_pages', pages, out, replace),
+    browseForPdfs:       ()                        => call('browse_for_pdfs'),
+    extractPdfPages:     (path, spec, out)         => call('extract_pdf_pages', path, spec, out),
+    findDuplicatePages:  (path)                    => call('find_duplicate_pages', path),
+    pdfToImages:         (path, dpi=150, fmt='png') => call('pdf_to_images', path, dpi, fmt),
+    combineToPdf:        (paths, out)              => call('combine_files_to_pdf', paths, out),
+    convertToPdf:        (path, out='')            => call('convert_to_pdf', path, out),
+    convertToPdfAsync:   (paths)                   => call('convert_to_pdf_async', paths),
+    // Image
+    resizePhotoToMm:     (path, w=35, h=45, dpi=300, out='', mode='center') => call('resize_photo_to_mm', path, w, h, dpi, out, mode),
+    cropImage:           (path, x, y, w, h, out='')        => call('crop_image', path, x, y, w, h, out),
+    rotateImage:         (path, deg=90, out='')            => call('rotate_image', path, deg, out),
+    flipImage:           (path, dir='horizontal', out='')  => call('flip_image', path, dir, out),
+    adjustImageSave:     (path, brightness=1, contrast=1, out='', overwrite=false) => call('adjust_image_save', path, brightness, contrast, out, overwrite),
+    excelToCsv:          (path, outDir='')                 => call('excel_to_csv', path, outDir),
+    moveToRoot:          (paths, root)                     => call('move_to_root', paths, root),
+    ocrRenameProgress:   (paths)                           => call('ocr_rename_with_progress', paths),
+    checkPassportPhoto:  (path)                    => call('check_passport_photo', path),
+    // Long async ops
+    smartSplit:          (path, outDir='')         => call('smart_split_rename', path, outDir),
+    splitAndRenameOcr:   (path)                    => call('split_and_rename_ocr', path),
+    makeOcrSearchable:   (path)                    => call('make_ocr_searchable', path),
+    ocrRename:           (paths)                   => call('ocr_rename', paths),
+    generateReport:      (folder)                  => call('generate_report', folder),
+    // ZIP
+    zipPaths:            (paths, out='')           => call('zip_paths', paths, out),
+    unzip:               (path)                    => call('unzip', path),
+    unzipAll:            (paths)                   => call('unzip_all', paths),
+    listZip:             (path)                    => call('list_zip', path),
+    // Misc
+    translateKorean:     (text)                    => call('translate_to_korean', text),
+    scanQr:              ()                        => call('scan_qr_from_screen'),
+    scanQrFromFile:      (path)                    => call('scan_qr_from_file', path),
+    getScreenCapture:    ()                        => call('get_screen_capture'),
+    decodeQrAtPoint:     (cx, cy)                  => call('decode_qr_at_point', cx, cy),
+    getCost:             ()                        => call('get_cost'),
+    resetCost:           ()                        => call('reset_cost'),
+    getSettings:         ()                        => call('get_settings'),
+    saveSettings:        (s)                       => call('save_settings', s),
+    getApiKey:           ()                        => call('get_api_key'),
+    setApiKey:           (k)                       => call('set_api_key', k),
+    listPrinters:        ()                        => call('list_printers'),
+    printPdf:            (path, printer='')        => call('print_pdf', path, printer),
+    getRenameTemplates:  ()                        => call('get_rename_templates'),
+    filterSuggestions:   (q, ext='')              => call('filter_rename_suggestions', q, ext),
+    saveNameTemplate:    (key, label)              => call('save_name_template', key, label),
+    saveRenameTemplate:  (tpl)                     => call('save_rename_template', tpl),
+    getChecklistLabels:  ()                        => call('get_checklist_labels'),
+    // Apostille
+    scanApostilleRefs:   (folder)                  => call('scan_apostille_refs', folder),
+    processApostille:    (urls, local, out, key)   => call('process_apostille', urls, local, out, key),
+    // Watch
+    watchStart:          (folder, out='')          => call('watch_start', folder, out),
+    watchStop:           ()                        => call('watch_stop'),
+    watchEntries:        ()                        => call('watch_get_entries'),
+    watchClearDone:      ()                        => call('watch_clear_completed'),
+    // Folder maker
+    createStudentFolders: (names, dest)            => call('create_student_folders', names, dest),
+    // Heatmap
+    getExpiryHeatmap:    (folder)                  => call('get_expiry_heatmap', folder),
+    // AI photo
+    runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
+  };
+})();

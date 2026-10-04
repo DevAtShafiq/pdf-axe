@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Student File Manager</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ═══════════════════════════════════════════════
+       SIDEBAR — vertical icon rail
+       ═══════════════════════════════════════════════ -->
+  <aside id="sidebar">
+    <div class="sidebar-logo">S</div>
+
+    <nav class="sidebar-nav">
+      <button class="sidebar-btn active" data-panel="workspace" title="">
+        🗂
+        <span class="tooltip-label">Files Workspace</span>
+      </button>
+      <button class="sidebar-btn" data-panel="folders" title="">
+        📁
+        <span class="tooltip-label">Folder Maker</span>
+      </button>
+      <button class="sidebar-btn" data-panel="apostille" title="">
+        🔏
+        <span class="tooltip-label">Apostille Matcher</span>
+      </button>
+      <button class="sidebar-btn" data-panel="watch" title="">
+        👁
+        <span class="tooltip-label">Watch Folder</span>
+      </button>
+      <button class="sidebar-btn" data-panel="heatmap" title="">
+        📊
+        <span class="tooltip-label">Expiry Heatmap</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="sidebar-divider"></div>
+      <button class="sidebar-btn" data-panel="settings" title="">
+        ⚙️
+        <span class="tooltip-label">Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════════════════════════════
+       TOOLBAR
+       ═══════════════════════════════════════════════ -->
+  <header id="toolbar">
+
+    <!-- Navigation -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn-icon" id="btn-nav-back"    title="Back (Alt+Left)"    disabled>←</button>
+      <button class="toolbar-btn-icon" id="btn-nav-forward" title="Forward (Alt+Right)" disabled>→</button>
+      <button class="toolbar-btn-icon" id="btn-nav-up"      title="Up (Alt+Up)">↑</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Folder actions -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="btn-open-folder">
+        <span class="icon">📂</span> Open
+      </button>
+      <button class="toolbar-btn-icon" id="btn-refresh" title="Refresh (F5)">🔄</button>
+      <button class="toolbar-btn-icon" id="btn-new-folder" title="New Folder (Ctrl+Shift+N)">📁+</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- PDF operations -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="btn-combine-pdf" title="Combine PDFs (Ctrl+Enter)">
+        <span class="icon">📎</span> Combine
+      </button>
+      <button class="toolbar-btn" id="btn-smart-split" title="Smart Split, Merge & Rename (GPT-4o)">
+        <span class="icon">✂️</span> Smart Split
+      </button>
+      <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDF">
+        <span class="icon">🗜</span> Compress
+      </button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- View toggles -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn-icon view-mode-btn active" id="btn-view-list"  title="List view">☰</button>
+      <button class="toolbar-btn-icon view-mode-btn"        id="btn-view-thumb" title="Thumbnail view">⊞</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Undo / Redo -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn-icon" id="btn-undo" title="Undo (Ctrl+Z)"  disabled>↩</button>
+      <button class="toolbar-btn-icon" id="btn-redo" title="Redo (Ctrl+Y)"  disabled>↪</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Zip -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn-icon" id="btn-zip"   title="Zip selection">🤐</button>
+      <button class="toolbar-btn-icon" id="btn-unzip" title="Unzip selected">📦</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Translate + QR -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="btn-translate" title="Translate to Korean 🇰🇷">
+        🇰🇷
+      </button>
+      <button class="toolbar-btn" id="btn-qr" title="Scan QR code from screen">
+        <span class="icon">📷</span> QR
+      </button>
+    </div>
+
+    <div class="toolbar-spacer"></div>
+
+    <!-- Search -->
+    <div class="toolbar-search">
+      <span class="icon">🔍</span>
+      <input type="text" id="search-input" placeholder="Search files…" autocomplete="off">
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <!-- Cost tracker -->
+    <div class="cost-chip" id="cost-chip" title="GPT-4o session cost — click to reset">
+      <span class="dot"></span>
+      <span id="cost-label">$0.0000</span>
+    </div>
+
+    <!-- More actions -->
+    <button class="toolbar-btn" id="btn-more" title="More actions">⋯</button>
+
+    <!-- Theme toggle -->
+    <button class="toolbar-btn" id="btn-theme" title="Toggle light/dark theme" style="margin-left:4px;font-size:16px;">🌙</button>
+
+  </header>
+
+  <!-- ═══════════════════════════════════════════════
+       WORKSPACE — panels rendered here
+       ═══════════════════════════════════════════════ -->
+  <main id="workspace">
+
+    <!-- ─── PANEL: Files Workspace ─────────────────── -->
+    <div id="panel-workspace" class="panel-view" style="display:flex;flex:1;overflow:hidden;">
+
+      <!-- Pane 1: Folder Tree / Navigation -->
+      <div class="pane" id="pane-tree">
+        <!-- Breadcrumb -->
+        <div id="breadcrumb">
+          <span class="breadcrumb-seg last" id="bc-root">Home</span>
+        </div>
+        <!-- Alert strip (hidden until needed) -->
+        <div class="alert-strip warning hidden" id="alert-strip">
+          <span class="icon">⚠️</span>
+          <span id="alert-text">Missing documents detected</span>
+          <button class="btn btn-ghost" style="margin-left:auto;padding:2px 8px;font-size:11px" id="alert-dismiss">✕</button>
+        </div>
+        <!-- Tree body -->
+        <div class="pane-body">
+          <div class="tree-body" id="tree-body">
+            <!-- populated by file-tree.js -->
+            <div style="padding:40px 16px;text-align:center;color:var(--text-muted);font-size:12px">
+              Click <strong>Open</strong> to load a folder
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane-resizer" id="resizer-tree-filelist"></div>
+
+      <!-- Pane 2: File List / Thumbnail -->
+      <div class="pane" id="pane-filelist">
+        <div class="pane-header">
+          <span id="filelist-title">Files</span>
+          <span class="flex-1"></span>
+          <!-- View buttons -->
+          <button class="view-btn active" id="fl-view-list"  title="List">☰</button>
+          <button class="view-btn"        id="fl-view-thumb" title="Thumbnails">⊞</button>
+        </div>
+
+        <!-- List view toolbar (sort, filter) -->
+        <div class="filelist-toolbar" id="fl-sort-bar">
+          <span style="font-size:11px;color:var(--text-muted)">Name</span>
+          <span class="flex-1"></span>
+          <div class="thumb-zoom-bar" id="thumb-zoom-bar" style="display:none">
+            <button class="toolbar-btn-icon" id="thumb-zoom-out" style="width:22px;height:22px;font-size:12px">−</button>
+            <input type="range" class="zoom-slider" id="thumb-zoom-slider" min="60" max="200" value="100">
+            <button class="toolbar-btn-icon" id="thumb-zoom-in"  style="width:22px;height:22px;font-size:12px">+</button>
+          </div>
+        </div>
+
+        <div class="pane-body">
+          <!-- List view -->
+          <div id="filelist-list" class="filelist-body">
+            <!-- populated by file-tree.js -->
+          </div>
+          <!-- Thumbnail grid (hidden by default) -->
+          <div id="filelist-thumb" class="thumb-grid hidden">
+            <!-- populated by file-tree.js -->
+          </div>
+        </div>
+      </div>
+
+      <div class="pane-resizer" id="resizer-filelist-preview"></div>
+
+      <!-- Pane 3: Preview -->
+      <div class="pane" id="pane-preview">
+        <div class="preview-toolbar">
+          <span id="preview-file-name" class="label text-muted">No file selected</span>
+          <div class="toolbar-group" id="preview-zoom-bar">
+            <button class="toolbar-btn-icon" id="preview-zoom-out"   title="Zoom out (Ctrl+−)" style="width:26px;height:26px">−</button>
+            <span   id="preview-zoom-label" style="font-size:11px;color:var(--text-muted);min-width:38px;text-align:center">100%</span>
+            <button class="toolbar-btn-icon" id="preview-zoom-in"    title="Zoom in (Ctrl+=)"  style="width:26px;height:26px">+</button>
+            <button class="toolbar-btn-icon" id="preview-zoom-reset" title="Reset zoom (Ctrl+0)" style="width:26px;height:26px;font-size:11px">fit</button>
+          </div>
+          <button class="toolbar-btn-icon" id="preview-fullscreen" title="Full screen (Ctrl+Shift+Enter)">⛶</button>
+        </div>
+
+        <!-- PDF contextual toolbar (shown when PDF is previewed) -->
+        <div class="pdf-ctx-toolbar hidden" id="pdf-ctx-toolbar">
+          <button class="toolbar-btn" id="pdf-rotate-cw"  title="Rotate clockwise">↻</button>
+          <button class="toolbar-btn" id="pdf-rotate-ccw" title="Rotate counter-clockwise">↺</button>
+          <div class="toolbar-sep"></div>
+          <button class="toolbar-btn" id="pdf-del-page"   title="Delete current page">🗑</button>
+          <button class="toolbar-btn" id="pdf-arrange"    title="Arrange / merge pages">⊞ Arrange</button>
+          <button class="toolbar-btn" id="pdf-split"      title="Split into pages">✂ Split</button>
+          <button class="toolbar-btn" id="pdf-compress"   title="Compress PDF">🗜 Compress</button>
+          <div class="toolbar-sep"></div>
+          <button class="toolbar-btn" id="pdf-ocr"        title="Make searchable (OCR)">🔤 OCR</button>
+          <button class="toolbar-btn" id="pdf-print"      title="Print">🖨 Print</button>
+        </div>
+
+        <div class="preview-body" id="preview-body">
+          <!-- Empty state -->
+          <div class="preview-empty" id="preview-empty">
+            <span class="big-icon">👁</span>
+            <p>Select a file to preview</p>
+          </div>
+
+          <!-- PDF canvas area -->
+          <div id="pdf-canvas-wrap" class="hidden"></div>
+
+          <!-- Image preview -->
+          <img id="img-preview" class="hidden" src="" alt="preview"
+               style="max-width:100%;max-height:100%;object-fit:contain;margin:auto;display:block;padding:16px">
+
+          <!-- HTML/Word/Excel preview iframe -->
+          <iframe id="html-preview" class="hidden" src="about:blank"
+                  style="flex:1;border:none;width:100%;background:#fff"></iframe>
+
+          <!-- Plain text preview -->
+          <div  id="text-preview"  class="text-preview hidden"></div>
+
+          <!-- PDF floating page nav -->
+          <div class="pdf-float-nav hidden" id="pdf-float-nav">
+            <button id="pdf-prev" title="Previous page (←)">‹</button>
+            <div class="pdf-page-info">
+              <input type="text" id="pdf-page-input" value="1" style="width:32px">
+              <span style="color:var(--text-muted)">/ <span id="pdf-total-pages">1</span></span>
+            </div>
+            <button id="pdf-next" title="Next page (→)">›</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane-resizer" id="resizer-preview-details"></div>
+
+      <!-- Pane 4: Details + Actions -->
+      <div class="pane" id="pane-details">
+        <div class="pane-header">Details</div>
+
+        <!-- Empty state -->
+        <div id="details-empty" style="padding:40px 16px;text-align:center;color:var(--text-muted);font-size:12px">
+          Select a file to view details
+        </div>
+
+        <!-- Content (shown when a file is selected) -->
+        <div class="details-body hidden" id="details-content">
+
+          <!-- File type badge -->
+          <div class="file-type-badge" id="file-type-badge" style="text-align:center;font-size:28px;padding:12px 0 8px">📄</div>
+
+          <!-- Dynamic detail rows (populated by details.js) -->
+          <div class="detail-section">
+            <div id="detail-rows"></div>
+          </div>
+
+          <!-- Rename -->
+          <div class="detail-section" id="rename-wrap">
+            <div class="detail-section-title">Rename</div>
+            <div style="position:relative">
+              <input type="text" class="rename-input input-text" id="rename-input"
+                     placeholder="New name…" autocomplete="off" spellcheck="false" style="width:100%">
+              <div id="rename-autocomplete" class="rename-suggestions hidden" style="position:absolute;width:100%;z-index:200"></div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:6px">
+              <button class="btn btn-primary" id="rename-btn" style="flex:1" title="Apply rename (Shift+Enter)">Apply</button>
+            </div>
+          </div>
+
+          <!-- Quick actions -->
+          <div class="detail-section" id="quick-actions">
+            <div class="detail-section-title">Actions</div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <button class="qa-btn primary" id="qa-open"><span class="icon">📂</span> Open</button>
+              <button class="qa-btn"         id="qa-opendir"><span class="icon">📁</span> Open Folder</button>
+              <button class="qa-btn"         id="qa-copy-path"><span class="icon">📋</span> Copy Path</button>
+              <button class="qa-btn"         id="qa-convert-pdf"><span class="icon">📄</span> Convert to PDF</button>
+              <button class="qa-btn"         id="qa-print"><span class="icon">🖨</span> Print…</button>
+              <button class="qa-btn danger"  id="qa-delete"><span class="icon">🗑</span> Move to Review</button>
+            </div>
+          </div>
+
+          <!-- AI Photo Editor (images only) -->
+          <div class="detail-section hidden" id="ai-photo-section">
+            <div class="detail-section-title">AI Photo Edit</div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <button class="qa-btn" id="ai-remove-bg"><span class="icon">✂️</span> Remove Background</button>
+              <button class="qa-btn" id="ai-enhance"><span class="icon">✨</span> Enhance Photo</button>
+              <button class="qa-btn" id="ai-upscale"><span class="icon">🔍</span> Upscale</button>
+              <button class="qa-btn" id="ai-to-bw"><span class="icon">🖤</span> Black &amp; White</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /panel-workspace -->
+
+    <!-- ─── PANEL: Folder Maker ─────────────────── -->
+    <div id="panel-folders" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
+      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">📁 Student Folder Maker</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Enter one name per line. Folders will be created in the destination folder.</p>
+
+      <label class="detail-label">Student names (one per line)</label>
+      <textarea id="fm-names" class="input-text" rows="12"
+        placeholder="John Doe&#10;Jane Smith&#10;Ali Hassan"
+        style="width:100%;margin-top:4px;resize:vertical;font-family:monospace;font-size:13px"></textarea>
+
+      <div style="margin-top:16px">
+        <label class="detail-label">Destination folder</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <input id="fm-dest" class="input-text" placeholder="D:\Students" style="flex:1">
+          <button class="btn" id="fm-dest-browse">Browse…</button>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn btn-primary" id="fm-create-btn" style="min-width:140px">
+          📁 Create Folders
+        </button>
+      </div>
+
+      <pre id="fm-log" style="margin-top:16px;font-size:11px;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow:auto;background:var(--bg-app);padding:10px;border-radius:6px"></pre>
+    </div>
+
+    <!-- ─── PANEL: Apostille ────────────────────── -->
+    <div id="panel-apostille" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
+      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">🏛️ Apostille Matcher</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 24px">
+        Scans a folder for certificate + transcript PDFs and merges matching pairs into apostille bundles.
+      </p>
+      <button class="btn btn-primary" id="apostille-open-btn" style="min-width:200px">
+        Open Apostille Dialog…
+      </button>
+    </div>
+
+    <!-- ─── PANEL: Watch Folder ─────────────────── -->
+    <div id="panel-watch" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
+      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">👁 Watch Folder</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Monitor a folder and auto-process new files as they arrive.</p>
+
+      <label class="detail-label">Folder to watch</label>
+      <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:16px">
+        <input id="watch-folder" class="input-text" placeholder="D:\Incoming" style="flex:1">
+        <button class="btn" id="watch-folder-browse">Browse…</button>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:20px">
+        <button class="btn btn-primary" id="watch-start-btn">▶ Start Watch</button>
+        <button class="btn"             id="watch-stop-btn">⏹ Stop</button>
+        <button class="btn"             id="watch-clear-btn">🗑 Clear Done</button>
+      </div>
+
+      <div class="detail-section-title" style="margin-bottom:8px">Queue</div>
+      <div id="watch-list" style="font-size:12px;background:var(--bg-app);border-radius:8px;min-height:100px;max-height:400px;overflow:auto;padding:8px">
+        <p class="text-muted" style="padding:8px">No files processed yet.</p>
+      </div>
+    </div>
+
+    <!-- ─── PANEL: Heatmap ──────────────────────── -->
+    <div id="panel-heatmap" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
+      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">📊 Document Expiry Heatmap</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Scan a folder to visualise which documents are expiring soon.</p>
+
+      <label class="detail-label">Folder to scan</label>
+      <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:16px">
+        <input id="hm-folder" class="input-text" placeholder="D:\Documents" style="flex:1">
+        <button class="btn" id="hm-folder-browse">Browse…</button>
+      </div>
+      <button class="btn btn-primary" id="hm-scan-btn" style="margin-bottom:24px">🔍 Scan for Expiry Dates</button>
+
+      <!-- Legend -->
+      <div style="display:flex;gap:12px;font-size:11px;margin-bottom:16px">
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#58a6ff;border-radius:3px;display:inline-block"></span>OK (>90d)</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#f7b731;border-radius:3px;display:inline-block"></span>Warn (30-90d)</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#fc5c65;border-radius:3px;display:inline-block"></span>Danger (0-30d)</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#444;border-radius:3px;display:inline-block"></span>Expired</span>
+      </div>
+
+      <div id="hm-grid" style="display:flex;flex-wrap:wrap;gap:10px">
+        <p class="text-muted" style="font-size:12px">Click Scan to load results.</p>
+      </div>
+    </div>
+
+    <!-- ─── PANEL: Settings ─────────────────────── -->
+    <div id="panel-settings" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
+      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">⚙️ Settings</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 24px">Configure API keys, defaults, and appearance.</p>
+      <button class="btn btn-primary" id="open-settings-dialog" style="min-width:180px">Open Settings…</button>
+    </div>
+
+  </main><!-- /workspace -->
+
+  <!-- ═══════════════════════════════════════════════
+       STATUS BAR
+       ═══════════════════════════════════════════════ -->
+  <footer id="statusbar">
+    <div class="status-item">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">Ready</span>
+    </div>
+    <div class="status-sep"></div>
+    <div class="status-item" id="status-folder" style="display:none">
+      <span>📁</span>
+      <span id="status-folder-name" class="truncate" style="max-width:260px"></span>
+    </div>
+    <div class="status-sep" id="status-sep-sel" style="display:none"></div>
+    <div class="status-item" id="status-sel" style="display:none">
+      <span id="status-sel-text"></span>
+    </div>
+    <div class="status-spacer"></div>
+    <div class="status-item" id="status-watch" style="display:none">
+      <span class="dot busy"></span>
+      <span id="status-watch-text">Watch: 0 active</span>
+    </div>
+    <div class="status-sep" id="status-sep-cost"></div>
+    <div class="status-item">
+      <span id="status-cost">GPT: $0.0000</span>
+    </div>
+  </footer>
+
+</div><!-- /app -->
+
+<!-- ═══════════════════════════════════════════════
+     CONTEXT MENU (hidden by default)
+     ═══════════════════════════════════════════════ -->
+<div id="context-menu" class="hidden"></div>
+
+<!-- ═══════════════════════════════════════════════
+     TOAST NOTIFICATIONS
+     ═══════════════════════════════════════════════ -->
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════
+     MODAL PORTAL (dialogs render here)
+     ═══════════════════════════════════════════════ -->
+<div id="modal-portal"></div>
+
+<!-- ═══════════════════════════════════════════════
+     SCRIPTS
+     ═══════════════════════════════════════════════ -->
+<script src="js/bridge.js"></script>
+<script src="js/app.js"></script>
+<script src="js/file-tree.js"></script>
+<script src="js/preview.js"></script>
+<script src="js/details.js"></script>
+<script src="js/context-menu.js"></script>
+<script src="js/dialogs.js"></script>
+<script src="js/panels.js"></script>
+
+</body>
+</html>

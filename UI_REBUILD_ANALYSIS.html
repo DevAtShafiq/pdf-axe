@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Business Automation — UI Rebuild Analysis Report</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #21262d;
+    --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --accent: #58a6ff; --green: #3fb950; --yellow: #d29922;
+    --red: #f85149; --purple: #bc8cff; --orange: #ffa657;
+    --teal: #39d353;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px; line-height: 1.6; }
+  .shell { display: flex; min-height: 100vh; }
+  nav { width: 220px; background: var(--surface); border-right: 1px solid var(--border);
+    padding: 24px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+  nav h2 { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); padding: 0 16px 8px; }
+  nav a { display: block; padding: 5px 16px; color: var(--muted); text-decoration: none;
+    font-size: 13px; border-left: 2px solid transparent; transition: all .15s; }
+  nav a:hover, nav a.active { color: var(--accent); border-left-color: var(--accent);
+    background: rgba(88,166,255,.07); }
+  main { flex: 1; padding: 40px 48px; max-width: 1100px; }
+  h1 { font-size: 28px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .subtitle { color: var(--muted); margin-bottom: 40px; font-size: 15px; }
+  h2 { font-size: 20px; font-weight: 600; color: var(--text); margin: 48px 0 16px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; font-weight: 600; color: var(--accent); margin: 24px 0 10px; }
+  h4 { font-size: 13px; font-weight: 600; color: var(--orange); margin: 16px 0 6px; }
+  p { color: var(--muted); margin-bottom: 12px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px;
+    font-weight: 600; letter-spacing: .04em; }
+  .badge-green { background: rgba(63,185,80,.15); color: var(--green); }
+  .badge-blue  { background: rgba(88,166,255,.15); color: var(--accent); }
+  .badge-yellow{ background: rgba(210,153,34,.15); color: var(--yellow); }
+  .badge-red   { background: rgba(248,81,73,.15);  color: var(--red); }
+  .badge-purple{ background: rgba(188,140,255,.15);color: var(--purple); }
+  .badge-orange{ background: rgba(255,166,87,.15); color: var(--orange); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 24px; font-size: 13px; }
+  th { background: var(--surface2); color: var(--text); font-weight: 600; text-align: left;
+    padding: 8px 12px; border: 1px solid var(--border); }
+  td { padding: 7px 12px; border: 1px solid var(--border); color: var(--muted);
+    vertical-align: top; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  code { background: var(--surface2); padding: 1px 6px; border-radius: 4px; font-family: 'Cascadia Code','Consolas',monospace;
+    font-size: 12px; color: var(--orange); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px 24px; margin-bottom: 20px; }
+  .card-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .card-sub { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .fn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; }
+  .fn-item { background: var(--surface2); border-radius: 4px; padding: 4px 10px;
+    font-family: monospace; font-size: 12px; color: var(--teal); }
+  .fn-item.pub { color: var(--teal); }
+  .fn-item.priv { color: var(--muted); }
+  .step { display: flex; gap: 16px; margin-bottom: 20px; }
+  .step-num { background: var(--accent); color: #000; border-radius: 50%; width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center; font-weight: 700;
+    font-size: 13px; flex-shrink: 0; margin-top: 2px; }
+  .step-body h4 { color: var(--text); margin-top: 0; }
+  .arch { background: var(--surface2); border-radius: 8px; padding: 20px; font-family: monospace;
+    font-size: 13px; color: var(--text); line-height: 2; text-align: center; margin: 16px 0; }
+  .arch .box { display: inline-block; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 20px; }
+  .arch .arrow { color: var(--muted); }
+  .warn { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.3); border-radius: 6px;
+    padding: 12px 16px; margin: 12px 0; color: var(--yellow); }
+  .info { background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.25); border-radius: 6px;
+    padding: 12px 16px; margin: 12px 0; color: var(--accent); }
+  .ok   { background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.25); border-radius: 6px;
+    padding: 12px 16px; margin: 12px 0; color: var(--green); }
+  ul.list { list-style: none; padding: 0; }
+  ul.list li { padding: 3px 0 3px 16px; color: var(--muted); position: relative; font-size: 13px; }
+  ul.list li::before { content: '›'; position: absolute; left: 0; color: var(--accent); }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .layout-grid { display: grid; grid-template-columns: 22fr 27fr 36fr 15fr; gap: 2px; margin: 16px 0; }
+  .layout-col { background: var(--surface2); border-radius: 6px; padding: 12px; }
+  .layout-col .pct { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .layout-col .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .layout-col ul { list-style: disc; padding-left: 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .tag { display: inline-block; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 8px; font-size: 11px; color: var(--muted); margin: 2px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- NAV -->
+<nav>
+  <h2>Contents</h2>
+  <a href="#overview">Overview</a>
+  <a href="#modules">Module Map</a>
+  <a href="#fileops">file_ops.py API</a>
+  <a href="#sfm">student_folder_maker.py</a>
+  <a href="#dialogs">Dialogs</a>
+  <a href="#menus">Menus &amp; Shortcuts</a>
+  <a href="#supportmods">Support Modules</a>
+  <a href="#architecture">Target Architecture</a>
+  <a href="#layout">UI Layout Plan</a>
+  <a href="#bridge">PyWebView Bridge</a>
+  <a href="#migration">Migration Plan</a>
+  <a href="#files-change">Files: Change / No-Change</a>
+  <a href="#risks">Risks</a>
+</nav>
+
+<!-- MAIN -->
+<main>
+
+<h1>Business Automation — UI Rebuild Analysis</h1>
+<p class="subtitle">Full project audit · Pre-implementation report · July 2026</p>
+
+<!-- OVERVIEW -->
+<h2 id="overview">Executive Overview</h2>
+<div class="cols2">
+  <div class="card">
+    <div class="card-title">Total codebase</div>
+    <div class="card-sub">8 Python modules</div>
+    <p><strong style="color:var(--text)">43,023 lines</strong> of Python</p>
+    <p>1 monolithic Tkinter UI file · 1 pure-Python backend · 5 support modules · 1 test runner</p>
+  </div>
+  <div class="card">
+    <div class="card-title">Rebuild scope</div>
+    <div class="card-sub">UI layer only</div>
+    <p><strong style="color:var(--text)">~26,800 lines</strong> of Tkinter UI to replace</p>
+    <p>Backend (file_ops.py + all helpers) stays <span class="badge badge-green">UNTOUCHED</span></p>
+  </div>
+</div>
+
+<div class="ok">
+  ✓ <strong>file_ops.py has zero Tkinter imports.</strong> Every public function is safe to call directly from a PyWebView bridge without modification.
+</div>
+<div class="info">
+  The primary complexity is <strong>student_folder_maker.py</strong> (26,745 lines, 762-method Frame class). Its backend logic must be extracted and exposed; its Tkinter UI will be entirely replaced.
+</div>
+
+<!-- MODULE MAP -->
+<h2 id="modules">Module Map</h2>
+<table>
+  <thead><tr>
+    <th>Module</th><th>Lines</th><th>Classes</th><th>Public Funcs</th><th>Role</th><th>Action</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td><code>student_folder_maker.py</code></td><td>26,745</td>
+      <td>13 (9 Toplevels, 2 Frames, Tooltip, SHFILEINFO)</td><td>50</td>
+      <td>Main Tkinter app — both UI and some orchestration logic</td>
+      <td><span class="badge badge-yellow">UI REPLACE</span></td>
+    </tr>
+    <tr>
+      <td><code>file_ops.py</code></td><td>8,599</td>
+      <td>3 (2 ctypes structs, 1 error class)</td><td>103</td>
+      <td>Pure Python backend — PDF, image, Excel, rename, zip, OCR, GPT-4o</td>
+      <td><span class="badge badge-green">KEEP AS-IS</span></td>
+    </tr>
+    <tr>
+      <td><code>apostille_matcher.py</code></td><td>1,334</td>
+      <td>0</td><td>14</td>
+      <td>Apostille pipeline — QR, Playwright, GPT-4o, PDF merge</td>
+      <td><span class="badge badge-green">KEEP AS-IS</span></td>
+    </tr>
+    <tr>
+      <td><code>doc_renamer.py</code></td><td>1,060</td>
+      <td>0</td><td>21</td>
+      <td>Document OCR classification and renaming</td>
+      <td><span class="badge badge-green">KEEP AS-IS</span></td>
+    </tr>
+    <tr>
+      <td><code>excel_grid.py</code></td><td>3,021</td>
+      <td>1 (ExcelGridFrame)</td><td>2</td>
+      <td>Full Excel viewer/editor in Tkinter (128 methods)</td>
+      <td><span class="badge badge-yellow">REWRITE UI LAYER</span></td>
+    </tr>
+    <tr>
+      <td><code>ai_photo_editor.py</code></td><td>910</td>
+      <td>1 (AIPhotoEditorFrame)</td><td>15</td>
+      <td>OpenAI DALL-E image editing, crop/mask pipeline</td>
+      <td><span class="badge badge-yellow">REWRITE UI LAYER</span></td>
+    </tr>
+    <tr>
+      <td><code>watch_folder_service.py</code></td><td>406</td>
+      <td>2 (WatchEntry, WatchFolderService)</td><td>0</td>
+      <td>Background thread folder watcher and queue processor</td>
+      <td><span class="badge badge-green">KEEP AS-IS</span></td>
+    </tr>
+    <tr>
+      <td><code>qr_screen_capture.py</code></td><td>483</td>
+      <td>4 (QRDecoder, OverlaySelector, OneClickOverlay, DecodeResult)</td><td>12</td>
+      <td>Screen QR capture via mss + pyzbar/OpenCV</td>
+      <td><span class="badge badge-blue">BRIDGE ONLY</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- FILE_OPS -->
+<h2 id="fileops">file_ops.py — Backend API (103 Public Functions)</h2>
+<p>These functions are the <strong>bridge targets</strong> — they will be called from JavaScript via PyWebView's <code>window.pywebview.api.*</code> exposure. No changes required.</p>
+
+<h3>GPT-4o / Cost Tracking</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">get_gpt4o_session_cost()</div>
+  <div class="fn-item pub">reset_gpt4o_session_cost()</div>
+</div>
+
+<h3>PDF Operations</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">pdf_page_count(path)</div>
+  <div class="fn-item pub">pdf_merge(paths, out)</div>
+  <div class="fn-item pub">pdf_merge_ordered_paths(paths, out)</div>
+  <div class="fn-item pub">pdf_merge_ordered_page_refs(refs, out)</div>
+  <div class="fn-item pub">pdf_compress(path, out, quality)</div>
+  <div class="fn-item pub">pdf_split_each_page(path, out_dir)</div>
+  <div class="fn-item pub">pdf_split_n_pages(path, n, out_dir)</div>
+  <div class="fn-item pub">pdf_rotate_pages(path, pages, deg)</div>
+  <div class="fn-item pub">pdf_rotate_page(path, page, deg)</div>
+  <div class="fn-item pub">pdf_delete_page(path, page)</div>
+  <div class="fn-item pub">pdf_delete_pages(path, pages)</div>
+  <div class="fn-item pub">pdf_append_pdf(base, extra, out)</div>
+  <div class="fn-item pub">pdf_reorder_pages(path, order, out)</div>
+  <div class="fn-item pub">pdf_stamp_text_line(path, text, out)</div>
+  <div class="fn-item pub">pdf_print_path(path, printer)</div>
+  <div class="fn-item pub">pdf_make_searchable_ocr_inplace(path)</div>
+  <div class="fn-item pub">pdf_rename_files_by_ocr(paths, ...)</div>
+  <div class="fn-item pub">pdf_rename_files_by_ocr_smart(paths, ...)</div>
+  <div class="fn-item pub">pdf_split_and_rename_by_ocr(path, ...)</div>
+  <div class="fn-item pub">pdf_smart_split_merge_rename(path, ...)</div>
+  <div class="fn-item pub">pil_image_for_pdf_page(path, page, dpi)</div>
+  <div class="fn-item pub">pdf_export_selected_pages_to_tempfile(path, spec)</div>
+  <div class="fn-item pub">pdf_rasterize_page_for_crop(path, page)</div>
+  <div class="fn-item pub">pdf_replace_page_with_passport_image(path, page, img)</div>
+  <div class="fn-item pub">find_duplicate_pages(path)</div>
+  <div class="fn-item pub">check_passport_photo_quality(path)</div>
+  <div class="fn-item pub">generate_checklist_report(folder, ...)</div>
+  <div class="fn-item pub">get_expiry_heatmap_data(folder)</div>
+  <div class="fn-item pub">get_checklist_document_labels()</div>
+</div>
+
+<h3>Image Operations</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">pil_image_resize(img, w, h)</div>
+  <div class="fn-item pub">pil_image_from_bytes(data)</div>
+  <div class="fn-item pub">pil_image_load_full_rgb(path)</div>
+  <div class="fn-item pub">apply_image_adjustments(img, params)</div>
+  <div class="fn-item pub">image_to_pdf(img_path, out)</div>
+  <div class="fn-item pub">pdf_to_images(path, dpi, fmt)</div>
+  <div class="fn-item pub">pdf_pages_to_png_keep(path)</div>
+  <div class="fn-item pub">pdf_pages_to_jpg_keep(path)</div>
+</div>
+
+<h3>Word / Excel / Text</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">preview_word_document(path)</div>
+  <div class="fn-item pub">preview_docx_text(path)</div>
+  <div class="fn-item pub">word_to_pdf(path, out)</div>
+  <div class="fn-item pub">word_to_pdf_temp(path)</div>
+  <div class="fn-item pub">excel_to_html(path, sheet)</div>
+  <div class="fn-item pub">excel_list_sheets(path)</div>
+  <div class="fn-item pub">excel_to_csv_each_sheet(path)</div>
+  <div class="fn-item pub">excel_search_cells(path, query)</div>
+  <div class="fn-item pub">preview_excel_text(path)</div>
+  <div class="fn-item pub">preview_plain_text(path)</div>
+</div>
+
+<h3>File System</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">list_files(folder)</div>
+  <div class="fn-item pub">safe_rename(src, dst)</div>
+  <div class="fn-item pub">soft_delete_path(path)</div>
+  <div class="fn-item pub">delete_path_recycle_or_remove(path)</div>
+  <div class="fn-item pub">filesystem_natural_sort_key(name)</div>
+  <div class="fn-item pub">plan_moves_into_similar_folders(paths)</div>
+  <div class="fn-item pub">apply_file_moves(plan)</div>
+  <div class="fn-item pub">can_convert_file_to_pdf(path)</div>
+  <div class="fn-item pub">combine_files_to_pdf(paths, out)</div>
+  <div class="fn-item pub">convert_file_to_pdf_replace(path)</div>
+</div>
+
+<h3>ZIP</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">zip_list_immediate_children(path)</div>
+  <div class="fn-item pub">unpack_zip_to_dir(path, dir)</div>
+  <div class="fn-item pub">extract_zip_to_sibling_folder(path)</div>
+  <div class="fn-item pub">extract_all_zips_to_sibling_folders(paths)</div>
+  <div class="fn-item pub">zip_each_immediate_subfolder_to_sibling_archives(dir)</div>
+</div>
+
+<h3>OS / Shell</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">open_path_system_default(path)</div>
+  <div class="fn-item pub">find_adobe_acrobat_executable()</div>
+  <div class="fn-item pub">open_paths_with_acrobat(paths)</div>
+  <div class="fn-item pub">windows_open_with_menu_commands(path)</div>
+  <div class="fn-item pub">windows_shell_track_context_menu(path, x, y)</div>
+  <div class="fn-item pub">translate_to_korean_openai(text, key)</div>
+</div>
+
+<!-- STUDENT_FOLDER_MAKER -->
+<h2 id="sfm">student_folder_maker.py — UI Structure</h2>
+<p>This is the monolithic Tkinter app. Its two Frame tabs and 9 Toplevel dialogs become the HTML UI. Backend logic (OCR threads, rename queues, file operations) must be extracted into the PyWebView bridge.</p>
+
+<h3>Frame Classes (Tabs)</h3>
+<table>
+  <thead><tr><th>Class</th><th>Methods</th><th>Role</th><th>HTML Equivalent</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>FilesWorkspaceFrame</code></td><td>762</td>
+      <td>Main file manager: tree, preview, thumbnail, rename, PDF tools, image crop, AI editor, cost tracker, watch panel</td>
+      <td>Main workspace panel (see Layout section)</td>
+    </tr>
+    <tr>
+      <td><code>StudentFoldersFrame</code></td><td>22</td>
+      <td>Bulk folder creator: paste names, generate folders, format options</td>
+      <td>Left sidebar panel → "Folders" view</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>FilesWorkspaceFrame — Functional Groups</h3>
+<table>
+  <thead><tr><th>Group</th><th>Key Methods</th><th>New UI Component</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Folder navigation</td>
+      <td><code>browse_folder()</code>, <code>load_folder_path()</code>, <code>nav_back/forward/up()</code>, breadcrumb chips</td>
+      <td>Address bar + navigation buttons</td>
+    </tr>
+    <tr>
+      <td>File tree (list view)</td>
+      <td><code>_build_tree()</code>, <code>_fill_tree_node_shallow()</code>, <code>_tree_insert_row()</code>, expand/collapse, lazy loading</td>
+      <td>Virtual-scroll file list (left pane)</td>
+    </tr>
+    <tr>
+      <td>Thumbnail gallery</td>
+      <td><code>_rebuild_thumb_gallery()</code>, <code>_thumb_lazy_step()</code>, diff-based repaint, zoom</td>
+      <td>CSS Grid thumbnail view (toggleable)</td>
+    </tr>
+    <tr>
+      <td>PDF preview</td>
+      <td><code>load_pdf()</code>, <code>_render_pdf_preview()</code>, zoom, pan, page nav, text selection</td>
+      <td>Center preview panel (PDF.js or canvas)</td>
+    </tr>
+    <tr>
+      <td>Image preview + crop</td>
+      <td><code>_show_preview_image()</code>, crop overlay, rotation, adjustments, perspective</td>
+      <td>Center preview panel (HTML canvas)</td>
+    </tr>
+    <tr>
+      <td>Word/Excel/Text preview</td>
+      <td><code>_begin_word_preview()</code>, <code>_render_excel_to_html_for_selection()</code>, <code>_show_txt_editor()</code></td>
+      <td>Center preview iframe / editor</td>
+    </tr>
+    <tr>
+      <td>Rename bar</td>
+      <td><code>_begin_inline_rename()</code>, <code>_commit_inline_rename()</code>, document template suggest, undo/redo</td>
+      <td>Inline rename input + suggestion dropdown</td>
+    </tr>
+    <tr>
+      <td>PDF toolbar</td>
+      <td>rotate, delete page, split, arrange, OCR, print, text-select, overlays</td>
+      <td>Contextual toolbar (appears for PDFs)</td>
+    </tr>
+    <tr>
+      <td>AI Photo Editor</td>
+      <td><code>_open_ai_photo_editor()</code>, calls <code>ai_photo_editor.py</code></td>
+      <td>Side panel / modal</td>
+    </tr>
+    <tr>
+      <td>Watch folder panel</td>
+      <td>WatchFolderService integration, queue display</td>
+      <td>Status panel (bottom or sidebar)</td>
+    </tr>
+    <tr>
+      <td>Cost tracker</td>
+      <td><code>_refresh_cost_label()</code>, GPT-4o token counter</td>
+      <td>Status bar chip</td>
+    </tr>
+    <tr>
+      <td>Alert strip</td>
+      <td><code>_show_doc_alert_strip()</code>, missing document warnings</td>
+      <td>Top banner / notification toast</td>
+    </tr>
+    <tr>
+      <td>Multi-preview grid</td>
+      <td><code>_build_multi_preview_grid()</code>, 2–4 slot split preview</td>
+      <td>Split preview pane (CSS grid)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- DIALOGS -->
+<h2 id="dialogs">Dialogs Inventory</h2>
+<table>
+  <thead><tr><th>Dialog Class</th><th>Purpose</th><th>Key Actions</th><th>HTML Form</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>CombinePdfDialog</code></td>
+      <td>PDF arranger / merger</td>
+      <td>Drag-reorder pages, rotate, delete page, extract pages, merge, save-as, arrange in-place</td>
+      <td>Full-screen modal with thumbnail strip</td>
+    </tr>
+    <tr>
+      <td><code>PdfFullViewDialog</code></td>
+      <td>Full-screen PDF + image viewer with editing</td>
+      <td>Zoom, pan, page nav, rotate, crop, brightness/contrast sliders, save, print</td>
+      <td>Full-screen modal panel</td>
+    </tr>
+    <tr>
+      <td><code>ApostilleMatcherDialog</code></td>
+      <td>Apostille URL processor</td>
+      <td>Paste URLs, scan folder, GPT-4o read, merge bundle, results table</td>
+      <td>Wide modal with results grid</td>
+    </tr>
+    <tr>
+      <td><code>A4PagePlacerDialog</code></td>
+      <td>ID photo compositor on A4</td>
+      <td>Drag/resize passport photo on A4, snap grid, align, set margin, preview, save/print</td>
+      <td>Canvas-based modal</td>
+    </tr>
+    <tr>
+      <td><code>IdCardOnA4Dialog</code></td>
+      <td>ID card front+back on A4</td>
+      <td>Browse front/back image, landscape/portrait, compose, preview, save/print</td>
+      <td>Modal with preview canvas</td>
+    </tr>
+    <tr>
+      <td><code>PrintDialog</code></td>
+      <td>Printer selection</td>
+      <td>List printers, select, print range, OK/Cancel</td>
+      <td>Small modal form</td>
+    </tr>
+    <tr>
+      <td><code>PdfPrintRangeDialog</code></td>
+      <td>Page range for print</td>
+      <td>Input page spec, OK/Cancel</td>
+      <td>Inline form</td>
+    </tr>
+    <tr>
+      <td><code>DocumentNameTemplatesEditor</code></td>
+      <td>Rename template manager</td>
+      <td>List, add, edit, remove, save name-pair templates</td>
+      <td>List editor modal</td>
+    </tr>
+    <tr>
+      <td><code>UppercaseTextToolDialog</code></td>
+      <td>Text case converter</td>
+      <td>Paste, convert (upper/title/lower), copy</td>
+      <td>Utility modal</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- MENUS -->
+<h2 id="menus">Menus, Toolbar &amp; Keyboard Shortcuts</h2>
+
+<h3>Right-Click Context Menu (file tree)</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">Open</div>
+  <div class="fn-item pub">Choose another app…</div>
+  <div class="fn-item pub">Combine PDFs…</div>
+  <div class="fn-item pub">Convert PDF → PNG…</div>
+  <div class="fn-item pub">Convert PDF → JPG…</div>
+  <div class="fn-item pub">Render Excel as HTML</div>
+  <div class="fn-item pub">Convert Excel → CSV</div>
+  <div class="fn-item pub">New folder (Ctrl+Shift+N)</div>
+  <div class="fn-item pub">New folder in root</div>
+  <div class="fn-item pub">New Text Document</div>
+  <div class="fn-item pub">Cut / Copy / Paste</div>
+  <div class="fn-item pub">Delete (Del)</div>
+  <div class="fn-item pub">Zip selection…</div>
+  <div class="fn-item pub">Unzip selected…</div>
+  <div class="fn-item pub">Split PDF into pages…</div>
+  <div class="fn-item pub">Split &amp; Rename by OCR…</div>
+  <div class="fn-item pub">Smart Split, Merge &amp; Rename (GPT-4o)…</div>
+  <div class="fn-item pub">Split multi-page PDFs in folders…</div>
+  <div class="fn-item pub">Reduce PDF Size…</div>
+  <div class="fn-item pub">Rename (OCR)…</div>
+  <div class="fn-item pub">Rename by Doc Type (OCR)…</div>
+  <div class="fn-item pub">Copy To… / Move To…</div>
+  <div class="fn-item pub">Root (move to workspace root)</div>
+  <div class="fn-item pub">Make Folder for File…</div>
+  <div class="fn-item pub">College Photo Sheet (A4)…</div>
+  <div class="fn-item pub">Expand All / Collapse All</div>
+</div>
+
+<h3>Keyboard Shortcuts (must be preserved)</h3>
+<table>
+  <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td><code>F5</code></td><td>Refresh folder</td></tr>
+    <tr><td><code>F2</code></td><td>Start rename</td></tr>
+    <tr><td><code>Ctrl+Z</code></td><td>Undo rename/delete</td></tr>
+    <tr><td><code>Ctrl+Y / Ctrl+Shift+Z</code></td><td>Redo</td></tr>
+    <tr><td><code>Ctrl+C / Ctrl+X / Ctrl+V</code></td><td>Copy / Cut / Paste</td></tr>
+    <tr><td><code>Del</code></td><td>Soft-delete selection</td></tr>
+    <tr><td><code>Ctrl+Shift+N</code></td><td>New folder</td></tr>
+    <tr><td><code>Ctrl+Enter</code></td><td>Combine PDFs</td></tr>
+    <tr><td><code>Ctrl+Shift+Enter</code></td><td>Full-screen viewer</td></tr>
+    <tr><td><code>Ctrl++ / Ctrl+-</code></td><td>Zoom in/out preview</td></tr>
+    <tr><td><code>Ctrl+0</code></td><td>Reset zoom</td></tr>
+    <tr><td><code>Ctrl+MouseWheel</code></td><td>Zoom thumbnails</td></tr>
+    <tr><td><code>Alt+Left / Alt+Right</code></td><td>Back / Forward navigation</td></tr>
+    <tr><td><code>Alt+Up</code></td><td>Up one folder level</td></tr>
+    <tr><td><code>Arrow keys</code></td><td>Navigate file list / thumbnails</td></tr>
+    <tr><td><code>Space</code></td><td>Multi-select in thumbnail view</td></tr>
+  </tbody>
+</table>
+
+<h3>Toolbar Actions</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">Reload (F5)</div>
+  <div class="fn-item pub">Open folder</div>
+  <div class="fn-item pub">Back / Forward / Up</div>
+  <div class="fn-item pub">Expand All / Collapse All</div>
+  <div class="fn-item pub">Zip / Unzip</div>
+  <div class="fn-item pub">View: List / Thumbnails</div>
+  <div class="fn-item pub">Thumbnail zoom − / +</div>
+  <div class="fn-item pub">Search files</div>
+  <div class="fn-item pub">Move to _to_review/ (Del)</div>
+  <div class="fn-item pub">Undo / Redo</div>
+  <div class="fn-item pub">Korean translate rename</div>
+  <div class="fn-item pub">QR scan → rename</div>
+  <div class="fn-item pub">GPT-4o cost tracker</div>
+  <div class="fn-item pub">Apostille Matcher</div>
+  <div class="fn-item pub">Document templates editor</div>
+  <div class="fn-item pub">Uppercase text tool</div>
+</div>
+
+<!-- SUPPORT MODULES -->
+<h2 id="supportmods">Support Modules</h2>
+
+<div class="cols2">
+  <div class="card">
+    <div class="card-title">watch_folder_service.py</div>
+    <div class="card-sub">Background service — keep as-is</div>
+    <ul class="list">
+      <li>WatchFolderService — thread-based directory monitor</li>
+      <li>WatchEntry — queue item data class (name, status, elapsed)</li>
+      <li>Calls pdf_smart_split_merge_rename() on new files</li>
+      <li>Bridge: expose get_entries(), active_count(), clear_completed(), requeue_errors()</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-title">qr_screen_capture.py</div>
+    <div class="card-sub">Screen capture — bridge only</div>
+    <ul class="list">
+      <li>QRDecoder — pyzbar/OpenCV QR decode</li>
+      <li>OverlaySelector — drag-select screen region (needs native window)</li>
+      <li>OneClickOverlay — single-click capture</li>
+      <li>Bridge: run_drag_select() and run_pick_mode() launch overlay, return URL</li>
+      <li class="warn-note">⚠ PyWebView cannot open native overlays from HTML — bridge must spawn these as separate Tkinter windows or system overlays</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-title">ai_photo_editor.py</div>
+    <div class="card-sub">AI image editing — rewrite UI layer</div>
+    <ul class="list">
+      <li>AIPhotoEditorFrame — Tkinter Frame (16 methods)</li>
+      <li>15 helper functions: mask building, cost estimation, OpenAI client</li>
+      <li>Calls OpenAI DALL-E API for background removal / replacement</li>
+      <li>Bridge: expose run_ai_photo_action(path, action, mask_type) → returns output path</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-title">excel_grid.py</div>
+    <div class="card-sub">Excel viewer/editor — rewrite UI layer</div>
+    <ul class="list">
+      <li>ExcelGridFrame — Tkinter Frame (128 methods) using tksheet</li>
+      <li>Full cell editing, formatting, sorting, filtering, freeze panes</li>
+      <li>Backend: file_ops.py excel_* functions handle actual data</li>
+      <li>New UI: Handsontable or AG-Grid (JS) receiving data via bridge</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ARCHITECTURE -->
+<h2 id="architecture">Target Architecture</h2>
+
+<div class="arch">
+  <div class="box" style="background:rgba(88,166,255,.1);border-color:var(--accent)">
+    🐍 Python Backend<br>
+    <small style="color:var(--muted)">file_ops.py · apostille_matcher.py · doc_renamer.py<br>
+    watch_folder_service.py · ai_photo_editor.py helpers</small>
+  </div>
+  <div style="margin:12px 0;color:var(--muted)">↕ PyWebView Bridge (window.pywebview.api)</div>
+  <div class="box" style="background:rgba(63,185,80,.1);border-color:var(--green)">
+    🌐 HTML5 + CSS3 + Vanilla JS<br>
+    <small style="color:var(--muted)">single-page workspace · PDF.js preview · virtual scroll tree<br>
+    HTML canvas crop · AG-Grid Excel · context menus · dialogs</small>
+  </div>
+</div>
+
+<h3>Bridge Class — SFMBridge</h3>
+<p>A single Python class <code>SFMBridge</code> wraps all backend calls and is passed to <code>webview.create_window(js_api=bridge)</code>. JavaScript calls <code>await window.pywebview.api.METHOD(args)</code>.</p>
+
+<table>
+  <thead><tr><th>Bridge Method</th><th>Calls</th><th>Returns</th></tr></thead>
+  <tbody>
+    <tr><td><code>list_folder(path)</code></td><td>file_ops.list_files()</td><td>JSON file list</td></tr>
+    <tr><td><code>get_pdf_thumbnail(path, page, dpi)</code></td><td>file_ops.pil_image_for_pdf_page()</td><td>base64 PNG</td></tr>
+    <tr><td><code>get_pdf_page_count(path)</code></td><td>file_ops.pdf_page_count()</td><td>int</td></tr>
+    <tr><td><code>merge_pdfs(paths, out)</code></td><td>file_ops.pdf_merge()</td><td>{ok, out_path}</td></tr>
+    <tr><td><code>split_pdf(path, mode)</code></td><td>file_ops.pdf_split_each_page()</td><td>{ok, files[]}</td></tr>
+    <tr><td><code>smart_rename(path, ...)</code></td><td>file_ops.pdf_smart_split_merge_rename()</td><td>{ok, log[]}</td></tr>
+    <tr><td><code>rename_file(old, new)</code></td><td>file_ops.safe_rename()</td><td>{ok, new_path}</td></tr>
+    <tr><td><code>delete_files(paths)</code></td><td>file_ops.soft_delete_path()</td><td>{ok, moved_to}</td></tr>
+    <tr><td><code>get_preview_html(path)</code></td><td>file_ops.excel_to_html() / preview_word_document()</td><td>HTML string</td></tr>
+    <tr><td><code>get_text_preview(path)</code></td><td>file_ops.preview_plain_text() / preview_docx_text()</td><td>text string</td></tr>
+    <tr><td><code>compress_pdf(path, quality)</code></td><td>file_ops.pdf_compress()</td><td>{ok, saved_kb}</td></tr>
+    <tr><td><code>rotate_page(path, page, deg)</code></td><td>file_ops.pdf_rotate_page()</td><td>{ok}</td></tr>
+    <tr><td><code>zip_paths(paths, out)</code></td><td>file_ops.zip_each_immediate_subfolder_*</td><td>{ok, out_path}</td></tr>
+    <tr><td><code>unzip(path)</code></td><td>file_ops.extract_zip_to_sibling_folder()</td><td>{ok, dir}</td></tr>
+    <tr><td><code>translate_korean(text)</code></td><td>file_ops.translate_to_korean_openai()</td><td>translated string</td></tr>
+    <tr><td><code>get_cost()</code></td><td>file_ops.get_gpt4o_session_cost()</td><td>float</td></tr>
+    <tr><td><code>get_watch_entries()</code></td><td>WatchFolderService.get_entries()</td><td>JSON list</td></tr>
+    <tr><td><code>process_apostille(urls, folder)</code></td><td>apostille_matcher.process_apostille_batch()</td><td>JSON results</td></tr>
+    <tr><td><code>create_folders(names, dest)</code></td><td>StudentFoldersFrame logic</td><td>{ok, created[]}</td></tr>
+    <tr><td><code>scan_qr()</code></td><td>qr_screen_capture.run_drag_select()</td><td>URL string</td></tr>
+    <tr><td><code>get_expiry_heatmap(folder)</code></td><td>file_ops.get_expiry_heatmap_data()</td><td>JSON heatmap</td></tr>
+    <tr><td><code>generate_report(folder)</code></td><td>file_ops.generate_checklist_report()</td><td>{ok, docx_path}</td></tr>
+    <tr><td><code>open_native(path)</code></td><td>file_ops.open_path_system_default()</td><td>{ok}</td></tr>
+    <tr><td><code>open_context_menu(path, x, y)</code></td><td>file_ops.windows_shell_track_context_menu()</td><td>{ok}</td></tr>
+  </tbody>
+</table>
+
+<!-- LAYOUT -->
+<h2 id="layout">UI Layout Plan</h2>
+
+<div class="layout-grid">
+  <div class="layout-col">
+    <div class="pct">22%</div>
+    <div class="lbl">Folder Tree</div>
+    <ul>
+      <li>Breadcrumb bar</li>
+      <li>Back / Fwd / Up</li>
+      <li>Search field</li>
+      <li>Virtual-scroll file list</li>
+      <li>Multi-select</li>
+      <li>Drag &amp; drop</li>
+    </ul>
+  </div>
+  <div class="layout-col">
+    <div class="pct">27%</div>
+    <div class="lbl">File List</div>
+    <ul>
+      <li>List / Grid toggle</li>
+      <li>Thumbnail gallery</li>
+      <li>Sortable columns</li>
+      <li>Inline rename</li>
+      <li>Thumb zoom slider</li>
+    </ul>
+  </div>
+  <div class="layout-col">
+    <div class="pct">36%</div>
+    <div class="lbl">Preview</div>
+    <ul>
+      <li>PDF: PDF.js/canvas</li>
+      <li>Image: HTML canvas</li>
+      <li>Word: iframe HTML</li>
+      <li>Excel: AG-Grid</li>
+      <li>Text: editable div</li>
+      <li>Zoom / rotate / pan</li>
+      <li>PDF toolbar overlay</li>
+    </ul>
+  </div>
+  <div class="layout-col">
+    <div class="pct">15%</div>
+    <div class="lbl">Details + Actions</div>
+    <ul>
+      <li>File name / size / pages</li>
+      <li>Quick actions</li>
+      <li>Rename bar</li>
+      <li>Template suggest</li>
+      <li>AI Photo Editor</li>
+      <li>Expiry heatmap</li>
+    </ul>
+  </div>
+</div>
+
+<h3>Left Sidebar Navigation</h3>
+<div class="fn-grid">
+  <div class="fn-item pub">📊 Dashboard</div>
+  <div class="fn-item pub">🗂 Files Workspace</div>
+  <div class="fn-item pub">📁 Folder Maker</div>
+  <div class="fn-item pub">📋 Templates</div>
+  <div class="fn-item pub">⚙ Batch Operations</div>
+  <div class="fn-item pub">👁 Watch Folder</div>
+  <div class="fn-item pub">🔧 Settings</div>
+</div>
+
+<!-- MIGRATION PLAN -->
+<h2 id="migration">Migration Plan — Phases</h2>
+
+<div class="step">
+  <div class="step-num">1</div>
+  <div class="step-body">
+    <h4>Bridge Layer (sfm_bridge.py)</h4>
+    <p>Create <code>sfm_bridge.py</code> — thin wrapper class exposing all file_ops.py public functions as JSON-returning methods. Handle threading (long ops use async/callback pattern). No logic changes to backend.</p>
+    <p><span class="badge badge-green">~400 lines</span> · Backend untouched · Testable independently</p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">2</div>
+  <div class="step-body">
+    <h4>App Shell (main.py → pywebview entry)</h4>
+    <p>Replace <code>_main()</code> in student_folder_maker.py with a PyWebView launcher. Load <code>ui/index.html</code> with the bridge. Keep all existing imports working so the backend chain is intact.</p>
+    <p><span class="badge badge-green">~50 lines</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">3</div>
+  <div class="step-body">
+    <h4>HTML Shell + CSS Design System</h4>
+    <p>Build <code>ui/index.html</code> with 4-pane layout, sidebar, toolbar, status bar. CSS variables matching Windows 11 Fluent. No data yet — just layout skeleton with loading states.</p>
+    <p><span class="badge badge-blue">~600 lines HTML+CSS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">4</div>
+  <div class="step-body">
+    <h4>File Tree + Thumbnail Gallery (JS)</h4>
+    <p>Virtual-scroll file list calling <code>bridge.list_folder()</code>. Lazy thumbnail loading via <code>bridge.get_pdf_thumbnail()</code> returning base64. Multi-select, drag, keyboard nav.</p>
+    <p><span class="badge badge-blue">~800 lines JS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">5</div>
+  <div class="step-body">
+    <h4>Preview Panel</h4>
+    <p>PDF: PDF.js for render, zoom, page nav. Image: HTML5 canvas for display + crop overlay. Word/Excel: inject HTML from bridge into iframe. Text: contenteditable with autosave.</p>
+    <p><span class="badge badge-blue">~600 lines JS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">6</div>
+  <div class="step-body">
+    <h4>Right Panel + Rename Bar</h4>
+    <p>File details, quick actions, rename input with template suggestion dropdown (autocomplete calling existing _filter_document_renames() logic via bridge).</p>
+    <p><span class="badge badge-blue">~300 lines JS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">7</div>
+  <div class="step-body">
+    <h4>Context Menu + Toolbar</h4>
+    <p>Custom HTML context menu replicating all 25 existing right-click items. Toolbar with all existing actions. All wire to bridge methods.</p>
+    <p><span class="badge badge-blue">~400 lines JS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">8</div>
+  <div class="step-body">
+    <h4>Dialogs (9 modals)</h4>
+    <p>HTML modal for each: CombinePdf, PdfFullView, ApostilleMatcher, A4PagePlacer, IdCardOnA4, PrintDialog, DocumentNameTemplates, UppercaseText, PdfPrintRange.</p>
+    <p><span class="badge badge-purple">~1,200 lines JS+HTML</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">9</div>
+  <div class="step-body">
+    <h4>Excel Grid → AG-Grid or Handsontable</h4>
+    <p>Replace ExcelGridFrame with a JS data grid. Bridge provides data via excel_to_html() or raw cell values. Sheet switching, sorting, basic editing calling excel_set_cell() via bridge.</p>
+    <p><span class="badge badge-purple">~500 lines JS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">10</div>
+  <div class="step-body">
+    <h4>AI Photo Editor Panel</h4>
+    <p>HTML canvas panel replacing AIPhotoEditorFrame. Bridge exposes run_ai_photo_action(path, action, mask). Canvas shows before/after, confirm/replace.</p>
+    <p><span class="badge badge-purple">~400 lines JS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">11</div>
+  <div class="step-body">
+    <h4>Folder Maker Tab</h4>
+    <p>Simple textarea + options panel replacing StudentFoldersFrame. Bridge create_folders() call. Live preview list. Progress log.</p>
+    <p><span class="badge badge-blue">~250 lines JS</span></p>
+  </div>
+</div>
+<div class="step">
+  <div class="step-num">12</div>
+  <div class="step-body">
+    <h4>Watch Folder + Status Bar</h4>
+    <p>Poll bridge.get_watch_entries() on interval. Status bar shows: Ready / folder / selection count / GPT cost / watch queue count.</p>
+    <p><span class="badge badge-blue">~200 lines JS</span></p>
+  </div>
+</div>
+
+<!-- FILES -->
+<h2 id="files-change">Files: What Changes, What Doesn't</h2>
+
+<div class="cols2">
+<div>
+<h3 style="color:var(--red)">Files That Change</h3>
+<table>
+  <thead><tr><th>File</th><th>What Changes</th></tr></thead>
+  <tbody>
+    <tr><td><code>student_folder_maker.py</code></td><td>Entry point only: <code>_main()</code> replaced with PyWebView launcher. All Tkinter classes become dead code (kept, not deleted).</td></tr>
+    <tr><td><code>excel_grid.py</code></td><td>ExcelGridFrame replaced by bridge method. File kept, class unused.</td></tr>
+    <tr><td><code>ai_photo_editor.py</code></td><td>AIPhotoEditorFrame replaced. Helper functions kept and called by bridge.</td></tr>
+    <tr><td><code>StudentFolderMaker.spec</code></td><td>PyInstaller spec updated to bundle ui/ folder and remove Tkinter deps.</td></tr>
+    <tr><td><code>rebuild.bat</code></td><td>Add step to copy ui/ assets to dist.</td></tr>
+  </tbody>
+</table>
+</div>
+<div>
+<h3 style="color:var(--green)">Files That Do NOT Change</h3>
+<table>
+  <thead><tr><th>File</th><th>Reason</th></tr></thead>
+  <tbody>
+    <tr><td><code>file_ops.py</code></td><td>Pure backend — zero Tkinter. Bridge calls it directly.</td></tr>
+    <tr><td><code>apostille_matcher.py</code></td><td>Pure pipeline functions.</td></tr>
+    <tr><td><code>doc_renamer.py</code></td><td>Pure pipeline functions.</td></tr>
+    <tr><td><code>watch_folder_service.py</code></td><td>Background service, no UI.</td></tr>
+    <tr><td><code>qr_screen_capture.py</code></td><td>Backend logic kept. Overlay windows called from bridge.</td></tr>
+    <tr><td><code>.env</code></td><td>API keys untouched.</td></tr>
+    <tr><td><code>sfm_settings.json</code></td><td>Settings untouched.</td></tr>
+    <tr><td><code>document_name_templates.txt</code></td><td>Templates untouched.</td></tr>
+    <tr><td><code>requirements.txt</code></td><td>Add pywebview only.</td></tr>
+  </tbody>
+</table>
+</div>
+</div>
+
+<h3>New Files to Create</h3>
+<table>
+  <thead><tr><th>New File</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>sfm_bridge.py</code></td><td>PyWebView JS API bridge class</td></tr>
+    <tr><td><code>ui/index.html</code></td><td>Main app shell</td></tr>
+    <tr><td><code>ui/style.css</code></td><td>Windows 11 Fluent design system</td></tr>
+    <tr><td><code>ui/app.js</code></td><td>Core app logic, routing, state</td></tr>
+    <tr><td><code>ui/file-tree.js</code></td><td>Virtual scroll file tree + thumbnails</td></tr>
+    <tr><td><code>ui/preview.js</code></td><td>PDF/image/word/excel preview panel</td></tr>
+    <tr><td><code>ui/dialogs.js</code></td><td>All 9 modal dialogs</td></tr>
+    <tr><td><code>ui/context-menu.js</code></td><td>Custom right-click menu</td></tr>
+    <tr><td><code>ui/pdf-arranger.js</code></td><td>CombinePdfDialog equivalent</td></tr>
+    <tr><td><code>ui/icons/</code></td><td>SVG icon set (Fluent UI icons)</td></tr>
+  </tbody>
+</table>
+
+<!-- RISKS -->
+<h2 id="risks">Risks &amp; Mitigations</h2>
+<table>
+  <thead><tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>QR screen overlay (OverlaySelector) needs native window</td>
+      <td>Medium</td>
+      <td>Bridge spawns a minimal Tkinter overlay window in a thread, returns result to JS via callback</td>
+    </tr>
+    <tr>
+      <td>Windows native context menu (windows_shell_track_context_menu)</td>
+      <td>Low</td>
+      <td>Bridge calls the function directly; PyWebView windows are HWND-compatible</td>
+    </tr>
+    <tr>
+      <td>Long-running ops (Smart Split, OCR) block bridge thread</td>
+      <td>High</td>
+      <td>All long ops run in Python threads; bridge uses callback/event pattern to post progress to JS via window.evaluate_js()</td>
+    </tr>
+    <tr>
+      <td>PDF.js vs current PyMuPDF rendering parity</td>
+      <td>Medium</td>
+      <td>Bridge can still render pages to base64 PNG via PyMuPDF; PDF.js only used for display</td>
+    </tr>
+    <tr>
+      <td>ExcelGridFrame has 128 methods — complex cell editing</td>
+      <td>Medium</td>
+      <td>Phase 1: read-only HTML preview (excel_to_html). Phase 2: AG-Grid with cell edit calling excel_set_cell()</td>
+    </tr>
+    <tr>
+      <td>Clipboard integration (copy path, copy text)</td>
+      <td>Low</td>
+      <td>Bridge exposes set_clipboard(text) using Python pyperclip / win32clipboard</td>
+    </tr>
+    <tr>
+      <td>Drag & drop from Windows Explorer into app</td>
+      <td>Medium</td>
+      <td>PyWebView supports file drop events; bridge handles dropped paths</td>
+    </tr>
+    <tr>
+      <td>Printer dialog needs system printer list</td>
+      <td>Low</td>
+      <td>Bridge exposes list_printers() using win32print</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="ok" style="margin-top:32px">
+  ✓ <strong>Analysis complete.</strong> The project is fully mapped. Backend is clean and ready for bridging. Awaiting approval to begin Phase 1 (sfm_bridge.py) and Phase 3 (HTML shell + CSS design system).
+</div>
+
+</main>
+</div>
+</body>
+</html>

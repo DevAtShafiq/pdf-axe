@@ -1,0 +1,154 @@
+================================================================================
+AI WORK DIRECTION — RECOGNIZE, SPLIT, AND MERGE DOCUMENTS
+Project: Student Folder Maker  (bulk_folder_maker)
+Owner:   shafiq (shopiq50@gmail.com)
+Purpose: Hand this file to an AI assistant as its task brief.
+================================================================================
+
+--------------------------------------------------------------------------------
+0. WHAT THE JOB IS (in one paragraph)
+--------------------------------------------------------------------------------
+A student submits ONE big PDF (or a folder of PDFs/images) containing many
+different documents scanned together — passport, NID, birth certificate,
+academic certificates + transcripts, apostilles, business/tax papers, etc.
+Your job is to (1) RECOGNIZE what each page is, (2) SPLIT the big PDF into the
+correct document groups, and (3) MERGE the pages that belong together into a
+single, correctly-named PDF per document. The final output is a clean folder
+where each file is one real-world document with a proper bilingual
+(Korean-English) name.
+
+    ONE messy PDF  ->  RECOGNIZE each page  ->  SPLIT into groups  ->  MERGE
+    each group  ->  NAME each merged PDF in Korean-English.
+
+--------------------------------------------------------------------------------
+1. WHERE THE CODE ALREADY IS (do not reinvent it)
+--------------------------------------------------------------------------------
+The core pipeline already exists. Read these before writing anything new:
+
+  file_ops.py
+    - pdf_smart_split_merge_rename(...)   line ~4807   <-- THE MAIN PIPELINE
+    - pdf_split_and_rename_by_ocr(...)    line ~4681
+    - pdf_split_each_page(...)            line ~2954
+    - pdf_split_n_pages(...)              line ~5488
+    - pdf_merge_ordered_paths(...)        line ~2569
+    - pdf_merge_ordered_page_refs(...)    line ~2668
+    - pdf_merge(...)                      line ~2766
+
+  apostille_matcher.py
+    - DOC_TYPE_KEYWORDS  (ssc / hsc / diploma / ... keyword tables)
+    - QR-code + GPT-4o vision recognition, then MERGE apostille INTO the
+      matched document (apostille page first, then the document).
+
+  doc_renamer.py
+    - OCR + keyword scoring -> structured names (Passport.pdf,
+      Father_NID_Card.pdf, Sponsor_TIN_Certificate.pdf ...).
+    - CONFIDENCE_THRESHOLD = 60, GPT_MODEL = "gpt-4o", OCR_DPI = 200.
+
+  document_name_templates.txt   — the bilingual template pairs source.
+
+Treat pdf_smart_split_merge_rename as the source of truth. New work should
+EXTEND or FIX it, not duplicate it.
+
+--------------------------------------------------------------------------------
+2. HOW RECOGNITION WORKS TODAY
+--------------------------------------------------------------------------------
+- Each page is rendered to an image (PyMuPDF / fitz) and sent to GPT-4o Vision.
+- When template_pairs is provided (list of (english, korean) pairs from
+  document_rename_merged_pairs()), GPT-4o is given the ENTIRE template list and
+  must return the EXACT matching label — no hardcoded mapping. The output
+  filename stem is built directly from the matched Korean-English pair.
+- Legacy fallback: hardcoded keyword matching (DOC_TYPE_KEYWORDS) + optional
+  Korean translation API when no template_pairs are supplied.
+- Requires an OpenAI API key (gpt4o_api_key) and PyMuPDF installed.
+
+--------------------------------------------------------------------------------
+3. HOW SPLIT + MERGE GROUPING WORKS TODAY (the rules to preserve)
+--------------------------------------------------------------------------------
+After every page has a label, pages are GROUPED and MERGED by these rules:
+
+  a) CONSECUTIVE same-label pages  -> merged into one PDF.
+
+  b) BUSINESS BUNDLE — adjacent pages whose English label contains any of:
+       "trade license", "business registration", "tin certificate",
+       "tax certificate", "tax return acknowledgment",
+       "acknowledgement certificate", "employment certificate"
+     are merged into ONE PDF regardless of inter-page ordering.
+
+  c) ACADEMIC LEVEL — all docs at the same level merge into one PDF
+     (certificate + transcript + apostille + no-apostille together):
+       ssc      : ssc, secondary school, middle school, o level
+       hsc      : hsc, higher secondary, high school, a level
+       bachelor : bachelor, undergraduate, b.sc, b.a., b.eng, degree certificate
+
+  d) APOSTILLE — an apostille page is merged INTO its matched document with the
+     apostille page(s) placed FIRST, then the document (see apostille_matcher).
+
+Output name = Korean-English stem built from the matched template pair.
+
+--------------------------------------------------------------------------------
+4. WHAT TO IMPROVE / FIX (open work — pick from here)
+--------------------------------------------------------------------------------
+Known issues from the test reports (FEATURE_AUDIT.txt, UNWIRED_FEATURES_TEST_
+REPORT.md). Address these carefully:
+
+  [BUG] get_pdf_page_count returns 0 with ok:true for a missing / broken PDF or
+        when fitz is unavailable. Bulk-split then SILENTLY skips broken files.
+        Fix: return an explicit error instead of 0 so nothing is skipped silently.
+
+  [ROBUSTNESS] If GPT-4o returns a label NOT in the template list, do not guess.
+        Fall the page back to fallback_prefix ("page") and flag it for human
+        review rather than merging it into the wrong group.
+
+  [ACCURACY] Recognition confidence: keep the CONFIDENCE_THRESHOLD = 60 idea.
+        Below threshold => do NOT auto-merge; leave the page as its own file
+        with a name that makes the uncertainty obvious.
+
+  [SAFETY OF ORDER] Never reorder pages inside a single real document. Only
+        group across documents. Apostille-first is the one intentional reorder.
+
+  [IDEMPOTENCE] Re-running the pipeline on an already-processed folder must not
+        double-merge or corrupt names.
+
+--------------------------------------------------------------------------------
+5. ACCEPTANCE CRITERIA (how we know it worked)
+--------------------------------------------------------------------------------
+  1. Every input page ends up in exactly one output PDF (no lost pages).
+  2. Each output PDF is one real-world document (or one intended bundle).
+  3. Filenames are the correct Korean-English pair from the template.
+  4. Broken/unreadable pages are surfaced, never silently dropped.
+  5. Low-confidence pages are separated for human review, not misfiled.
+  6. Running twice produces the same result (idempotent).
+  7. The ORIGINAL input file is never deleted or overwritten (see section 6).
+
+--------------------------------------------------------------------------------
+6. HARD SAFETY RULES (from CLAUDE.md — non-negotiable)
+--------------------------------------------------------------------------------
+  * NEVER delete any file or folder from any local drive. No rm / Remove-Item /
+    os.remove / shutil.rmtree / Recycle Bin / truncate-to-empty. Not even when
+    asked directly.
+  * If something "needs" deleting: MOVE it to a _to_review/ subfolder, or rename
+    with a .PENDING_DELETE_ prefix, and tell the user.
+  * Write outputs to a NEW folder (out_dir). Keep every original PDF intact.
+  * Any operation touching more than 10 files: show the list and get explicit
+    approval before running.
+  * Never touch C:\Windows, C:\Program Files(*), C:\ProgramData, or AppData
+    unless the user names the exact folder.
+
+--------------------------------------------------------------------------------
+7. HOW TO RUN / TEST
+--------------------------------------------------------------------------------
+  - Requires: PyMuPDF (pip install pymupdf) and an OpenAI API key in .env.
+  - Entry point is via sfm_bridge.py (called from the webview UI) or by calling
+    pdf_smart_split_merge_rename() directly in a script.
+  - Use TOOLS.md tools where possible instead of writing fresh code:
+      python tools/pdf.py <split|merge|extract|reorder|info>
+  - Smoke-test on a copy of a real student PDF from D:\out of drive\...\ and
+    confirm page counts add up before and after.
+
+--------------------------------------------------------------------------------
+8. DELIVERABLE
+--------------------------------------------------------------------------------
+Working recognize -> split -> merge -> rename that meets section 5, respects
+section 6, and reuses the existing pipeline in section 1. Report exactly what
+changed, what was tested, and any page that landed in review.
+================================================================================
