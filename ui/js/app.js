@@ -23,7 +23,6 @@ const App = (() => {
     searchQuery:     '',
     currentPanel:    'workspace',
     costPollTimer:   null,
-    watchPollTimer:  null,
   };
 
   // ── Panel Switching ───────────────────────────────────────────────────────
@@ -220,26 +219,6 @@ const App = (() => {
     state.costPollTimer = setInterval(_pollCost, 10000);
   }
 
-  // ── Watch Polling ─────────────────────────────────────────────────────────
-  async function _pollWatch() {
-    try {
-      const r = await SFM.watchEntries();
-      if (!r.ok) return;
-      const watchEl  = document.getElementById('status-watch');
-      const watchTxt = document.getElementById('status-watch-text');
-      if (r.active > 0) {
-        watchEl.style.display = 'flex';
-        watchTxt.textContent = `Watch: ${r.active} active`;
-      } else {
-        watchEl.style.display = 'none';
-      }
-    } catch(e) {}
-  }
-
-  function startWatchPoller() {
-    state.watchPollTimer = setInterval(_pollWatch, 5000);
-  }
-
   // ── Pane Resizing ─────────────────────────────────────────────────────────
   function _initPaneResizers() {
     const resizers = [
@@ -325,8 +304,7 @@ const App = (() => {
   function _initEventHandlers() {
     // Long-op log lines
     // Non-smart-split log events → console only (dialogs handle their own)
-    ['ocr_rename_log','split_ocr_log','report_log',
-     'apostille_log','watch_log'].forEach(ev => {
+    ['ocr_rename_log','split_ocr_log','report_log'].forEach(ev => {
       SFM.on(ev, ({ log }) => console.log(`[${ev}]`, log));
     });
     // smart_rename_log is handled inside Dialogs.openSmartSplitProgress — no global handler needed
@@ -368,10 +346,6 @@ const App = (() => {
       } else {
         toast('QR: ' + (r.error || 'No QR code found'), 'warning', 4000);
       }
-    });
-    SFM.on('folder_create_done', r => {
-      setStatus('Ready');
-      toast(`${r.created.length} folders created`, 'success');
     });
     SFM.on('ai_photo_done', r => {
       setStatus('Ready');
@@ -513,7 +487,6 @@ const App = (() => {
     safe(_initEventHandlers, '_initEventHandlers');
     safe(_initPaneResizers,  '_initPaneResizers');
     safe(startCostPoller,    'startCostPoller');
-    safe(startWatchPoller,   'startWatchPoller');
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _boot);

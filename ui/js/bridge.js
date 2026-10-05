@@ -182,19 +182,6 @@ const SFM = (() => {
     filterSuggestions:   (q, ext='')              => call('filter_rename_suggestions', q, ext),
     saveNameTemplate:    (key, label)              => call('save_name_template', key, label),
     saveRenameTemplate:  (tpl)                     => call('save_rename_template', tpl),
-    getChecklistLabels:  ()                        => call('get_checklist_labels'),
-    // Apostille
-    scanApostilleRefs:   (folder)                  => call('scan_apostille_refs', folder),
-    processApostille:    (urls, local, out, key)   => call('process_apostille', urls, local, out, key),
-    // Watch
-    watchStart:          (folder, out='')          => call('watch_start', folder, out),
-    watchStop:           ()                        => call('watch_stop'),
-    watchEntries:        ()                        => call('watch_get_entries'),
-    watchClearDone:      ()                        => call('watch_clear_completed'),
-    // Folder maker
-    createStudentFolders: (names, dest)            => call('create_student_folders', names, dest),
-    // Heatmap
-    getExpiryHeatmap:    (folder)                  => call('get_expiry_heatmap', folder),
     // AI photo
     runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
     aiPhotoActions:      ()                        => call('ai_photo_actions'),

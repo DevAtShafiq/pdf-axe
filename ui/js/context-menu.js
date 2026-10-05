@@ -292,20 +292,12 @@ const ContextMenu = (() => {
     // Section: folder ops (directory only)
     if (isDir) {
       _item(menu, '\u{1F4CA}', 'Generate Report', '', () => { hide(); SFM.generateReport(mainPath); App.toast('Report queued', 'info'); });
-      _item(menu, '\u{1F441}️', 'Watch Folder', '', () => { hide(); SFM.watchStart(mainPath, ''); App.toast('Watching ' + entry.name, 'info'); });
       _item(menu, '\u{2702}\uFE0F', 'Split PDFs in Folder\u2026', '', () => { hide(); Dialogs.openBulkSplitPdfs(mainPath); });
       _item(menu, '\u{1F4E6}', 'Zip Each Subfolder', '', () => { hide(); FileTree.zipEachSubfolder(); });
       _item(menu, '\u{1F4C2}', 'Expand All', '', () => { hide(); FileTree.expandAll(); });
       _item(menu, '\u{1F4C1}', 'Collapse All', '', () => { hide(); FileTree.collapseAll(); });
       _sep(menu);
     }
-
-    // Section: apostille
-    _item(menu, '\u{1F3DB}️', 'Apostille Merge…', '', () => {
-      hide();
-      const folder = isDir ? mainPath : mainPath.replace(/[\\\/][^\\\/]+$/, '');
-      Dialogs.openApostille(folder);
-    });
 
     // Section: translate / QR
     _sep(menu);

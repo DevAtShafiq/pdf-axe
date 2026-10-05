@@ -9,7 +9,7 @@ Rules:
  - Long-running operations run in a daemon thread and push progress via
    self._emit(event, payload) which calls window.evaluate_js() on the JS side.
  - Never import Tkinter here.
- - Never duplicate backend logic — call file_ops / apostille_matcher / etc. directly.
+ - Never duplicate backend logic — call file_ops / ai_photo_editor / etc. directly.
 """
 from __future__ import annotations
 
@@ -121,7 +121,6 @@ class SFMBridge:
 
     def __init__(self):
         self._window = None          # set by main_webview.py after window creation
-        self._watch_svc = None       # WatchFolderService instance (lazy)
         self._lock = threading.Lock()
 
     def set_window(self, window) -> None:
@@ -1617,141 +1616,6 @@ class SFMBridge:
             return _ok()
         except Exception as exc:
             return _err(str(exc))
-
-    # =========================================================================
-    # EXPIRY HEATMAP + CHECKLIST
-    # =========================================================================
-
-    def get_expiry_heatmap(self, folder: str) -> dict:
-        try:
-            data = _fo.get_expiry_heatmap_data(folder)
-            return _ok(data=data)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def get_checklist_labels(self) -> dict:
-        try:
-            labels = _fo.get_checklist_document_labels()
-            return _ok(labels=labels)
-        except Exception as exc:
-            return _err(str(exc))
-
-    # =========================================================================
-    # APOSTILLE MATCHER
-    # =========================================================================
-
-    def process_apostille(
-        self,
-        urls: list,
-        local_folder: str,
-        output_folder: str,
-        api_key: str = "",
-    ) -> dict:
-        """
-        Async: runs apostille_matcher.process_apostille_batch() in a thread.
-        Events:  apostille_log, apostille_result, apostille_done
-        """
-        def _run():
-            try:
-                import apostille_matcher as am
-                if api_key:
-                    os.environ.setdefault("OPENAI_API_KEY", api_key)
-                def _progress(i, total, r):
-                    self._emit("apostille_result", {"index": i, "total": total, "result": r})
-                results = am.process_apostille_batch(
-                    urls, local_folder, output_folder,
-                    api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
-                    log=self._log_cb("apostille_log"),
-                    progress=_progress,
-                )
-                self._emit("apostille_done", {"ok": True, "results": results})
-            except Exception as exc:
-                self._emit("apostille_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-    def scan_apostille_refs(self, folder: str) -> dict:
-        try:
-            import apostille_matcher as am
-            refs = am.scan_folder_for_apostille_refs(folder)
-            # refs is {pdf_path: [url, ...]}
-            flat = []
-            for pdf_path, urls in refs.items():
-                for url in urls:
- 
-                    flat.append({"pdf": pdf_path, "url": url})
-            return _ok(refs=flat)
-        except Exception as exc:
-            return _err(str(exc))
-
-    # =========================================================================
-    # WATCH FOLDER SERVICE
-    # =========================================================================
-
-    def watch_start(self, folder: str, output_folder: str = "") -> dict:
-        try:
-            from watch_folder_service import WatchFolderService
-            if self._watch_svc is None:
-                self._watch_svc = WatchFolderService(
-                    folder,
-                    output_folder or folder,
-                    log=self._log_cb("watch_log"),
-                )
-                self._watch_svc.start()
-            return _ok(folder=folder)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def watch_stop(self) -> dict:
-        try:
-            if self._watch_svc:
-                self._watch_svc.stop()
-                self._watch_svc = None
-            return _ok()
-        except Exception as exc:
-            return _err(str(exc))
-
-    def watch_get_entries(self) -> dict:
-        try:
-            if not self._watch_svc:
-                return _ok(entries=[])
-            return _ok(entries=self._watch_svc.get_entries())
-        except Exception as exc:
-            return _err(str(exc))
-
-    def watch_clear_completed(self) -> dict:
-        try:
-            if self._watch_svc:
-                self._watch_svc.clear_completed()
-            return _ok()
-        except Exception as exc:
-            return _err(str(exc))
-
-    # =========================================================================
-    # STUDENT FOLDER MAKER
-    # =========================================================================
-
-    def create_student_folders(self, names: list, dest: str) -> dict:
-        """Create one subfolder per name inside dest. Emits folder_create_done."""
-        def _run():
-            try:
-                created, skipped = [], []
-                for name in names:
-                    name = str(name).strip()
-                    if not name:
-                        continue
-                    folder = os.path.join(dest, name)
-                    if os.path.exists(folder):
-                        skipped.append(name)
-                    else:
-                        os.makedirs(folder, exist_ok=True)
-                        created.append(name)
-                self._emit("folder_create_done",
-                           {"ok": True, "created": created, "skipped": skipped})
-            except Exception as exc:
-                self._emit("folder_create_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
 
     def list_printers(self) -> dict:
         try:

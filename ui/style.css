@@ -1269,38 +1269,6 @@ body.resizing-v { cursor: row-resize; }
 }
 .remove-combine-item:hover { color: var(--red); }
 
-/* ── Watch Folder panel ──────────────────────────────────── */
-.watch-entry {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-.watch-entry:hover { background: var(--bg-hover); }
-.watch-entry.done  { opacity: .6; }
-.watch-entry.error { color: var(--red); }
-.watch-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.watch-status{ color: var(--text-muted); flex-shrink: 0; }
-
-/* ── Heatmap cards ───────────────────────────────────────── */
-.hm-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  min-width: 160px;
-  max-width: 220px;
-}
-.hm-card.hm-ok      { border-left: 3px solid #58a6ff; }
-.hm-card.hm-warn    { border-left: 3px solid #f7b731; }
-.hm-card.hm-danger  { border-left: 3px solid #fc5c65; }
-.hm-card.hm-expired { border-left: 3px solid #555; opacity: .7; }
-.hm-name   { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hm-expiry { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-.hm-days   { font-size: 13px; font-weight: 600; margin-top: 4px; }
-.hm-card.hm-warn   .hm-days { color: #f7b731; }
-.hm-card.hm-danger .hm-days { color: #fc5c65; }
-
 /* ── Detail section ──────────────────────────────────────── */
 .detail-section { padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .detail-section-title {

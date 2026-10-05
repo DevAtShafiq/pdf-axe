@@ -21,22 +21,6 @@
         🗂
         <span class="tooltip-label">Files Workspace</span>
       </button>
-      <button class="sidebar-btn" data-panel="folders" title="">
-        📁
-        <span class="tooltip-label">Folder Maker</span>
-      </button>
-      <button class="sidebar-btn" data-panel="apostille" title="">
-        🔏
-        <span class="tooltip-label">Apostille Matcher</span>
-      </button>
-      <button class="sidebar-btn" data-panel="watch" title="">
-        👁
-        <span class="tooltip-label">Watch Folder</span>
-      </button>
-      <button class="sidebar-btn" data-panel="heatmap" title="">
-        📊
-        <span class="tooltip-label">Expiry Heatmap</span>
-      </button>
     </nav>
 
     <div class="sidebar-bottom">
@@ -349,92 +333,6 @@
 
     </div><!-- /panel-workspace -->
 
-    <!-- ─── PANEL: Folder Maker ─────────────────── -->
-    <div id="panel-folders" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
-      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">📁 Student Folder Maker</h2>
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Enter one name per line. Folders will be created in the destination folder.</p>
-
-      <label class="detail-label">Student names (one per line)</label>
-      <textarea id="fm-names" class="input-text" rows="12"
-        placeholder="John Doe&#10;Jane Smith&#10;Ali Hassan"
-        style="width:100%;margin-top:4px;resize:vertical;font-family:monospace;font-size:13px"></textarea>
-
-      <div style="margin-top:16px">
-        <label class="detail-label">Destination folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="fm-dest" class="input-text" placeholder="D:\Students" style="flex:1">
-          <button class="btn" id="fm-dest-browse">Browse…</button>
-        </div>
-      </div>
-
-      <div style="margin-top:16px;display:flex;gap:8px">
-        <button class="btn btn-primary" id="fm-create-btn" style="min-width:140px">
-          📁 Create Folders
-        </button>
-      </div>
-
-      <pre id="fm-log" style="margin-top:16px;font-size:11px;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow:auto;background:var(--bg-app);padding:10px;border-radius:6px"></pre>
-    </div>
-
-    <!-- ─── PANEL: Apostille ────────────────────── -->
-    <div id="panel-apostille" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
-      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">🏛️ Apostille Matcher</h2>
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 24px">
-        Scans a folder for certificate + transcript PDFs and merges matching pairs into apostille bundles.
-      </p>
-      <button class="btn btn-primary" id="apostille-open-btn" style="min-width:200px">
-        Open Apostille Dialog…
-      </button>
-    </div>
-
-    <!-- ─── PANEL: Watch Folder ─────────────────── -->
-    <div id="panel-watch" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
-      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">👁 Watch Folder</h2>
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Monitor a folder and auto-process new files as they arrive.</p>
-
-      <label class="detail-label">Folder to watch</label>
-      <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:16px">
-        <input id="watch-folder" class="input-text" placeholder="D:\Incoming" style="flex:1">
-        <button class="btn" id="watch-folder-browse">Browse…</button>
-      </div>
-
-      <div style="display:flex;gap:8px;margin-bottom:20px">
-        <button class="btn btn-primary" id="watch-start-btn">▶ Start Watch</button>
-        <button class="btn"             id="watch-stop-btn">⏹ Stop</button>
-        <button class="btn"             id="watch-clear-btn">🗑 Clear Done</button>
-      </div>
-
-      <div class="detail-section-title" style="margin-bottom:8px">Queue</div>
-      <div id="watch-list" style="font-size:12px;background:var(--bg-app);border-radius:8px;min-height:100px;max-height:400px;overflow:auto;padding:8px">
-        <p class="text-muted" style="padding:8px">No files processed yet.</p>
-      </div>
-    </div>
-
-    <!-- ─── PANEL: Heatmap ──────────────────────── -->
-    <div id="panel-heatmap" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
-      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">📊 Document Expiry Heatmap</h2>
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Scan a folder to visualise which documents are expiring soon.</p>
-
-      <label class="detail-label">Folder to scan</label>
-      <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:16px">
-        <input id="hm-folder" class="input-text" placeholder="D:\Documents" style="flex:1">
-        <button class="btn" id="hm-folder-browse">Browse…</button>
-      </div>
-      <button class="btn btn-primary" id="hm-scan-btn" style="margin-bottom:24px">🔍 Scan for Expiry Dates</button>
-
-      <!-- Legend -->
-      <div style="display:flex;gap:12px;font-size:11px;margin-bottom:16px">
-        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#58a6ff;border-radius:3px;display:inline-block"></span>OK (>90d)</span>
-        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#f7b731;border-radius:3px;display:inline-block"></span>Warn (30-90d)</span>
-        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#fc5c65;border-radius:3px;display:inline-block"></span>Danger (0-30d)</span>
-        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:#444;border-radius:3px;display:inline-block"></span>Expired</span>
-      </div>
-
-      <div id="hm-grid" style="display:flex;flex-wrap:wrap;gap:10px">
-        <p class="text-muted" style="font-size:12px">Click Scan to load results.</p>
-      </div>
-    </div>
-
     <!-- ─── PANEL: Settings ─────────────────────── -->
     <div id="panel-settings" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
       <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">⚙️ Settings</h2>
@@ -472,10 +370,6 @@
       <span id="status-sel-text"></span>
     </div>
     <div class="status-spacer"></div>
-    <div class="status-item" id="status-watch" style="display:none">
-      <span class="dot busy"></span>
-      <span id="status-watch-text">Watch: 0 active</span>
-    </div>
     <div class="status-item acct-chip" id="acct-chip" style="display:none" title="Account">
       <span class="acct-chip-dot" id="acct-chip-dot"></span>
       <span id="acct-chip-text"></span>

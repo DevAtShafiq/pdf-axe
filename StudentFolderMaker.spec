@@ -41,8 +41,6 @@ datas = [
     ("sfm_bridge.py",   "."),
     ("main_webview.py", "."),
     ("file_ops.py",     "."),
-    ("apostille_matcher.py",   "."),
-    ("watch_folder_service.py","."),
     ("ai_photo_editor.py",     "."),
     ("qr_screen_capture.py",   "."),
     ("student_folder_maker.py","."),   # lazily imported for rename templates
@@ -57,8 +55,6 @@ binaries: list = []
 hiddenimports = [
     # ── App modules ──────────────────────────────────────────────────────────
     "file_ops",
-    "apostille_matcher",
-    "watch_folder_service",
     "ai_photo_editor",
     "qr_screen_capture",
     "excel_grid",

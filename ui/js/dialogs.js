@@ -830,58 +830,6 @@ const Dialogs = (() => {
     })();
   }
 
-  // ── 4. Apostille Matcher ──────────────────────────────────────────────────
-  async function openApostille(folder) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Scans folder for document sets and merges each into an apostille PDF.</p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="ap-folder" class="input-text" value="${_esc(folder||'')}" style="flex:1">
-          <button class="btn" id="ap-browse">Browse&#x2026;</button>
-        </div>
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Output folder (leave blank = same)</label>
-        <input id="ap-outfolder" class="input-text" placeholder="Same as input" style="width:100%;margin-top:4px">
-      </div>
-      <div id="ap-status" style="font-size:12px;color:var(--accent);min-height:20px"></div>`;
-
-    _openModal('apostille', 'Apostille Merger', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Scan', onClick: async () => {
-        const f = document.getElementById('ap-folder')?.value.trim();
-        if (!f) { App.toast('Set a folder first', 'error'); return; }
-        document.getElementById('ap-status').textContent = 'Scanning…';
-        const r = await SFM.scanApostilleRefs(f);
-        document.getElementById('ap-status').textContent = r.ok
-          ? `Found ${r.sets?.length||0} document sets`
-          : 'Error: ' + r.error;
-      }},
-      { label: 'Run Merge', primary: true, onClick: async () => {
-        const f   = document.getElementById('ap-folder')?.value.trim();
-        const out = document.getElementById('ap-outfolder')?.value.trim() || f;
-        if (!f) { App.toast('Set a folder first', 'error'); return; }
-        document.getElementById('ap-status').textContent = 'Merging…';
-        App.setStatus('Running apostille merge…', true);
-        const r = await SFM.processApostille([], f, out, '');
-        App.setStatus('Ready');
-        if (r.ok) {
-          document.getElementById('ap-status').textContent = `Done: ${r.merged||0} merged`;
-          App.toast('Apostille merge complete', 'success'); FileTree.refresh();
-        } else {
-          document.getElementById('ap-status').textContent = 'Error: ' + r.error;
-          App.toast('Merge failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    document.getElementById('ap-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('ap-folder').value = r.path;
-    });
-  }
-
   // ── 5. A4 Page Placer ────────────────────────────────────────────────────
   function openA4Placer(path) {
     const body = `
@@ -1311,18 +1259,15 @@ const Dialogs = (() => {
   function openMoreMenu() {
     const body = `
       <div style="display:flex;flex-direction:column;gap:6px">
-        <button class="qa-btn" id="mm-student-folders">&#x1F4C2;  Create Student Folders&#x2026;</button>
         <button class="qa-btn" id="mm-templates">&#x1F4DD;  Document Name Templates&#x2026;</button>
         <button class="qa-btn" id="mm-uppercase">&#x1F520;  Change Case / Uppercase Tool&#x2026;</button>
         <button class="qa-btn" id="mm-similar">&#x1F500;  Similar Move&#x2026;</button>
         <button class="qa-btn" id="mm-copyto">&#x1F4CB;  Copy To&#x2026;</button>
         <button class="qa-btn" id="mm-moveto">&#x2702;&#xFE0F;  Move To&#x2026;</button>
-        <button class="qa-btn" id="mm-apostille">&#x1F3DB;&#xFE0F;  Apostille Matcher&#x2026;</button>
         <button class="qa-btn" id="mm-expand-all">&#x1F4C2;  Expand All Folders</button>
         <button class="qa-btn" id="mm-collapse-all">&#x1F4C1;  Collapse All Folders</button>
         <button class="qa-btn" id="mm-bulk-split">&#x2702;&#xFE0F;  Split Multi-page PDFs in Folder&#x2026;</button>
         <button class="qa-btn" id="mm-zip-subfolders">&#x1F4E6;  Zip Each Subfolder</button>
-        <button class="qa-btn" id="mm-heatmap">&#x1F4CA;  Document Expiry Heatmap</button>
         <button class="qa-btn" id="mm-report">&#x1F4CB;  Generate Checklist Report</button>
       </div>`;
 
@@ -1334,18 +1279,15 @@ const Dialogs = (() => {
       const e = document.getElementById(id);
       if (e) e.addEventListener('click', () => { closeModal(); setTimeout(fn, 50); });
     };
-    wire('mm-student-folders', () => openCreateStudentFolders(App.state.currentFolder || ''));
     wire('mm-templates', () => openTemplates());
     wire('mm-uppercase', () => openUppercase());
     wire('mm-similar',   () => openSimilarMove(App.state.selectedPaths || []));
     wire('mm-copyto',    () => openCopyTo(App.state.selectedPaths || []));
     wire('mm-moveto',    () => openMoveTo(App.state.selectedPaths || []));
-    wire('mm-apostille', () => openApostille(App.state.currentFolder || ''));
     wire('mm-expand-all',    () => FileTree.expandAll());
     wire('mm-collapse-all',  () => FileTree.collapseAll());
     wire('mm-bulk-split',    () => openBulkSplitPdfs(App.state.currentFolder || ''));
     wire('mm-zip-subfolders',() => FileTree.zipEachSubfolder());
-    wire('mm-heatmap',   () => App.switchPanel('heatmap'));
     wire('mm-report',    () => {
       const f = App.state.currentFolder
              || (App.state.focusedPath || '').replace(/[\\/][^\\/]+$/, '')
@@ -1477,57 +1419,6 @@ const Dialogs = (() => {
     document.getElementById('mv-browse')?.addEventListener('click', async () => {
       const r = await SFM.call('browse_for_folder');
       if (r.ok && r.path) document.getElementById('mv-dest').value = r.path;
-    });
-  }
-
-  // ── 20. Create Student Folders (CORE FEATURE) ────────────────────────────
-  async function openCreateStudentFolders(dest) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Enter student names (one per line). A folder will be created for each name.</p>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Destination folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="sf-dest" class="input-text" value="${_esc(dest||'')}" style="flex:1">
-          <button class="btn" id="sf-browse">Browse…</button>
-        </div>
-      </div>
-      <div>
-        <label class="detail-label">Student names (one per line)</label>
-        <textarea id="sf-names" class="input-text" rows="10"
-          placeholder="AHMED ALI&#10;JOHN SMITH&#10;FATIMA KHAN"
-          style="width:100%;margin-top:4px;resize:vertical;font-family:monospace;font-size:12px"></textarea>
-      </div>
-      <div id="sf-status" style="font-size:12px;color:var(--accent);min-height:18px;margin-top:8px"></div>`;
-
-    _openModal('student-folders', 'Create Student Folders', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Create Folders', primary: true, onClick: async () => {
-        const destVal = document.getElementById('sf-dest')?.value.trim();
-        const raw     = document.getElementById('sf-names')?.value || '';
-        const names   = raw.split('\n').map(n => n.trim()).filter(Boolean);
-        if (!destVal) { App.toast('Set a destination folder', 'error'); return; }
-        if (names.length === 0) { App.toast('Enter at least one name', 'error'); return; }
-        const statusEl = document.getElementById('sf-status');
-        if (statusEl) statusEl.textContent = 'Creating ' + names.length + ' folders…';
-        App.setStatus('Creating folders…', true);
-        const r = await SFM.createStudentFolders(names, destVal);
-        App.setStatus('Ready');
-        if (r.ok) {
-          const created = r.created || names.length;
-          if (statusEl) statusEl.textContent = '✅ Created ' + created + ' folder(s)';
-          App.toast('Created ' + created + ' student folder(s)', 'success');
-          FileTree.refresh();
-          closeModal();
-        } else {
-          if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + r.error; }
-          App.toast('Failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    document.getElementById('sf-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('sf-dest').value = r.path;
     });
   }
 
@@ -2333,12 +2224,12 @@ const Dialogs = (() => {
   }
 
   return {
-    openCombinePdf, openFullView, openArrangePages, openApostille,
+    openCombinePdf, openFullView, openArrangePages,
     openA4Placer, openIdCard, openPrint, openTemplates, openUppercase,
     openCompressPdf, openSettings, openExtractPages, openDuplicatePages,
     openSimilarMove, openPassportCheck, openMoreMenu,
     openSmartSplitProgress,
-    openCopyTo, openMoveTo, openCreateStudentFolders,
+    openCopyTo, openMoveTo,
     openPdfToImages, openSplitRenameOcrProgress,
     openZipContents,
     openBulkSplitPdfs,
