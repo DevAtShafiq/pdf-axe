@@ -47,7 +47,14 @@ const SFM = (() => {
 
   // ── api call wrapper ───────────────────────────────────────────────────────
   async function call(method, ...args) {
-    const api = await _getApi();
+    let api = await _getApi();
+    // pywebview attaches the API methods in batches after window.pywebview.api
+    // appears, so a call made right at start-up can arrive before its method
+    // exists (the drive list came up empty on first launch). Wait for it.
+    for (let waited = 0; !api[method] && waited < 10000; waited += 50) {
+      await new Promise(r => setTimeout(r, 50));
+      api = window.pywebview.api || api;
+    }
     if (!api[method]) {
       _pylog('error', `Bridge: unknown method "${method}"`);
       throw new Error(`Bridge: unknown method "${method}"`);

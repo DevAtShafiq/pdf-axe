@@ -108,7 +108,7 @@ const Details = (() => {
     _addRow('Name', entry.name);
     _addRow('Type', entry.is_dir ? 'Folder' : (entry.ext || 'File').replace('.','').toUpperCase());
     if (!entry.is_dir) _addRow('Size', _fmtSize(entry.size));
-    _addRow('Modified', _fmtDate(entry.modified));
+    _addRow('Modified', _fmtDate(entry.mtime || entry.modified));
     _addRow('Location', _shortPath(entry.path));
   }
 

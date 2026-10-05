@@ -5,7 +5,7 @@
  *      Turns a rename <input> into a template-suggesting combo box:
  *        - empty input / untouched name → browse list of all templates
  *        - typing filters by English, local name or "slugish" text
- *        - ↑/↓ highlight, Enter picks, Esc closes, mouse click picks
+ *        - ↑/↓ highlight, Enter picks (a strong top match is pre-selected), Esc closes, mouse click picks
  *        - Ctrl+Enter renames to the typed name AND saves it as a template
  *        - language dropdown (International / Korean …) persisted to settings
  *      opts: { getEntry(): entry|null, rename({stem?, typed?, save?}) }
@@ -84,8 +84,13 @@ const RenameTemplates = (() => {
       try { r = await SFM.filterSuggestions(query(), extOf(), _lang); } catch (_) { r = { ok: false }; }
       if (my !== seq || document.activeElement !== input) return;
       items = r.ok ? (r.suggestions || []) : [];
-      idx = -1;
+      // Like the old app: a strong match (exact, starts-with, or every typed
+      // word starts a word of the name) is pre-selected, so plain Enter applies
+      // it. Weaker matches (substring/typo) still need ↓ first, so a custom
+      // name typed on purpose is not replaced.
+      idx = (typed && items.length && items[0].score <= 2) ? 0 : -1;
       render();
+      if (idx >= 0) highlight();
     }
 
     function render() {
