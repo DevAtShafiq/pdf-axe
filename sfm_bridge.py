@@ -955,6 +955,15 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
+    def _ocr_template_stem_fn(self):
+        """Checklist-type → file-name stem in the chosen template language
+        (English-only in International mode, KR-EN in Korean mode)."""
+        try:
+            import rename_templates as rt
+            return rt.store().ocr_stem_fn(self._rename_lang())
+        except Exception:
+            return None
+
     def ocr_rename_with_progress(self, paths: list, api_key: str = "") -> dict:
         """Same as ocr_rename but emits ocr_rename_log + ocr_rename_done events."""
         def _run():
@@ -962,7 +971,9 @@ class SFMBridge:
                 if api_key:
                     os.environ.setdefault("OPENAI_API_KEY", api_key)
                 log_cb = self._log_cb("ocr_rename_log")
-                _fo.pdf_rename_files_by_ocr_smart(paths, log=log_cb)
+                _fo.pdf_rename_files_by_ocr_smart(
+                    paths, log=log_cb,
+                    template_stem_for_type=self._ocr_template_stem_fn())
                 self._emit("ocr_rename_done", {"ok": True})
             except Exception as exc:
                 self._emit("ocr_rename_done", {"ok": False, "error": str(exc)})
@@ -1000,7 +1011,9 @@ class SFMBridge:
                 if api_key:
                     os.environ.setdefault("OPENAI_API_KEY", api_key)
                 log_cb = self._log_cb("ocr_rename_log")
-                _fo.pdf_rename_files_by_ocr_smart(paths, log=log_cb)
+                _fo.pdf_rename_files_by_ocr_smart(
+                    paths, log=log_cb,
+                    template_stem_for_type=self._ocr_template_stem_fn())
                 self._emit("ocr_rename_done", {"ok": True})
             except Exception as exc:
                 self._emit("ocr_rename_done", {"ok": False, "error": str(exc)})
@@ -1175,41 +1188,116 @@ class SFMBridge:
     # DOCUMENT RENAME TEMPLATES
     # =========================================================================
 
-    def get_rename_templates(self) -> dict:
+    # Logic lives in rename_templates.py (language registry, user file,
+    # scoring); the old tkinter module is no longer imported here.
+
+    def _rename_lang(self, lang: str = "") -> str:
+        import rename_templates as rt
+        return rt.normalize_lang(lang or self._load_settings().get("rename_lang") or rt.DEFAULT_LANG)
+
+    def get_rename_lang(self) -> dict:
         try:
-            # Import from student_folder_maker helpers
-            import student_folder_maker as sfm
-            pairs = sfm.document_rename_merged_pairs()
-            return _ok(pairs=[{"key": k, "label": v} for k, v in pairs])
+            import rename_templates as rt
+            return _ok(lang=self._rename_lang(), languages=rt.languages())
         except Exception as exc:
             return _err(str(exc))
 
-    def filter_rename_suggestions(self, query: str, ext: str = "") -> dict:
+    def set_rename_lang(self, lang: str) -> dict:
         try:
-            import student_folder_maker as sfm
-            suggestions = sfm._filter_document_renames(query)
-            return _ok(suggestions=suggestions)
+            import rename_templates as rt
+            code = str(lang or "").strip().lower()
+            if code not in rt.LANGUAGES:
+                return _err(f"Unknown template language: {lang}")
+            self._save_settings({"rename_lang": code})
+            return _ok(lang=code)
         except Exception as exc:
             return _err(str(exc))
 
-    def save_name_template(self, key: str, label: str) -> dict:
+    def get_rename_templates(self, lang: str = "") -> dict:
         try:
-            import student_folder_maker as sfm
-            sfm.document_rename_save_user_templates({key: label})
-            return _ok()
+            import rename_templates as rt
+            code = self._rename_lang(lang)
+            st = rt.store()
+            rows = [{"en": r.en, "local": r.local, "builtin": r.builtin,
+                     "source": r.source, "stem": rt.stem_for(r.en, r.local, code),
+                     "label": rt.label_for(r.en, r.local, code)}
+                    for r in st.rows(code)]
+            return _ok(lang=code, languages=rt.languages(), rows=rows,
+                       user_file=st.user_file_path(code),
+                       pairs=[{"key": r["en"], "label": r["local"]} for r in rows])
+        except Exception as exc:
+            return _err(str(exc))
+
+    def filter_rename_suggestions(self, query: str, ext: str = "", lang: str = "") -> dict:
+        try:
+            import rename_templates as rt
+            code = self._rename_lang(lang)
+            return _ok(lang=code, suggestions=rt.store().suggestions(query, code, ext, limit=60))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def save_name_template(self, en: str, local: str = "", lang: str = "") -> dict:
+        """Add one custom template row (English + optional local name)."""
+        try:
+            import rename_templates as rt
+            code = self._rename_lang(lang)
+            ok, res = rt.store().add_user_row(code, en, local)
+            return _ok(path=res, lang=code) if ok else _err(res)
         except Exception as exc:
             return _err(str(exc))
 
     def save_rename_template(self, template: dict) -> dict:
-        """Save a rename template dict with {name, pattern} keys."""
+        """Add a template from {en, local, lang} (legacy {name, pattern} accepted)."""
         try:
-            name    = template.get("name", "")
-            pattern = template.get("pattern", name)
-            if not name:
+            t = template or {}
+            en = (t.get("en") or t.get("name") or "").strip()
+            local = (t.get("local") or "").strip()
+            if not en and not local:
                 return _err("Template name is required")
-            import student_folder_maker as sfm
-            sfm.document_rename_save_user_templates({name: pattern})
-            return _ok()
+            return self.save_name_template(en, local, t.get("lang", ""))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def save_rename_templates(self, rows: list, lang: str = "") -> dict:
+        """Replace the custom rows of a language ([{en, local}, ...]) — 'Save to file'."""
+        try:
+            import rename_templates as rt
+            code = self._rename_lang(lang)
+            ok, res = rt.store().save_user_rows(code, rows or [])
+            return _ok(path=res, lang=code) if ok else _err(res)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def rename_with_template(self, path: str, name: str, save: bool = False,
+                             lang: str = "") -> dict:
+        """Rename *path* to ``<name><original ext>`` without overwriting.
+
+        A taken name gets `` (2)``, `` (3)`` … appended.  With *save*, the typed
+        name is also stored as a custom template for the current language.
+        """
+        try:
+            import rename_templates as rt
+            code = self._rename_lang(lang)
+            if not path or not os.path.exists(path):
+                return _err("File not found")
+            folder = os.path.dirname(os.path.abspath(path))
+            base = os.path.basename(path)
+            ext = "" if os.path.isdir(path) else os.path.splitext(base)[1]
+            stem = rt.sanitize_stem(rt.strip_ext(name, ext))
+            if not stem:
+                return _err("Name is empty")
+            new_name = rt.unique_name(folder, stem, ext, src_path=path)
+            ok, res = _fo.safe_rename(path, new_name)
+            if not ok:
+                return _err(res)
+            new_path = path if res == "Unchanged." else res
+            saved = False
+            if save:
+                pair = rt.pair_from_name_text(stem, code)
+                if pair:
+                    saved, _r = rt.store().add_user_row(code, *pair)
+            return _ok(new_path=new_path, new_name=os.path.basename(new_path),
+                       saved=bool(saved), lang=code)
         except Exception as exc:
             return _err(str(exc))
 
@@ -1278,7 +1366,7 @@ class SFMBridge:
             # UI settings from the Settings dialog / toolbar — store directly.
             # (The API key is saved separately via set_api_key.)
             allowed = {"theme", "output_folder", "ocr_lang",
-                       "last_folder", "zoom", "panel_layout"}
+                       "last_folder", "zoom", "panel_layout", "rename_lang"}
             to_save = {k: v for k, v in settings.items() if k in allowed}
             if to_save:
                 self._save_settings(to_save)
