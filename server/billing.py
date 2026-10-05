@@ -25,8 +25,10 @@ class SubscriptionUpdate:
     customer_id: str
     subscription_id: str
     status: str
-    current_period_end: float
-    user_id: int | None = None  # set when the event carries our own user id
+    current_period_end: float     # 0 = unknown, keep the stored value
+    user_id: int | None = None    # set when the event carries our own user id
+    event_id: str = ""            # provider event id, for idempotency
+    event_created: float = 0.0    # provider event time, to ignore stale events
 
 
 class BillingError(Exception):
@@ -88,19 +90,29 @@ class StripeProvider(BillingProvider):
         except Exception as exc:  # bad signature or malformed payload
             raise BillingError(f"Invalid webhook: {exc}") from exc
 
+        event = _plain(event)
         etype = event["type"]
         obj = _plain(event["data"]["object"])
+        upd = None
         if etype == "checkout.session.completed":
             sub_id = obj.get("subscription")
             if not sub_id:
                 return None
             sub = _plain(stripe.Subscription.retrieve(sub_id))
-            return _from_subscription(sub, obj.get("client_reference_id"))
-        if etype in ("customer.subscription.created",
-                     "customer.subscription.updated",
-                     "customer.subscription.deleted"):
-            return _from_subscription(obj, None)
-        return None
+            upd = _from_subscription(sub, obj.get("client_reference_id"))
+        elif etype in ("customer.subscription.created",
+                       "customer.subscription.updated",
+                       "customer.subscription.deleted"):
+            upd = _from_subscription(obj, None)
+            if etype == "customer.subscription.deleted":
+                upd.status = "canceled"
+        elif etype == "invoice.payment_failed":
+            upd = _from_failed_invoice(obj)
+        if upd is None:
+            return None
+        upd.event_id = str(event.get("id") or "")
+        upd.event_created = float(event.get("created") or 0)
+        return upd
 
 
 def _plain(obj) -> dict:
@@ -122,6 +134,27 @@ def _from_subscription(sub, ref_user_id) -> SubscriptionUpdate:
         subscription_id=sub.get("id") or "",
         status=sub.get("status") or "none",
         current_period_end=float(period_end or 0),
+        user_id=int(uid) if uid and str(uid).isdigit() else None,
+    )
+
+
+def _from_failed_invoice(inv) -> SubscriptionUpdate | None:
+    """invoice.payment_failed → the subscription is past due (grace period starts)."""
+    sub_id = inv.get("subscription")
+    if not sub_id:   # newer API versions nest it under parent.subscription_details
+        parent = inv.get("parent") or {}
+        sub_id = (parent.get("subscription_details") or {}).get("subscription")
+    if isinstance(sub_id, dict):
+        sub_id = sub_id.get("id")
+    if not sub_id:
+        return None  # a one-off invoice, not our subscription
+    meta = ((inv.get("parent") or {}).get("subscription_details") or {}).get("metadata") or {}
+    uid = meta.get("user_id")
+    return SubscriptionUpdate(
+        customer_id=inv.get("customer") or "",
+        subscription_id=str(sub_id),
+        status="past_due",
+        current_period_end=0.0,
         user_id=int(uid) if uid and str(uid).isdigit() else None,
     )
 
