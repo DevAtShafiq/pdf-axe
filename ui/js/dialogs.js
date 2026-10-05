@@ -65,6 +65,52 @@ const Dialogs = (() => {
     return overlay;
   }
 
+  // ── Helpers for dialogs that build their own overlay markup ──────────────
+  // Crop and QR build an overlay with id "mo-<id>"; these register it on the
+  // same stack as _openModal so Escape / closeModal pop it correctly.
+  let _uid = 0;
+  function _nextId() { return 'dlg' + (++_uid); }
+  function _nextZ()  { return _Z_BASE + _stack.length * 50; }
+
+  function _attachClose(id) {
+    const overlay = document.getElementById('mo-' + id);
+    if (!overlay) return;
+    function close() {
+      const idx = _stack.findIndex(s => s.overlay === overlay);
+      if (idx !== -1) {
+        document.removeEventListener('keydown', _stack[idx].onKeyDown);
+        _stack.splice(idx, 1);
+      }
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('.modal-close').forEach(b => b.addEventListener('click', close));
+    const onKeyDown = e => {
+      if (e.key === 'Escape' && _stack[_stack.length - 1]?.overlay === overlay) close();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    _stack.push({ overlay, onKeyDown });
+    overlay._close = close;
+  }
+
+  function _modal(key, opts) {
+    const id = _nextId();
+    const o = opts || {};
+    const html = `
+<div class="modal-overlay" id="mo-${id}" data-key="${_esc(key)}" style="z-index:${_nextZ()}">
+<div class="modal" style="width:${o.width || '560px'};max-width:98vw;max-height:94vh;display:flex;flex-direction:column;${o.extraStyle || ''}">
+  <div class="modal-header">
+    <span class="modal-title">${_esc(o.title || '')}</span>
+    <button class="modal-close" aria-label="Close">&#x2715;</button>
+  </div>
+  <div class="modal-body" style="overflow:auto">${o.body || ''}</div>
+  ${o.footer ? `<div class="modal-footer">${o.footer}</div>` : ''}
+</div></div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    _attachClose(id);
+    return id;
+  }
+
   function closeModal() {
     if (_stack.length) _stack[_stack.length - 1].overlay._close();
   }

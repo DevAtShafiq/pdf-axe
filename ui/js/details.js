@@ -302,7 +302,6 @@ const Details = (() => {
 
     _setAiBusy(true, `Running ${label}… (may take up to a minute)`);
     App.setStatus(`AI: ${label}…`, true);
-    App.toast(`AI ${label} started…`, 'info');
 
     let unsub = null;
     const result = await new Promise(async resolve => {
@@ -310,6 +309,7 @@ const Details = (() => {
       try {
         const r = await SFM.runAiPhoto(path, action, {});
         if (!r || !r.ok) resolve({ ok: false, error: (r && r.error) || 'Could not start AI edit' });
+        else App.toast(`AI ${label} started…`, 'info');
       } catch (e) { resolve({ ok: false, error: String(e) }); }
     });
     if (unsub) unsub();

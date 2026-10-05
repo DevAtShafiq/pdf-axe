@@ -196,8 +196,9 @@ class EventStream:
         backoff = 1.0
         while not self._stop.is_set():
             try:
-                q = "?token=" + urllib.parse.quote(self._client.token)
-                self._resp = self._client._open("GET", "/events" + q,
+                # The token travels in the Authorization header (added by _open),
+                # never in the URL, so it stays out of server access logs.
+                self._resp = self._client._open("GET", "/events",
                                                 headers={"Accept": "text/event-stream"}, timeout=60)
                 self._on_status(True)
                 backoff = 1.0

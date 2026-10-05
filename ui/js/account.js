@@ -451,7 +451,7 @@ const Account = (() => {
           <div class="cloud-cta-icon">🔒</div>
           <h3>Cloud storage is part of the monthly plan</h3>
           <p class="acct-muted">Keep your files safe online, open them on every computer, and auto-sync a folder in real time.</p>
-          <button class="btn btn-primary" id="cloud-subscribe" ${s.billing_available === false ? 'disabled' : ''}>Subscribe${s.plan_label ? ' — ' + esc(s.plan_label) : ''}</button>
+          <button class="btn btn-primary" id="cloud-subscribe" ${s.billing_available === false ? 'disabled title="Billing is not set up on this server"' : ''}>Subscribe${s.plan_label ? ' — ' + esc(s.plan_label) : ''}</button>
           ${st.pollTimer ? '<p class="acct-hint">Waiting for payment to complete…</p>' : ''}
         </div>`;
       $('cloud-subscribe').addEventListener('click', subscribe);
