@@ -1871,16 +1871,9 @@ class SFMBridge:
         The original file is never overwritten (a new *_ai file is written).
         """
         opts = opts or {}
-        require_plan = getattr(self, "_require_plan", None)
-        if callable(require_plan):
-            import inspect
-            try:
-                takes_arg = bool(inspect.signature(require_plan).parameters)
-            except (TypeError, ValueError):
-                takes_arg = False
-            gate = require_plan("ai_photo") if takes_arg else require_plan()
-            if gate:
-                return gate
+        gate = self._require_plan()
+        if gate:
+            return gate
         if not path or not os.path.isfile(path):
             return _err(f"File not found: {path}")
 
