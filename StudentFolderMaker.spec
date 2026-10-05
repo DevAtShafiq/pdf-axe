@@ -43,6 +43,7 @@ datas = [
     ("file_ops.py",     "."),
     ("ai_photo_editor.py",     "."),
     ("qr_screen_capture.py",   "."),
+    ("rename_templates.py",    "."),   # document-name templates (F2 rename suggestions)
     ("student_folder_maker.py","."),   # lazily imported for rename templates
     ("excel_grid.py",          "."),   # imported by student_folder_maker
     ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
@@ -57,6 +58,7 @@ hiddenimports = [
     "file_ops",
     "ai_photo_editor",
     "qr_screen_capture",
+    "rename_templates",
     "excel_grid",
     "student_folder_maker",
     "sfm_bridge",
