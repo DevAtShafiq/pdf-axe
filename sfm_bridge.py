@@ -1142,6 +1142,44 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
+    # ── Image compression / format conversion ─────────────────────────────
+
+    def compress_image(self, path: str, quality: int = 70, max_edge: int = 0,
+                       fmt: str = "", out_path: str = "") -> dict:
+        try:
+            ok, res = _fo.compress_image(path, int(quality or 70), int(max_edge or 0),
+                                         fmt or "", out_path or "")
+            if not ok:
+                return _err(res)
+            before, after = res["before"], res["after"]
+            pct = round((before - after) * 100.0 / before, 1) if before else 0.0
+            return _ok(out=res["out"], before=before, after=after,
+                       saved=before - after, reduction=pct)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def compress_images(self, paths: list, quality: int = 70, max_edge: int = 0,
+                        fmt: str = "") -> dict:
+        try:
+            if isinstance(paths, str):
+                paths = [paths]
+            r = _fo.compress_images(list(paths or []), int(quality or 70),
+                                    int(max_edge or 0), fmt or "")
+            before = r["before"]
+            pct = round(r["saved"] * 100.0 / before, 1) if before else 0.0
+            failed = sum(1 for x in r["results"] if not x.get("ok"))
+            return _ok(results=r["results"], before=before, after=r["after"],
+                       saved=r["saved"], reduction=pct, failed=failed)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def convert_image(self, path: str, fmt: str, out_path: str = "") -> dict:
+        try:
+            ok, result = _fo.convert_image(path, fmt, out_path or "")
+            return _ok(out=result) if ok else _err(result)
+        except Exception as exc:
+            return _err(str(exc))
+
     def excel_to_csv(self, path: str, out_dir: str = "") -> dict:
         try:
             if not out_dir:

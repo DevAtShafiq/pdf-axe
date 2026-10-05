@@ -216,6 +216,36 @@ const ContextMenu = (() => {
       });
       _item(menu, '\u{1F3A8}', 'Brightness / Contrast\u2026', '', () => { hide(); Dialogs.openImageAdjust(mainPath); });
       _item(menu, '\u{1FAA7}',        'Check Passport Photo', '', () => { hide(); Dialogs.openPassportCheck(mainPath); });
+    }
+
+    // Section: image compress / convert (single or multi-select)
+    const IMG_EXTS = ['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tif','.tiff'];
+    const allImg = entries.length > 0 && entries.every(e => !e.is_dir && IMG_EXTS.includes((e.ext||'').toLowerCase()));
+    if (allImg) {
+      const imgPaths = entries.map(e => e.path);
+      _item(menu, '\u{1F5DC}️', imgPaths.length > 1 ? 'Compress Images…' : 'Compress Image…', '',
+        () => { hide(); Dialogs.openCompressImages(imgPaths); });
+      [['jpg', 'JPG'], ['png', 'PNG'], ['webp', 'WEBP']].forEach(([fmt, lbl]) => {
+        _item(menu, '\u{1F501}', 'Convert Image to ' + lbl, '', async () => {
+          hide();
+          App.setStatus('Converting to ' + lbl + '…', true);
+          let ok = 0; const errs = []; let last = '';
+          for (const p of imgPaths) {
+            const r = await SFM.convertImage(p, fmt);
+            if (r.ok) { ok++; last = r.out; } else errs.push(p.split(/[\\/]/).pop() + ': ' + r.error);
+          }
+          App.setStatus('Ready');
+          if (ok) {
+            App.toast(ok === 1 && imgPaths.length === 1
+              ? 'Converted → ' + last.split(/[\\/]/).pop()
+              : 'Converted ' + ok + ' of ' + imgPaths.length + ' image(s) to ' + lbl, 'success');
+            FileTree.refresh();
+          }
+          if (errs.length) App.toast('Convert failed: ' + errs.join('; '), 'error');
+        });
+      });
+      _sep(menu);
+    } else if (isImg) {
       _sep(menu);
     }
 
