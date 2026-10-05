@@ -96,19 +96,8 @@
 
     <div class="toolbar-sep"></div>
 
-    <!-- Zip -->
+    <!-- QR -->
     <div class="toolbar-group">
-      <button class="toolbar-btn-icon" id="btn-zip"   title="Zip selection">🤐</button>
-      <button class="toolbar-btn-icon" id="btn-unzip" title="Unzip selected">📦</button>
-    </div>
-
-    <div class="toolbar-sep"></div>
-
-    <!-- Translate + QR -->
-    <div class="toolbar-group">
-      <button class="toolbar-btn" id="btn-translate" title="Translate to Korean 🇰🇷">
-        🇰🇷
-      </button>
       <button class="toolbar-btn" id="btn-qr" title="Scan QR code from screen">
         <span class="icon">📷</span> QR
       </button>
@@ -228,9 +217,6 @@
           <button class="toolbar-btn" id="pdf-arrange"    title="Arrange / merge pages">⊞ Arrange</button>
           <button class="toolbar-btn" id="pdf-split"      title="Split into pages">✂ Split</button>
           <button class="toolbar-btn" id="pdf-compress"   title="Compress PDF">🗜 Compress</button>
-          <div class="toolbar-sep"></div>
-          <button class="toolbar-btn" id="pdf-ocr"        title="Make searchable (OCR)">🔤 OCR</button>
-          <button class="toolbar-btn" id="pdf-print"      title="Print">🖨 Print</button>
         </div>
 
         <div class="preview-body" id="preview-body">
@@ -246,10 +232,6 @@
           <!-- Image preview -->
           <img id="img-preview" class="hidden" src="" alt="preview"
                style="max-width:100%;max-height:100%;object-fit:contain;margin:auto;display:block;padding:16px">
-
-          <!-- HTML/Word/Excel preview iframe -->
-          <iframe id="html-preview" class="hidden" src="about:blank"
-                  style="flex:1;border:none;width:100%;background:#fff"></iframe>
 
           <!-- Plain text preview -->
           <div  id="text-preview"  class="text-preview hidden"></div>
@@ -308,8 +290,7 @@
               <button class="qa-btn primary" id="qa-open"><span class="icon">📂</span> Open</button>
               <button class="qa-btn"         id="qa-opendir"><span class="icon">📁</span> Open Folder</button>
               <button class="qa-btn"         id="qa-copy-path"><span class="icon">📋</span> Copy Path</button>
-              <button class="qa-btn"         id="qa-convert-pdf"><span class="icon">📄</span> Convert to PDF</button>
-              <button class="qa-btn"         id="qa-print"><span class="icon">🖨</span> Print…</button>
+              <button class="qa-btn hidden"  id="qa-convert-pdf" title="Convert this image to PDF"><span class="icon">📄</span> Convert to PDF</button>
               <button class="qa-btn danger"  id="qa-delete"><span class="icon">🗑</span> Move to Review</button>
             </div>
           </div>

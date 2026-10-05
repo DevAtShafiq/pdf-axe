@@ -37,7 +37,6 @@ const ContextMenu = (() => {
     const entry    = single ? entries[0] : null;
     const isPdf    = single && (entry?.ext || '').toLowerCase() === '.pdf';
     const isImg    = single && ['.jpg','.jpeg','.png','.bmp','.webp','.gif'].includes((entry?.ext||'').toLowerCase());
-    const isOffice = single && ['.docx','.doc','.xlsx','.xls','.pptx','.ppt'].includes((entry?.ext||'').toLowerCase());
     const isDir    = single && entry?.is_dir;
     const paths    = selectedPaths || entries.map(e => e.path);
     const mainPath = entry?.path || paths[0];
@@ -81,42 +80,6 @@ const ContextMenu = (() => {
 
     // Section: file ops
     _item(menu, '✏️', 'Rename',         'F2',  () => { hide(); setTimeout(() => Details.beginRename(), 100); });
-    _item(menu, '\u{1F4C4}+', 'New Text Document', '', async () => {
-      hide();
-      const folder = isDir ? mainPath : (FileTree.getCurrentFolder() || mainPath.replace(/[\\\\/][^\\\\/]+$/, ''));
-      const name = prompt('File name:', 'New Document.txt');
-      if (!name) return;
-      const r = await SFM.createTextFile(folder, name);
-      if (r.ok) { App.toast('Created: ' + name, 'success'); FileTree.refresh(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
-    });
-    if (single && !isDir) {
-      _item(menu, '\u{1F4C1}', 'Make Folder for File', '', async () => {
-        hide();
-        const fname = entry.name.replace(/\.[^.]+$/, '');
-        const parent = mainPath.replace(/[\\\\/][^\\\\/]+$/, '');
-        const cr = await SFM.createFolder(parent, fname);
-        if (!cr.ok) { App.toast('Failed: ' + cr.error, 'error'); return; }
-        const mr = await SFM.moveFiles([mainPath], cr.path);
-        if (mr.ok) { App.toast('Moved into ' + fname + '/', 'success'); FileTree.refresh(); }
-        else        { App.toast('Move failed: ' + mr.error, 'error'); }
-      });
-    }
-    _item(menu, '\u{1F3E0}', 'Move to Root Folder', '', async () => {
-      hide();
-      const root = FileTree.getCurrentFolder();
-      if (!root) { App.toast('No folder open', 'error'); return; }
-      if (!confirm('Move ' + paths.length + ' item(s) to root of\n' + root + '?')) return;
-      App.setStatus('Moving…', true);
-      const r = await SFM.moveToRoot(paths, root);
-      App.setStatus('Ready');
-      if (r.ok) {
-        const n = r.moved?.length || 0;
-        const e = r.errors?.length || 0;
-        App.toast('Moved ' + n + ' item(s)' + (e ? ' (' + e + ' error(s))' : ''), n ? 'success' : 'error');
-        FileTree.refresh();
-      } else { App.toast('Failed: ' + r.error, 'error'); }
-    });
     _item(menu, '\u{1F5D1}️', 'Move to Review', 'Del', async () => {
       hide();
       if (!confirm('Move ' + paths.length + ' item(s) to _to_review/?')) return;
@@ -163,59 +126,16 @@ const ContextMenu = (() => {
         });
         _item(menu, '\u{1F50D}', 'Rename by Doc Type (OCR)\u2026', '', () => { hide(); Dialogs.openOcrRenameProgress([mainPath]); });
         _item(menu, '\u{1F5DC}️', 'Compress PDF…',  '', () => { hide(); Dialogs.openCompressPdf(mainPath); });
-        _item(menu, '\u{1F4D0}', 'Place on A4…',         '', () => { hide(); Dialogs.openA4Placer(mainPath); });
-        _item(menu, '\u{1FAA7}', 'ID Card on A4…',       '', () => { hide(); Dialogs.openIdCard(mainPath); });
-        _item(menu, '\u{1F50E}', 'Find Duplicate Pages',      '', () => { hide(); Dialogs.openDuplicatePages(mainPath); });
-        _item(menu, '\u{1F5D2}️', 'Open with Acrobat',  '', () => { hide(); SFM.openWithAcrobat([mainPath]); });
         _item(menu, '\u{1F4F7}', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
         _item(menu, '\u{1F50D}', 'Split & Rename by OCR…',   '', () => { hide(); Dialogs.openSplitRenameOcrProgress(mainPath); });
-        _item(menu, '\u{1F4C4}', 'Make OCR Searchable',       '', async () => {
-          hide(); App.setStatus('Running OCR…', true);
-          const r = await SFM.makeOcrSearchable(mainPath);
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('OCR searchable saved', 'success'); FileTree.refresh(); }
-          else       { App.toast('OCR failed: ' + r.error, 'error'); }
-        });
         _sep(menu);
       }
     }
 
     // Section: image ops
     if (isImg) {
-      _item(menu, '\u{1F5A8}️', 'Print…',          '', () => { hide(); Dialogs.openPrint(mainPath); });
-      _item(menu, '\u{1F4D0}', 'Resize to Photo Size\u2026', '', () => { hide(); Dialogs.openPhotoSizer(mainPath); });
       _item(menu, '✂️', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
       _item(menu, '\u{1F454}', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
-      _item(menu, '\u{1F504}', 'Rotate CW 90°', '', async () => {
-        hide(); App.setStatus('Rotating…', true);
-        const r = await SFM.rotateImage(mainPath, 90);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Rotated CW → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Rotate failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{1F503}', 'Rotate CCW 90°', '', async () => {
-        hide(); App.setStatus('Rotating…', true);
-        const r = await SFM.rotateImage(mainPath, -90);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Rotated CCW → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Rotate failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{2194}\uFE0F', 'Flip Horizontal', '', async () => {
-        hide(); App.setStatus('Flipping…', true);
-        const r = await SFM.flipImage(mainPath, 'horizontal');
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Flipped → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Flip failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{2195}\uFE0F', 'Flip Vertical', '', async () => {
-        hide(); App.setStatus('Flipping…', true);
-        const r = await SFM.flipImage(mainPath, 'vertical');
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Flipped → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Flip failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{1F3A8}', 'Brightness / Contrast\u2026', '', () => { hide(); Dialogs.openImageAdjust(mainPath); });
-      _item(menu, '\u{1FAA7}',        'Check Passport Photo', '', () => { hide(); Dialogs.openPassportCheck(mainPath); });
     }
 
     // Section: image compress / convert (single or multi-select)
@@ -244,70 +164,59 @@ const ContextMenu = (() => {
           if (errs.length) App.toast('Convert failed: ' + errs.join('; '), 'error');
         });
       });
+      // Image(s) → PDF: one PDF per image, saved beside the original
+      _item(menu, '\u{1F4C4}', 'Convert to PDF', '', async () => {
+        hide();
+        App.setStatus('Converting to PDF…', true);
+        let ok = 0; const errs = []; let last = '';
+        for (const p of imgPaths) {
+          const r = await SFM.convertToPdf(p);
+          if (r.ok) { ok++; last = r.out_path; } else errs.push(p.split(/[\\/]/).pop() + ': ' + r.error);
+        }
+        App.setStatus('Ready');
+        if (ok) {
+          App.toast(ok === 1 && imgPaths.length === 1
+            ? 'Converted → ' + last.split(/[\\/]/).pop()
+            : 'Converted ' + ok + ' of ' + imgPaths.length + ' image(s) to PDF', 'success');
+          FileTree.refresh();
+        }
+        if (errs.length) App.toast('Convert failed: ' + errs.join('; '), 'error');
+      });
+      if (imgPaths.length > 1) {
+        // Several images → one multi-page PDF (originals untouched, never overwrites)
+        _item(menu, '\u{1F4CE}', 'Combine Images into One PDF', '', async () => {
+          hide();
+          const dir  = imgPaths[0].replace(/[\\/][^\\/]+$/, '');
+          const stem = imgPaths[0].split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+          let out = dir + '\\' + stem + '_combined.pdf';
+          for (let i = 2; (await SFM.pathExists(out)).exists; i++) {
+            out = dir + '\\' + stem + '_combined-' + i + '.pdf';
+          }
+          App.setStatus('Combining images into PDF…', true);
+          const r = await SFM.combineToPdf(imgPaths, out);
+          App.setStatus('Ready');
+          if (r.ok) { App.toast('Combined ' + imgPaths.length + ' image(s) → ' + out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
+          else       { App.toast('Combine failed: ' + r.error, 'error'); }
+        });
+      }
       _sep(menu);
     } else if (isImg) {
       _sep(menu);
     }
 
-    // Section: Office
-    if (isOffice) {
-      _item(menu, '\u{1F4C4}', 'Convert to PDF', '', async () => {
-        hide(); App.setStatus('Converting…', true);
-        const r = await SFM.convertToPdf(mainPath);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Converted: ' + r.out, 'success'); FileTree.refresh(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      });
-      if ((entry?.ext||'').toLowerCase().match(/\.xlsx?$/)) {
-        _item(menu, '\u{1F4CA}', 'Export Sheets as CSV', '', async () => {
-          hide(); App.setStatus('Exporting CSV\u2026', true);
-          const r = await SFM.excelToCsv(mainPath);
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('Exported ' + (r.files?.length||'?') + ' CSV file(s)', 'success'); FileTree.refresh(); }
-          else       { App.toast('Failed: ' + r.error, 'error'); }
-        });
-      }
-      _sep(menu);
-    }
-
-    // Section: multi-selection extras / copy+move always visible
-    if (multi) {
-      _item(menu, '\u{1F500}', 'Similar Move…', '', () => { hide(); Dialogs.openSimilarMove(paths); });
-    }
+    // Section: copy / move (always visible)
     _item(menu, '\u{1F4CB}', 'Copy To…', '', () => { hide(); Dialogs.openCopyTo(paths); });
     _item(menu, '\u{2702}\uFE0F', 'Move To…', '', () => { hide(); Dialogs.openMoveTo(paths); });
     _sep(menu);
 
-    // Section: ZIP
-    _item(menu, '\u{1F4E6}', 'Zip…', 'Ctrl+Shift+Z', () => { hide(); FileTree.zipSelection(); });
-    if (single && ['.zip'].includes((entry?.ext||'').toLowerCase())) {
-      _item(menu, '\u{1F4C2}', 'Extract Here', '', () => { hide(); FileTree.unzipSelection(); });
-      _item(menu, '\u{1F4CB}', 'View Contents…', '', () => { hide(); Dialogs.openZipContents(mainPath); });
-    }
-    if (entries.length > 1 && entries.every(e => (e.ext||'').toLowerCase() === '.zip')) {
-      _item(menu, '\u{1F4C2}', 'Extract All…', '', () => { hide(); FileTree.unzipSelection(); });
-    }
-    _sep(menu);
-
     // Section: folder ops (directory only)
     if (isDir) {
-      _item(menu, '\u{1F4CA}', 'Generate Report', '', () => { hide(); SFM.generateReport(mainPath); App.toast('Report queued', 'info'); });
-      _item(menu, '\u{2702}\uFE0F', 'Split PDFs in Folder\u2026', '', () => { hide(); Dialogs.openBulkSplitPdfs(mainPath); });
-      _item(menu, '\u{1F4E6}', 'Zip Each Subfolder', '', () => { hide(); FileTree.zipEachSubfolder(); });
       _item(menu, '\u{1F4C2}', 'Expand All', '', () => { hide(); FileTree.expandAll(); });
       _item(menu, '\u{1F4C1}', 'Collapse All', '', () => { hide(); FileTree.collapseAll(); });
       _sep(menu);
     }
 
-    // Section: translate / QR
-    _sep(menu);
-    _item(menu, '\u{1F310}', 'Translate to Korean…', '', async () => {
-      hide();
-      const name = entry?.name || paths[0].split(/[\\\/]/).pop();
-      const r    = await SFM.translateKorean(name.replace(/\.[^.]+$/, ''));
-      if (r.ok) App.toast('Korean: ' + r.text, 'info', 6000);
-      else       App.toast('Translation failed', 'error');
-    });
+    // Section: QR
     // QR from file (image / PDF) — primary path
     const _qrExts = new Set(['.jpg','.jpeg','.png','.bmp','.webp','.gif',
                               '.tiff','.tif','.pdf']);

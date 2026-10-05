@@ -531,13 +531,6 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
-    def open_with_acrobat(self, paths: list) -> dict:
-        try:
-            _fo.open_paths_with_acrobat(paths)
-            return _ok()
-        except Exception as exc:
-            return _err(str(exc))
-
     def show_native_context_menu(self, path: str, x: int, y: int) -> dict:
         try:
             _fo.windows_shell_track_context_menu(path, x, y)
@@ -659,33 +652,10 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
-    def create_text_file(self, parent: str, name: str) -> dict:
-        try:
-            p = os.path.join(parent, name)
-            if not os.path.exists(p):
-                open(p, "w", encoding="utf-8").close()
-            return _ok(path=p)
-        except Exception as exc:
-            return _err(str(exc))
-
     def set_clipboard(self, text: str) -> dict:
         try:
             import subprocess
             subprocess.run(["clip"], input=text.encode("utf-8"), check=True)
-            return _ok()
-        except Exception as exc:
-            return _err(str(exc))
-
-    def plan_similar_moves(self, paths: list) -> dict:
-        try:
-            plan = _fo.plan_moves_into_similar_folders(paths)
-            return _ok(plan=plan)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def apply_file_moves(self, plan: list) -> dict:
-        try:
-            _fo.apply_file_moves(plan)
             return _ok()
         except Exception as exc:
             return _err(str(exc))
@@ -750,85 +720,13 @@ class SFMBridge:
             return _err(str(exc))
 
     # =========================================================================
-    # TEXT / WORD / EXCEL PREVIEW
+    # TEXT PREVIEW
     # =========================================================================
 
     def get_text_preview(self, path: str) -> dict:
         try:
             text = _fo.preview_plain_text(path)
             return _ok(text=text)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def get_docx_preview(self, path: str) -> dict:
-        try:
-            text = _fo.preview_docx_text(path)
-            return _ok(text=text)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def get_word_html(self, path: str) -> dict:
-        """Convert Word doc to plain-text HTML fallback (used when PDF conversion fails)."""
-        try:
-            result = _fo.preview_word_document(path)
-            if isinstance(result, dict):
-                html = result.get("html") or result.get("text") or str(result)
-            else:
-                html = str(result or "")
-            return _ok(html=html)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def get_excel_html(self, path: str, sheet: str = "") -> dict:
-        """Render Excel sheet as richly styled HTML table (colors, fonts, merged cells)."""
-        try:
-            ok, result = _fo.doc_to_html_excel(path, sheet or "")
-            if not ok:
-                return _err(result)
-            sheets_raw = _fo.excel_list_sheets(path) or []
-            sheets = [s[0] if isinstance(s, (list, tuple)) else s for s in sheets_raw]
-            return _ok(html=result, sheets=sheets)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def get_doc_as_pdf(self, path: str) -> dict:
-        """Convert DOCX/XLSX/HWP/HWPX to a temp PDF for native-quality preview.
-
-        Returns {ok, pdf_path, page_count}.  The temp file lives until the
-        next call or until the app exits — no manual cleanup required from JS.
-        """
-        try:
-            ok, result = _fo.doc_to_pdf_preview(path)
-            if not ok:
-                return _err(result)
-            # Count pages
-            import fitz  # type: ignore
-            try:
-                doc = fitz.open(result)
-                count = doc.page_count
-                doc.close()
-            except Exception:
-                count = 1
-            # Track temp files to avoid leaks
-            if not hasattr(self, "_preview_temps"):
-                self._preview_temps = []
-            self._preview_temps.append(result)
-            # Clean up old temps (keep last 5)
-            while len(self._preview_temps) > 5:
-                old = self._preview_temps.pop(0)
-                try:
-                    if os.path.exists(old):
-                        os.remove(old)
-                except Exception:
-                    pass
-            return _ok(pdf_path=result, page_count=count)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def get_excel_sheets(self, path: str) -> dict:
-        try:
-            sheets = _fo.excel_list_sheets(path)
-            return _ok(sheets=sheets)
         except Exception as exc:
             return _err(str(exc))
 
@@ -888,102 +786,6 @@ class SFMBridge:
             after  = os.path.getsize(out_path)
             reduction = max(0, round((before - after) / before * 100)) if before else 0
             return _ok(out=out_path, before_bytes=before, after_bytes=after, reduction=reduction)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def place_pdf_on_a4(self, path: str, pages_per_sheet: int = 4,
-                        out_path: str = "") -> dict:
-        """Tile pages of a PDF onto A4 sheets."""
-        try:
-            import fitz, math
-            if not out_path:
-                base, ext = os.path.splitext(path)
-                out_path = base + f"_a4x{pages_per_sheet}" + ext
-            src = fitz.open(path)
-            a4_w, a4_h = 595, 842  # A4 portrait in points
-            cols = 2 if pages_per_sheet <= 4 else 3
-            rows = math.ceil(pages_per_sheet / cols)
-            cell_w = a4_w / cols
-            cell_h = a4_h / rows
-            out = fitz.open()
-            page_count = len(src)
-            for sheet_start in range(0, page_count, pages_per_sheet):
-                new_page = out.new_page(width=a4_w, height=a4_h)
-                for slot, src_idx in enumerate(range(sheet_start, min(sheet_start + pages_per_sheet, page_count))):
-                    col = slot % cols
-                    row = slot // cols
-                    x0 = col * cell_w + 2
-                    y0 = row * cell_h + 2
-                    rect = fitz.Rect(x0, y0, x0 + cell_w - 4, y0 + cell_h - 4)
-                    new_page.show_pdf_page(rect, src, src_idx)
-            out.save(out_path)
-            out.close(); src.close()
-            return _ok(out=out_path, sheets=math.ceil(page_count / pages_per_sheet))
-        except Exception as exc:
-            return _err(str(exc))
-
-    def id_card_on_a4(self, path: str, out_path: str = "") -> dict:
-        """Tile 4 copies of page 0 of a PDF onto a single A4 sheet."""
-        try:
-            import fitz
-            if not out_path:
-                base, ext = os.path.splitext(path)
-                out_path = base + "_id_card_a4" + ext
-            src = fitz.open(path)
-            a4_w, a4_h = 595, 842
-            cell_w = a4_w / 2
-            cell_h = a4_h / 2
-            out = fitz.open()
-            new_page = out.new_page(width=a4_w, height=a4_h)
-            for col in range(2):
-                for row in range(2):
-                    rect = fitz.Rect(col * cell_w + 2, row * cell_h + 2,
-                                     col * cell_w + cell_w - 2, row * cell_h + cell_h - 2)
-                    new_page.show_pdf_page(rect, src, 0)
-            out.save(out_path)
-            out.close(); src.close()
-            return _ok(out=out_path)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def print_pdf_range(self, path: str, printer: str = "",
-                        page_range: str = "", copies: int = 1) -> dict:
-        """Print a PDF to a printer, optionally specifying page range."""
-        try:
-            import subprocess, shutil, tempfile, fitz
-            # If page_range is given, extract those pages first
-            if page_range.strip():
-                pages = []
-                for part in page_range.split(","):
-                    part = part.strip()
-                    if "-" in part:
-                        a, b = part.split("-", 1)
-                        pages.extend(range(int(a)-1, int(b)))
-                    elif part:
-                        pages.append(int(part)-1)
-                src = fitz.open(path)
-                tmp = tempfile.mktemp(suffix=".pdf")
-                out = fitz.open()
-                for p in pages:
-                    if 0 <= p < len(src):
-                        out.insert_pdf(src, from_page=p, to_page=p)
-                out.save(tmp); out.close(); src.close()
-                print_path = tmp
-            else:
-                print_path = path
-
-            # Windows: use SumatraPDF or print via shell
-            sumatra = shutil.which("SumatraPDF")
-            if sumatra:
-                cmd = [sumatra, "-print-to", printer or "default",
-                       "-silent", print_path]
-            else:
-                # Fallback: ShellExecute print verb (opens dialog)
-                import os
-                os.startfile(print_path, "print")
-                return _ok(method="shell_print")
-            subprocess.run(cmd, check=True, timeout=60)
-            return _ok(method="sumatra", printer=printer)
         except Exception as exc:
             return _err(str(exc))
 
@@ -1078,12 +880,20 @@ class SFMBridge:
             _log.error("pdf_to_images error: %s", exc, exc_info=True)
             return _err(str(exc))
 
+    @staticmethod
+    def _require_image(path: str) -> None:
+        """Convert-to-PDF is image -> PDF only (Office conversion was removed)."""
+        ext = os.path.splitext(path or "")[1].lower()
+        if ext not in _fo.IMAGE_EXT:
+            raise RuntimeError(
+                f"Only images can be converted to PDF (got '{ext or 'no extension'}')")
+
     def convert_to_pdf(self, path: str, out_path: str = "") -> dict:
-        # Both converters require a log callback; the old code omitted it,
-        # so every "Convert to PDF" raised TypeError before doing anything.
+        """Convert one image to PDF (beside the original, or to out_path)."""
         try:
+            self._require_image(path)
             if out_path:
-                _check(_fo.word_to_pdf(path, out_path, _noop_log), "Convert failed")
+                _check(_fo.image_to_pdf([path], out_path, _noop_log), "Convert failed")
                 result = out_path
             else:
                 result = _check(_fo.convert_file_to_pdf_replace(path, _noop_log),
@@ -1100,43 +910,9 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
-    def find_duplicate_pages(self, path: str) -> dict:
-        try:
-            dupes = _fo.find_duplicate_pages(path)
-            return _ok(duplicates=dupes)
-        except Exception as exc:
-            return _err(str(exc))
-
     def crop_image(self, path: str, x: int, y: int, w: int, h: int, out_path: str = "") -> dict:
         try:
             ok, result = _fo.crop_image(path, int(x), int(y), int(w), int(h), out_path)
-            return _ok(out=result) if ok else _err(result)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def rotate_image(self, path: str, degrees: int = 90, out_path: str = "") -> dict:
-        try:
-            ok, result = _fo.rotate_image(path, int(degrees), out_path)
-            return _ok(out=result) if ok else _err(result)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def flip_image(self, path: str, direction: str = "horizontal", out_path: str = "") -> dict:
-        try:
-            ok, result = _fo.flip_image(path, direction, out_path)
-            return _ok(out=result) if ok else _err(result)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def adjust_image_save(
-        self, path: str,
-        brightness: float = 1.0, contrast: float = 1.0,
-        out_path: str = "", overwrite: bool = False,
-    ) -> dict:
-        try:
-            ok, result = _fo.adjust_image_save(
-                path, float(brightness), float(contrast), out_path, bool(overwrite)
-            )
             return _ok(out=result) if ok else _err(result)
         except Exception as exc:
             return _err(str(exc))
@@ -1179,24 +955,6 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
-    def excel_to_csv(self, path: str, out_dir: str = "") -> dict:
-        try:
-            if not out_dir:
-                out_dir = os.path.dirname(path)
-            ok, result = _fo.excel_to_csv_each_sheet(path, out_dir)
-            if ok:
-                return _ok(files=result)
-            return _err(str(result))
-        except Exception as exc:
-            return _err(str(exc))
-
-    def move_to_root(self, paths: list, root: str) -> dict:
-        try:
-            ok, moved, errors = _fo.move_to_folder_root(paths, root)
-            return _ok(moved=moved, errors=errors)
-        except Exception as exc:
-            return _err(str(exc))
-
     def ocr_rename_with_progress(self, paths: list, api_key: str = "") -> dict:
         """Same as ocr_rename but emits ocr_rename_log + ocr_rename_done events."""
         def _run():
@@ -1211,36 +969,6 @@ class SFMBridge:
         self._thread(_run)
         return _ok(started=True)
 
-
-    def resize_photo_to_mm(
-        self,
-        path: str,
-        w_mm: float = 35.0,
-        h_mm: float = 45.0,
-        dpi: float = 300.0,
-        out_path: str = "",
-        crop_mode: str = "center",
-    ) -> dict:
-        """Resize/crop image to exact physical dimensions (mm @ dpi).
-        crop_mode: 'center' (crop to ratio, then resize) | 'fit' (letterbox/pad)."""
-        try:
-            ok, result = _fo.resize_photo_to_mm(
-                path, w_mm=float(w_mm), h_mm=float(h_mm), dpi=float(dpi),
-                out_path=out_path, crop_mode=crop_mode,
-            )
-            if ok:
-                return _ok(out=result)
-            return _err(result)
-        except Exception as exc:
-            return _err(str(exc))
-
-
-    def check_passport_photo(self, path: str) -> dict:
-        try:
-            results = _fo.check_passport_photo_quality(path)
-            return _ok(results=results)
-        except Exception as exc:
-            return _err(str(exc))
 
     # ── long ops (threaded, push events) ─────────────────────────────────────
 
@@ -1292,16 +1020,6 @@ class SFMBridge:
         self._thread(_run)
         return _ok(started=True)
 
-    def make_ocr_searchable(self, path: str) -> dict:
-        def _run():
-            try:
-                _check(_fo.pdf_make_searchable_ocr_inplace(path), "OCR failed")
-                self._emit("ocr_searchable_done", {"ok": True, "path": path})
-            except Exception as exc:
-                self._emit("ocr_searchable_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
     def compress_pdf_async(self, path: str, out_path: str) -> dict:
         def _run():
             try:
@@ -1317,6 +1035,7 @@ class SFMBridge:
             results = []
             for p in paths:
                 try:
+                    self._require_image(p)
                     out = _check(_fo.convert_file_to_pdf_replace(p, _noop_log),
                                  "Convert failed")
                     results.append({"path": p, "ok": True, "out": str(out)})
@@ -1327,114 +1046,9 @@ class SFMBridge:
         self._thread(_run)
         return _ok(started=True)
 
-    def generate_report(self, folder: str) -> dict:
-        def _run():
-            try:
-                log_cb = self._log_cb("report_log")
-                out = _fo.generate_checklist_report(folder, log=log_cb)
-                self._emit("report_done", {"ok": True, "path": str(out)})
-            except Exception as exc:
-                self._emit("report_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
     # =========================================================================
-    # ZIP
+    # QR
     # =========================================================================
-
-    def zip_paths(self, paths: list, out_path: str = "") -> dict:
-        # Zips the SELECTED paths. (Previously, with no out_path, this zipped
-        # every immediate subfolder of the parent folder — ignoring the
-        # actual selection entirely.)
-        def _run():
-            try:
-                import shutil
-                import zipfile as _zf
-                made = []
-                if out_path:
-                    # zip a single selection to out_path
-                    base = os.path.splitext(out_path)[0]
-                    shutil.make_archive(base, "zip", root_dir=os.path.dirname(paths[0]),
-                                        base_dir=os.path.basename(paths[0]))
-                    made.append(base + ".zip")
-                else:
-                    # one sibling <name>.zip per selected path (never overwrite)
-                    for p in paths:
-                        name = os.path.basename(p.rstrip("\\/"))
-                        stem = name if os.path.isdir(p) else os.path.splitext(name)[0]
-                        base = os.path.join(os.path.dirname(p), stem)
-                        tgt, i = base + ".zip", 2
-                        while os.path.exists(tgt):
-                            tgt = f"{base}-{i}.zip"
-                            i += 1
-                        if os.path.isdir(p):
-                            shutil.make_archive(tgt[:-4], "zip",
-                                                root_dir=os.path.dirname(p),
-                                                base_dir=name)
-                        else:
-                            with _zf.ZipFile(tgt, "w", _zf.ZIP_DEFLATED) as zf:
-                                zf.write(p, name)
-                        made.append(tgt)
-                self._emit("zip_done", {"ok": True, "files": made})
-            except Exception as exc:
-                self._emit("zip_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-    def unzip(self, path: str) -> dict:
-        def _run():
-            try:
-                out = _fo.extract_zip_to_sibling_folder(path)
-                self._emit("unzip_done", {"ok": True, "dir": str(out)})
-            except Exception as exc:
-                self._emit("unzip_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-    def unzip_all(self, paths: list) -> dict:
-        # NOTE: paths is a list of ZIP file paths (multi-select), so extract
-        # each one individually. (Previously this passed the list straight to
-        # extract_all_zips_to_sibling_folders(), which expects a single folder
-        # path — every "Extract All…" call failed silently.)
-        def _run():
-            try:
-                stats = {"extracted": 0, "skipped": 0, "failed": 0}
-                errors: list = []
-                for p in paths:
-                    r = _fo.extract_zip_to_sibling_folder(p)
-                    for k in stats:
-                        stats[k] += int(r.get(k, 0) or 0)
-                    errors.extend(r.get("errors", []))
-                ok = stats["failed"] == 0
-                payload = {"ok": ok, **stats}
-                if errors:
-                    payload["error"] = "; ".join(str(e) for e in errors)
-                # UI listens on 'unzip_done' (toast + refresh); emit both.
-                self._emit("unzip_done", payload)
-                self._emit("unzip_all_done", payload)
-            except Exception as exc:
-                self._emit("unzip_done", {"ok": False, "error": str(exc)})
-                self._emit("unzip_all_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-    def list_zip(self, path: str) -> dict:
-        try:
-            children = _fo.zip_list_immediate_children(path)
-            return _ok(children=children)
-        except Exception as exc:
-            return _err(str(exc))
-
-    # =========================================================================
-    # TRANSLATE / QR
-    # =========================================================================
-
-    def translate_to_korean(self, text: str) -> dict:
-        try:
-            result = _fo.translate_to_korean_openai(text)
-            return _ok(text=result)
-        except Exception as exc:
-            return _err(str(exc))
 
     def scan_qr_from_screen(self) -> dict:
         """Minimise the app window, wait 1.5 s, grab the whole screen,
@@ -1614,36 +1228,6 @@ class SFMBridge:
         try:
             _fo.reset_gpt4o_session_cost()
             return _ok()
-        except Exception as exc:
-            return _err(str(exc))
-
-    def list_printers(self) -> dict:
-        try:
-            import subprocess
-            out = subprocess.check_output(
-                ["powershell", "-Command",
-                 "Get-Printer | Select-Object -ExpandProperty Name"],
-                text=True, timeout=5
-            )
-            printers = [p.strip() for p in out.strip().splitlines() if p.strip()]
-            return _ok(printers=printers)
-        except Exception as exc:
-            return _err(str(exc))
-
-    def print_pdf(self, path: str, printer: str = "") -> dict:
-        try:
-            import subprocess
-            if printer:
-                cmd = ["powershell", "-Command",
-                       f'$printer="{printer}"; $pdf="{path}"; '
-                       r'$shell=New-Object -ComObject Shell.Application; '
-                       r'$item=$shell.Namespace((Split-Path $pdf)).ParseName((Split-Path $pdf -Leaf)); '
-                       r'$item.InvokeVerb("Print")']
-            else:
-                cmd = ["powershell", "-Command",
-                       f'Start-Process -FilePath "{path}" -Verb Print']
-            subprocess.Popen(cmd)
-            return _ok(started=True)
         except Exception as exc:
             return _err(str(exc))
 

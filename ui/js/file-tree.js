@@ -710,20 +710,6 @@ const FileTree = (() => {
     }
   }
 
-  // ── Zip / Unzip ───────────────────────────────────────────────────────────
-  async function zipSelection() {
-    const paths = Array.from(_selected);
-    if (!paths.length) { App.toast('Select files to zip', 'warning'); return; }
-    App.setStatus('Zipping…', true);
-    SFM.zipPaths(paths);
-  }
-  async function unzipSelection() {
-    const paths = Array.from(_selected).filter(p => p.endsWith('.zip'));
-    if (!paths.length) { App.toast('Select a ZIP file', 'warning'); return; }
-    App.setStatus('Unzipping…', true);
-    SFM.unzipAll(paths);
-  }
-
   // ── Combine PDFs ──────────────────────────────────────────────────────────
   // Old system's Ctrl+Enter: combine multiple PDFs, or arrange a single PDF.
   function combineSelected() {
@@ -766,29 +752,6 @@ const FileTree = (() => {
   function collapseAll() {
     _treeState.expanded.clear();
     _renderTreeRoot();
-  }
-
-  // ── Zip each subfolder in current folder ─────────────────────────────────
-  async function zipEachSubfolder() {
-    if (!_currentFolder) { App.toast('Open a folder first', 'warning'); return; }
-    App.setStatus('Listing subfolders…', true);
-    const r = await SFM.listFolder(_currentFolder);
-    App.setStatus('Ready');
-    if (!r.ok) { App.toast('Failed: ' + r.error, 'error'); return; }
-    const dirs = (r.entries || []).filter(e => e.is_dir);
-    if (!dirs.length) { App.toast('No subfolders found', 'warning'); return; }
-    if (!confirm('Zip ' + dirs.length + ' subfolder(s) in this folder?')) return;
-    App.setStatus('Zipping ' + dirs.length + ' subfolder(s)…', true);
-    let done = 0;
-    for (const d of dirs) {
-      const out = d.path.replace(/[\/]+$/, '') + '.zip';
-      await SFM.zipPaths([d.path], out);
-      done++;
-      App.setStatus('Zipped ' + done + '/' + dirs.length + '…', true);
-    }
-    App.setStatus('Ready');
-    App.toast('Zipped ' + done + ' subfolder(s)', 'success');
-    refresh();
   }
 
   // ── Left Tree Navigator ───────────────────────────────────────────────────
@@ -977,9 +940,8 @@ const FileTree = (() => {
     loadFolder, refresh, applySearch, setViewMode,
     copySelection, cutSelection, pasteSelection,
     newFolder, deleteSelection,
-    zipSelection, unzipSelection,
     combineSelected, browseFolder,
     getSelected, getFocusedEntry, getCurrentFolder,
-    expandAll, collapseAll, zipEachSubfolder,
+    expandAll, collapseAll,
   };
 })();

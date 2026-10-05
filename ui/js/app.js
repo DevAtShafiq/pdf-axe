@@ -285,7 +285,6 @@ const App = (() => {
       if (ctrl && key === 'x')           { FileTree.cutSelection();  return; }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
       if (ctrl && shift && key === 'N')  { e.preventDefault(); FileTree.newFolder(); return; }
-      if (ctrl && shift && key === 'Z')  { e.preventDefault(); FileTree.zipSelection(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
       if (key === 'F5')                  { e.preventDefault(); FileTree.refresh(); return; }
       if (key === 'F2')                  { e.preventDefault(); Details.beginRename(); return; }
@@ -304,7 +303,7 @@ const App = (() => {
   function _initEventHandlers() {
     // Long-op log lines
     // Non-smart-split log events → console only (dialogs handle their own)
-    ['ocr_rename_log','split_ocr_log','report_log'].forEach(ev => {
+    ['ocr_rename_log','split_ocr_log'].forEach(ev => {
       SFM.on(ev, ({ log }) => console.log(`[${ev}]`, log));
     });
     // smart_rename_log is handled inside Dialogs.openSmartSplitProgress — no global handler needed
@@ -326,9 +325,6 @@ const App = (() => {
       if (r.ok) { toast('Conversion complete', 'success'); FileTree.refresh(); }
       else       { toast('Conversion failed', 'error'); }
     });
-    SFM.on('zip_done',   r => { setStatus('Ready'); if(r.ok) toast('Zip complete','success'); else toast('Zip failed: '+r.error,'error'); FileTree.refresh(); });
-    SFM.on('unzip_done', r => { setStatus('Ready'); if(r.ok) toast('Unzip complete','success'); else toast('Unzip failed: '+r.error,'error'); FileTree.refresh(); });
-    SFM.on('report_done',r => { setStatus('Ready'); if(r.ok) toast('Report saved','success'); else toast('Report failed: '+r.error,'error'); });
     SFM.on('qr_result',  r => {
       setStatus('Ready');
       if (r.ok) {
@@ -391,9 +387,6 @@ const App = (() => {
       }
       Dialogs.openCompressPdf(p);
     });
-    wire('btn-zip',   () => FileTree.zipSelection());
-    wire('btn-unzip', () => FileTree.unzipSelection());
-    wire('btn-translate', () => Details.translateRename());
     wire('btn-qr',    () => {
       // If an image/PDF is selected, scan it directly
       const selPath = state.focusedPath || state.selectedPaths[0];
@@ -478,8 +471,8 @@ const App = (() => {
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   // These initialisers were previously defined but never invoked, which left
-  // keyboard shortcuts, toolbar buttons, Python→JS event handlers (zip_done,
-  // unzip_done, report_done, …), pane resizers and status pollers all dead.
+  // keyboard shortcuts, toolbar buttons, Python→JS event handlers,
+  // pane resizers and status pollers all dead.
   function _boot() {
     const safe = (fn, name) => { try { fn(); } catch (e) { console.error('[App boot]', name, e); } };
     safe(_initToolbar,       '_initToolbar');

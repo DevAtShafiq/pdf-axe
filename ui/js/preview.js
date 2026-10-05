@@ -4,9 +4,9 @@
  * Handles:
  *   - PDF: page-by-page canvas render via bridge base64, zoom, pan, page nav
  *   - Image: <img> display, zoom
- *   - Word/Excel: HTML injected into iframe
  *   - Text: contenteditable div
- *   - PDF contextual toolbar (rotate, delete page, split, arrange, print)
+ *   - Anything else (incl. Word/Excel): "No preview available"
+ *   - PDF contextual toolbar (rotate, delete page, arrange, split, compress)
  */
 
 const Preview = (() => {
@@ -22,12 +22,6 @@ const Preview = (() => {
   let _renderQueue = [];
   let _renderBusy  = false;
   let _zoomTimer   = null;
-  let _docPdfPath  = null;  // temp PDF path when rendering Office/HWP doc as PDF
-
-  // file types routed through PDF renderer (Office + HWP)
-  const OFFICE_EXTS = new Set(['.docx','.doc','.docm','.dotx','.rtf','.odt',
-                                '.xlsx','.xls','.xlsm','.xlsb',
-                                '.hwp','.hwpx']);
 
   const ZOOM_STEP  = 0.15;
   const ZOOM_MIN   = 0.2;
@@ -39,7 +33,6 @@ const Preview = (() => {
 
   const pdfWrap     = () => $('pdf-canvas-wrap');
   const imgEl       = () => $('img-preview');
-  const htmlFrame   = () => $('html-preview');
   const textEl      = () => $('text-preview');
   const emptyEl     = () => $('preview-empty');
   const floatNav    = () => $('pdf-float-nav');
@@ -52,7 +45,6 @@ const Preview = (() => {
   function _showOnly(which) {
     pdfWrap().classList.add('hidden');
     imgEl().classList.add('hidden');
-    htmlFrame().classList.add('hidden');
     textEl().classList.add('hidden');
     emptyEl().classList.add('hidden');
     floatNav().classList.add('hidden');
@@ -60,7 +52,6 @@ const Preview = (() => {
 
     if (which === 'pdf')  { pdfWrap().classList.remove('hidden');  floatNav().classList.remove('hidden'); ctxToolbar().classList.remove('hidden'); }
     if (which === 'img')  { imgEl().classList.remove('hidden'); }
-    if (which === 'html') { htmlFrame().classList.remove('hidden'); }
     if (which === 'text') { textEl().classList.remove('hidden'); }
     if (which === 'empty'){ emptyEl().classList.remove('hidden'); }
   }
@@ -69,7 +60,6 @@ const Preview = (() => {
   async function previewFile(path, ext) {
     if (_path === path) return;   // already showing
     _path = path;
-    _docPdfPath = null;
     _ext  = (ext || '').toLowerCase();
     _zoom = 1.0;
     _updateZoomLabel();
@@ -81,11 +71,7 @@ const Preview = (() => {
       await _openPdf(path);
     } else if (['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tiff'].includes(_ext)) {
       await _openImage(path);
-    } else if (OFFICE_EXTS.has(_ext)) {
-      await _openOfficeDoc(path, _ext);
-    } else if (['.csv'].includes(_ext)) {
-      await _openExcelHtml(path);
-    } else if (['.txt','.md','.log','.py','.js','.json','.xml','.html','.ini','.bat'].includes(_ext)) {
+    } else if (['.txt','.md','.log','.csv','.py','.js','.json','.xml','.html','.ini','.bat'].includes(_ext)) {
       await _openText(path);
     } else {
       _showOnly('empty');
@@ -94,7 +80,7 @@ const Preview = (() => {
   }
 
   function clear() {
-    _path = null; _pdfCount = 0; _pdfCurPage = 0; _docPdfPath = null;
+    _path = null; _pdfCount = 0; _pdfCurPage = 0;
     _showOnly('empty');
     fileNameEl().textContent = 'No file selected';
   }
@@ -109,7 +95,6 @@ const Preview = (() => {
       if (!r.ok) { _showError(r.error); return; }
       _pdfCount   = r.count;
       _pdfCurPage = 0;
-      _docPdfPath = null;  // native PDF — no temp conversion needed
       await _loadVisiblePages();
     } catch(e) {
       _showError(String(e));
@@ -138,8 +123,8 @@ const Preview = (() => {
   }
 
   async function _loadVisiblePages() {
-    if (!_path || (!OFFICE_EXTS.has(_ext) && _ext !== '.pdf')) return;
-    const pdfSrc = _docPdfPath || _path;  // use temp PDF for Office docs
+    if (!_path || _ext !== '.pdf') return;
+    const pdfSrc = _path;
     // Render all pages lazily via IntersectionObserver
     pdfWrap().innerHTML = '';
     for (let i = 0; i < _pdfCount; i++) {
@@ -229,85 +214,6 @@ const Preview = (() => {
     } catch(e) { _showError(String(e)); }
   }
 
-  // ── Office / HWP → PDF renderer (native-quality) ─────────────────────────
-  async function _openOfficeDoc(path, ext) {
-    _showOnly('pdf');
-    pdfWrap().innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted);font-family:var(--font-ui)">
-      <div class="loading-spinner" style="margin:0 auto 12px"></div>
-      <div>Converting to PDF for native preview…</div>
-    </div>`;
-
-    try {
-      const r = await SFM.getDocAsPdf(path);
-      if (!r.ok) {
-        // PDF conversion failed — fall back to HTML (Excel) or text (Word)
-        if (['.xlsx','.xls','.xlsm','.xlsb','.csv'].includes(ext)) {
-          await _openExcelHtml(path);
-        } else {
-          // Word fallback: show plain text
-          _showOnly('text');
-          textEl().textContent = 'Converting…';
-          const rt = await SFM.getDocxPreview(path);
-          textEl().textContent = rt.ok ? (rt.text || '(Empty document)') : (r.error || 'Preview unavailable');
-        }
-        return;
-      }
-      _docPdfPath = r.pdf_path;
-      _pdfCount   = r.page_count || 1;
-      _pdfCurPage = 0;
-      await _loadVisiblePages();
-    } catch(e) { _showError(String(e)); }
-  }
-
-  // ── Excel HTML fallback (rich openpyxl styling, sheet tabs) ─────────────
-  async function _openExcelHtml(path) {
-    _showOnly('html');
-    htmlFrame().srcdoc = '<p style="padding:20px;font-family:sans-serif;color:#666">Loading spreadsheet…</p>';
-
-    // Sheet tab bar
-    let _tabBar = document.getElementById('excel-sheet-tabs');
-    if (!_tabBar) {
-      _tabBar = document.createElement('div');
-      _tabBar.id = 'excel-sheet-tabs';
-      _tabBar.style.cssText = 'display:none;gap:2px;padding:4px 8px;background:var(--bg-surface);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;white-space:nowrap;';
-      htmlFrame().parentNode.insertBefore(_tabBar, htmlFrame());
-    }
-    _tabBar.style.display = 'none';
-    _tabBar.innerHTML = '';
-
-    async function _loadSheet(sheet) {
-      htmlFrame().srcdoc = '<p style="padding:20px;font-family:sans-serif;color:#666">Loading…</p>';
-      try {
-        const r = await SFM.getExcelHtml(path, sheet);
-        if (!r.ok) { _showError(r.error); return; }
-        // r.html is a fully self-contained HTML document from doc_to_html_excel()
-        htmlFrame().srcdoc = r.html;
-        // Rebuild sheet tabs from returned sheet list
-        const sheets = r.sheets || [];
-        if (sheets.length > 1 && _tabBar.innerHTML === '') {
-          _tabBar.style.display = 'flex';
-          sheets.forEach((name, i) => {
-            const btn = document.createElement('button');
-            btn.className = 'btn';
-            btn.style.cssText = 'font-size:11px;padding:2px 10px;border-radius:4px 4px 0 0;';
-            btn.textContent = name;
-            if (i === 0) btn.style.background = 'var(--accent)';
-            btn.addEventListener('click', () => {
-              _tabBar.querySelectorAll('button').forEach(b => b.style.background = '');
-              btn.style.background = 'var(--accent)';
-              _loadSheet(name);
-            });
-            _tabBar.appendChild(btn);
-          });
-        }
-      } catch(e) { _showError(String(e)); }
-    }
-
-    try {
-      await _loadSheet('');
-    } catch(e) { _showError(String(e)); }
-  }
-
   // ── Plain text ────────────────────────────────────────────────────────────
   async function _openText(path) {
     _showOnly('text');
@@ -334,7 +240,7 @@ const Preview = (() => {
     _updateZoomLabel();
     clearTimeout(_zoomTimer);
     _zoomTimer = setTimeout(() => {
-      if (_ext === '.pdf' || OFFICE_EXTS.has(_ext)) _loadVisiblePages();
+      if (_ext === '.pdf') _loadVisiblePages();
       else if (['.jpg','.jpeg','.png','.bmp','.webp','.gif'].includes(_ext)) {
         const img = imgEl();
         img.style.transform = `scale(${_zoom})`;
@@ -387,17 +293,6 @@ const Preview = (() => {
       if (!_path) return;
       Dialogs.openCompressPdf(_path);
     });
-    wire('pdf-ocr', async () => {
-      if (!_path) return;
-      App.setStatus('Running OCR…', true);
-      App.toast('Making PDF searchable…', 'info');
-      SFM.call('make_ocr_searchable', _path);
-    });
-    wire('pdf-print', () => {
-      if (!_path) return;
-      Dialogs.openPrint(_path);
-    });
-
     // PDF float nav
     wire('pdf-prev', goPrev);
     wire('pdf-next', goNext);
@@ -432,7 +327,7 @@ const Preview = (() => {
   // ── Arrow key navigation in PDF ───────────────────────────────────────────
   function _initPdfKeyNav() {
     document.addEventListener('keydown', e => {
-      if (_ext !== '.pdf' && !OFFICE_EXTS.has(_ext)) return;
+      if (_ext !== '.pdf') return;
       if (['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)) return;
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); goNext(); }
       if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); goPrev(); }

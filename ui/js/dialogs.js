@@ -4,10 +4,10 @@
  * Stacked modal system — each open() creates its own overlay div.
  * Escape / close only pops the TOP modal.
  *
- * Dialogs: CombinePdf, ArrangePages, PdfFullView, Apostille,
- *          A4Placer, IdCard, Print, Templates, Uppercase,
- *          CompressPdf, Settings, ExtractPages, DuplicatePages,
- *          SimilarMove, PassportCheck, MoreMenu
+ * Dialogs: CombinePdf, ArrangePages, PdfFullView, Templates, Uppercase,
+ *          CompressPdf, Settings, ExtractPages, MoreMenu, SmartSplitProgress,
+ *          CopyTo, MoveTo, PdfToImages, SplitRenameOcrProgress, CropImage,
+ *          CompressImages, OcrRenameProgress, QrOverlay
  */
 
 const Dialogs = (() => {
@@ -830,106 +830,6 @@ const Dialogs = (() => {
     })();
   }
 
-  // ── 5. A4 Page Placer ────────────────────────────────────────────────────
-  function openA4Placer(path) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Place multiple PDF pages onto a single A4 sheet.</p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Pages per sheet</label>
-        <select id="a4-pps" class="input-text" style="margin-top:4px;width:100%">
-          <option value="2">2 per sheet</option>
-          <option value="4" selected>4 per sheet</option>
-          <option value="6">6 per sheet</option>
-          <option value="9">9 per sheet</option>
-        </select>
-      </div>
-      <div>
-        <label class="detail-label">Output filename</label>
-        <input id="a4-outname" class="input-text" value="a4_layout.pdf" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('a4placer', 'Place on A4', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Create', primary: true, onClick: async () => {
-        const pps  = +document.getElementById('a4-pps')?.value || 4;
-        const name = document.getElementById('a4-outname')?.value.trim() || 'a4_layout.pdf';
-        const out  = path.replace(/[\\/][^\\/]+$/, '') + '\\' + name;
-        closeModal();
-        App.setStatus('Placing pages…', true);
-        const r = await SFM.call('place_pdf_on_a4', path, pps, out);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Done: ' + name, 'success'); FileTree.refresh(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
-
-  // ── 6. ID Card on A4 ─────────────────────────────────────────────────────
-  function openIdCard(path) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Tile ID card pages x4 onto a single A4 sheet.</p>
-      <div>
-        <label class="detail-label">Output filename</label>
-        <input id="idc-outname" class="input-text" value="id_card_a4.pdf" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('idcard', 'ID Card on A4', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Create', primary: true, onClick: async () => {
-        const name = document.getElementById('idc-outname')?.value.trim() || 'id_card_a4.pdf';
-        const out  = path.replace(/[\\/][^\\/]+$/, '') + '\\' + name;
-        closeModal();
-        App.setStatus('Tiling ID cards…', true);
-        const r = await SFM.call('id_card_on_a4', path, out);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Done: ' + name, 'success'); FileTree.refresh(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
-
-  // ── 7. Print Dialog ───────────────────────────────────────────────────────
-  async function openPrint(path) {
-    const body = `
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Printer</label>
-        <select id="print-printer" class="input-text" style="margin-top:4px;width:100%">
-          <option value="">Default printer</option>
-        </select>
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Page range (e.g. 1-3, 5)</label>
-        <input id="print-range" class="input-text" placeholder="All pages" style="width:100%;margin-top:4px">
-      </div>
-      <div>
-        <label class="detail-label">Copies</label>
-        <input id="print-copies" class="input-text" type="number" min="1" value="1" style="width:80px;margin-top:4px">
-      </div>`;
-
-    _openModal('print', 'Print', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Print', primary: true, onClick: async () => {
-        const printer = document.getElementById('print-printer')?.value || '';
-        const range   = document.getElementById('print-range')?.value.trim() || '';
-        const copies  = +document.getElementById('print-copies')?.value || 1;
-        closeModal();
-        App.setStatus('Printing…', true);
-        const r = await SFM.call('print_pdf_range', path, printer, range, copies);
-        App.setStatus('Ready');
-        if (r.ok) App.toast('Sent to printer', 'success');
-        else       App.toast('Print failed: ' + r.error, 'error');
-      }},
-    ]);
-
-    const r = await SFM.listPrinters();
-    const sel = document.getElementById('print-printer');
-    if (r.ok && sel) {
-      (r.printers || []).forEach(p => {
-        const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o);
-      });
-    }
-  }
-
   // ── 8. Document Name Templates ────────────────────────────────────────────
   async function openTemplates() {
     const r = await SFM.getRenameTemplates();
@@ -1144,131 +1044,16 @@ const Dialogs = (() => {
     ]);
   }
 
-  // ── 13. Find Duplicate Pages ──────────────────────────────────────────────
-  async function openDuplicatePages(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Scanning: <strong>${_esc(name)}</strong></p>
-      <div id="dup-results" style="max-height:300px;overflow:auto;font-size:12px;background:var(--bg-app);border-radius:6px;padding:12px;margin-top:10px;min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('dup-pages', 'Find Duplicate Pages', body, [
-      { label: 'Close', onClick: closeModal },
-    ]);
-
-    const res = document.getElementById('dup-results');
-    try {
-      const r = await SFM.findDuplicatePages(path);
-      if (!r.ok) { if (res) res.innerHTML = `<p style="color:var(--text-danger)">Error: ${_esc(r.error)}</p>`; return; }
-      const groups = r.groups || [];
-      if (groups.length === 0) {
-        if (res) res.innerHTML = '<p style="color:var(--accent)">&#x2705; No duplicate pages found.</p>';
-      } else {
-        if (res) res.innerHTML = `<div style="width:100%">
-          <p style="color:var(--text-warning);margin:0 0 10px">&#x26A0;&#xFE0F; Found ${groups.length} duplicate group(s):</p>
-          ${groups.map(g => `<div style="padding:6px 0;border-bottom:1px solid var(--border)">Pages: <strong>${g.map(p => p+1).join(', ')}</strong></div>`).join('')}
-        </div>`;
-      }
-    } catch(e) {
-      if (res) res.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
-  }
-
-  // ── 14. Similar Move ──────────────────────────────────────────────────────
-  async function openSimilarMove(paths) {
-    if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = `
-      <p class="text-muted" style="font-size:12px">Suggests folders based on filename similarity. Uncheck to skip.</p>
-      <div id="sim-results" style="max-height:300px;overflow:auto;font-size:12px;background:var(--bg-app);border-radius:6px;padding:10px;margin-top:10px;min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('similar', 'Similar Move', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Move Checked', primary: true, onClick: async () => {
-        const res  = document.getElementById('sim-results');
-        const cbs  = res ? res.querySelectorAll('input[data-src]:checked') : [];
-        if (!cbs.length) { App.toast('No moves selected', 'warning'); return; }
-        const plan = Array.from(cbs).map(cb => ({ src: cb.dataset.src, dest: cb.dataset.dest }));
-        closeModal();
-        App.setStatus('Moving files…', true);
-        const r = await SFM.applyFileMoves(plan);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast(`Moved ${r.moved ?? plan.length} file(s)`, 'success'); FileTree.refresh(); }
-        else       { App.toast('Move failed: ' + r.error, 'error'); }
-      }},
-    ]);
-
-    const res = document.getElementById('sim-results');
-    try {
-      const r = await SFM.planSimilarMoves(paths);
-      if (!r.ok || !r.plan?.length) {
-        if (res) res.innerHTML = '<p class="text-muted">No matching folders found nearby.</p>';
-        return;
-      }
-      if (res) res.innerHTML = `<div style="width:100%">${r.plan.map(item =>
-        `<label style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer">
-          <input type="checkbox" checked data-src="${_esc(item.src)}" data-dest="${_esc(item.dest)}" style="margin-top:3px;flex-shrink:0">
-          <span>
-            <div style="font-weight:500">${_esc(item.src.split(/[\\/]/).pop())}</div>
-            <div class="text-muted" style="font-size:11px">&#x2192; ${_esc(item.dest)}</div>
-          </span>
-        </label>`
-      ).join('')}</div>`;
-    } catch(e) {
-      if (res) res.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
-  }
-
-  // ── 15. Passport Photo Check ──────────────────────────────────────────────
-  async function openPassportCheck(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Checking: <strong>${_esc(name)}</strong></p>
-      <div id="pp-result" style="margin-top:12px;font-size:13px;line-height:1.8;min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('passport', 'Passport Photo Check', body, [
-      { label: 'Close', onClick: closeModal },
-    ]);
-
-    const el = document.getElementById('pp-result');
-    try {
-      const r = await SFM.checkPassportPhoto(path);
-      if (!r.ok) { if (el) el.innerHTML = `<p style="color:var(--text-danger)">&#x274C; ${_esc(r.error)}</p>`; return; }
-      const checks  = r.checks || [];
-      const overall = checks.length > 0 && checks.every(c => c.pass);
-      if (el) el.innerHTML = `<div style="width:100%">
-        <div style="font-size:15px;font-weight:600;margin-bottom:12px;color:${overall?'var(--accent)':'var(--text-danger)'}">
-          ${overall ? '&#x2705; Photo meets requirements' : '&#x274C; Photo has issues'}
-        </div>
-        ${checks.map(c => `<div style="display:flex;gap:10px;align-items:baseline;padding:3px 0">
-          <span style="width:20px;text-align:center">${c.pass ? '&#x2705;' : '&#x274C;'}</span>
-          <span><strong>${_esc(c.label)}</strong>${c.detail ? ': ' + _esc(c.detail) : ''}</span>
-        </div>`).join('')}
-        ${r.message ? `<p style="margin-top:10px;color:var(--text-muted);font-size:12px">${_esc(r.message)}</p>` : ''}
-      </div>`;
-    } catch(e) {
-      if (el) el.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
-  }
-
   // ── 16. More Menu ─────────────────────────────────────────────────────────
   function openMoreMenu() {
     const body = `
       <div style="display:flex;flex-direction:column;gap:6px">
         <button class="qa-btn" id="mm-templates">&#x1F4DD;  Document Name Templates&#x2026;</button>
         <button class="qa-btn" id="mm-uppercase">&#x1F520;  Change Case / Uppercase Tool&#x2026;</button>
-        <button class="qa-btn" id="mm-similar">&#x1F500;  Similar Move&#x2026;</button>
         <button class="qa-btn" id="mm-copyto">&#x1F4CB;  Copy To&#x2026;</button>
         <button class="qa-btn" id="mm-moveto">&#x2702;&#xFE0F;  Move To&#x2026;</button>
         <button class="qa-btn" id="mm-expand-all">&#x1F4C2;  Expand All Folders</button>
         <button class="qa-btn" id="mm-collapse-all">&#x1F4C1;  Collapse All Folders</button>
-        <button class="qa-btn" id="mm-bulk-split">&#x2702;&#xFE0F;  Split Multi-page PDFs in Folder&#x2026;</button>
-        <button class="qa-btn" id="mm-zip-subfolders">&#x1F4E6;  Zip Each Subfolder</button>
-        <button class="qa-btn" id="mm-report">&#x1F4CB;  Generate Checklist Report</button>
       </div>`;
 
     _openModal('more', 'More Actions', body, [
@@ -1281,22 +1066,10 @@ const Dialogs = (() => {
     };
     wire('mm-templates', () => openTemplates());
     wire('mm-uppercase', () => openUppercase());
-    wire('mm-similar',   () => openSimilarMove(App.state.selectedPaths || []));
     wire('mm-copyto',    () => openCopyTo(App.state.selectedPaths || []));
     wire('mm-moveto',    () => openMoveTo(App.state.selectedPaths || []));
     wire('mm-expand-all',    () => FileTree.expandAll());
     wire('mm-collapse-all',  () => FileTree.collapseAll());
-    wire('mm-bulk-split',    () => openBulkSplitPdfs(App.state.currentFolder || ''));
-    wire('mm-zip-subfolders',() => FileTree.zipEachSubfolder());
-    wire('mm-report',    () => {
-      const f = App.state.currentFolder
-             || (App.state.focusedPath || '').replace(/[\\/][^\\/]+$/, '')
-             || '';
-      if (!f) { App.toast('Open a folder first', 'warning'); return; }
-      App.setStatus('Generating report…', true);
-      SFM.generateReport(f);
-      App.toast('Generating checklist report…', 'info');
-    });
   }
 
   // ── 17. Smart Split Progress ──────────────────────────────────────────────
@@ -1519,191 +1292,6 @@ const Dialogs = (() => {
     SFM.splitAndRenameOcr(path);
   }
 
-  // ── 23. ZIP Contents Viewer ──────────────────────────────────────────────
-  async function openZipContents(path) {
-    const name = path.split(/[\\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Contents of: <strong>${_esc(name)}</strong></p>
-      <div id="zip-list" style="max-height:360px;overflow:auto;font-size:12px;
-           background:var(--bg-app);border-radius:6px;padding:10px;margin-top:10px;
-           min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('zip-view', 'ZIP Contents', body, [
-      { label: 'Close', onClick: closeModal },
-      { label: 'Extract Here', primary: true, onClick: () => {
-        closeModal();
-        App.setStatus('Extracting…', true);
-        SFM.unzip(path);
-        App.toast('Extracting…', 'info');
-      }},
-    ]);
-
-    const el = document.getElementById('zip-list');
-    try {
-      const r = await SFM.listZip(path);
-      if (!r.ok) {
-        if (el) el.innerHTML = `<p style="color:var(--text-danger)">Error: ${_esc(r.error)}</p>`;
-        return;
-      }
-      const items = r.files || [];
-      if (items.length === 0) {
-        if (el) el.innerHTML = '<p class="text-muted">Archive is empty.</p>';
-        return;
-      }
-      const fmt = b => b < 1024 ? b + ' B'
-        : b < 1048576 ? (b/1024).toFixed(1) + ' KB'
-        : (b/1048576).toFixed(1) + ' MB';
-      if (el) el.innerHTML = `<div style="width:100%">
-        <div style="display:grid;grid-template-columns:1fr auto;gap:2px 16px;font-size:11px;
-             color:var(--text-muted);font-weight:600;padding:0 4px 6px;border-bottom:1px solid var(--border)">
-          <span>Name</span><span style="text-align:right">Size</span>
-        </div>
-        ${items.map(f => `
-          <div style="display:grid;grid-template-columns:1fr auto;gap:2px 16px;padding:3px 4px;border-bottom:1px solid var(--border);">
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(f.name||f)}">${_esc(f.name||f)}</span>
-            <span style="text-align:right;color:var(--text-muted);white-space:nowrap">${f.size != null ? fmt(f.size) : '—'}</span>
-          </div>`).join('')}
-        <div style="padding:6px 4px;font-size:11px;color:var(--text-muted)">${items.length} file(s)</div>
-      </div>`;
-    } catch(e) {
-      if (el) el.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
-  }
-
-  // ── 24. Bulk Split PDFs in Folder ───────────────────────────────────────
-  async function openBulkSplitPdfs(folder) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Split every multi-page PDF in a folder into single-page files.</p>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Source folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="bsp-folder" class="input-text" value="${_esc(folder||'')}" style="flex:1">
-          <button class="btn" id="bsp-browse">Browse…</button>
-        </div>
-      </div>
-      <div style="margin-bottom:10px">
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer">
-          <input type="checkbox" id="bsp-recursive"> Include subfolders
-        </label>
-      </div>
-      <div id="bsp-status" style="font-size:12px;color:var(--accent);min-height:18px"></div>`;
-
-    _openModal('bulk-split', 'Split Multi-page PDFs in Folder', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Split All', primary: true, onClick: async () => {
-        const f    = document.getElementById('bsp-folder')?.value.trim();
-        const rec  = document.getElementById('bsp-recursive')?.checked;
-        if (!f) { App.toast('Choose a folder', 'error'); return; }
-        const statusEl = document.getElementById('bsp-status');
-        if (statusEl) statusEl.textContent = 'Scanning PDFs…';
-        App.setStatus('Scanning…', true);
-
-        // List PDFs
-        const lr = rec ? await SFM.listFolderRec(f, 4) : await SFM.listFolder(f);
-        App.setStatus('Ready');
-        if (!lr.ok) { App.toast('Failed: ' + lr.error, 'error'); return; }
-        const pdfs = (lr.entries || []).filter(e => (e.ext||'').toLowerCase() === '.pdf');
-        if (!pdfs.length) { if(statusEl) statusEl.textContent = 'No PDFs found.'; return; }
-
-        if (statusEl) statusEl.textContent = 'Splitting ' + pdfs.length + ' PDF(s)…';
-        App.setStatus('Splitting…', true);
-        let done = 0, skipped = 0;
-        for (const pdf of pdfs) {
-          const cr = await SFM.getPdfPageCount(pdf.path);
-          if (!cr.ok || (cr.page_count || cr.count || 0) <= 1) { skipped++; continue; }
-          const outDir = pdf.path.replace(/[\\/][^\\/]+$/, '');
-          const r = await SFM.splitPdf(pdf.path, outDir);
-          if (r.ok) done++;
-          if (statusEl) statusEl.textContent = 'Split ' + done + '/' + pdfs.length + '…';
-        }
-        App.setStatus('Ready');
-        const msg = 'Split ' + done + ' PDF(s)' + (skipped ? ' (' + skipped + ' single-page skipped)' : '');
-        if (statusEl) statusEl.textContent = '✅ ' + msg;
-        App.toast(msg, 'success');
-        FileTree.refresh();
-        closeModal();
-      }},
-    ]);
-    document.getElementById('bsp-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('bsp-folder').value = r.path;
-    });
-  }
-
-  // ── 26. Image Adjustments (Brightness / Contrast) ───────────────────────
-  function openImageAdjust(path) {
-    const fname = path.split(/[\\/]/).pop();
-    const body = `
-      <div style="text-align:center;margin-bottom:12px">
-        <img id="adj-preview" src="" style="max-width:100%;max-height:260px;border-radius:6px;border:1px solid var(--border);object-fit:contain" alt="preview">
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Brightness: <span id="adj-b-val">1.0</span></label>
-        <input id="adj-b" type="range" min="0.1" max="3" step="0.05" value="1" style="width:100%;margin-top:4px">
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Contrast: <span id="adj-c-val">1.0</span></label>
-        <input id="adj-c" type="range" min="0.1" max="3" step="0.05" value="1" style="width:100%;margin-top:4px">
-      </div>
-      <div style="display:flex;gap:10px;margin-bottom:10px">
-        <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-          <input type="radio" name="adj-out" value="new" checked> Save as new file
-        </label>
-        <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-          <input type="radio" name="adj-out" value="overwrite"> Overwrite original
-        </label>
-      </div>
-      <div id="adj-status" style="font-size:12px;min-height:18px"></div>`;
-
-    _openModal('image-adjust', '🎨 Image Adjustments — ' + _esc(fname), body, [
-      { label: 'Reset', onClick: () => {
-        document.getElementById('adj-b').value = 1;
-        document.getElementById('adj-c').value = 1;
-        _updateAdjPreview();
-      }},
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Save', primary: true, onClick: async () => {
-        const b   = parseFloat(document.getElementById('adj-b')?.value) || 1;
-        const c   = parseFloat(document.getElementById('adj-c')?.value) || 1;
-        const ow  = document.querySelector('input[name="adj-out"]:checked')?.value === 'overwrite';
-        const stEl = document.getElementById('adj-status');
-        if (stEl) stEl.textContent = 'Saving…';
-        App.setStatus('Saving adjusted image…', true);
-        const r = await SFM.adjustImageSave(path, b, c, '', ow);
-        App.setStatus('Ready');
-        if (r.ok) {
-          if (stEl) stEl.innerHTML = '✅ Saved: <strong>' + _esc(r.out.split(/[\\/]/).pop()) + '</strong>';
-          App.toast('Saved: ' + r.out.split(/[\\/]/).pop(), 'success');
-          FileTree.refresh();
-        } else {
-          if (stEl) stEl.textContent = '❌ ' + r.error;
-          App.toast('Failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    // Load preview image
-    SFM.getImagePreview(path, 600).then(r => {
-      const img = document.getElementById('adj-preview');
-      if (img && r.ok) img.src = 'data:image/jpeg;base64,' + r.data;
-    });
-
-    function _updateAdjPreview() {
-      const b = parseFloat(document.getElementById('adj-b')?.value) || 1;
-      const c = parseFloat(document.getElementById('adj-c')?.value) || 1;
-      const img = document.getElementById('adj-preview');
-      if (img) img.style.filter = 'brightness(' + b + ') contrast(' + c + ')';
-      const bv = document.getElementById('adj-b-val');
-      const cv = document.getElementById('adj-c-val');
-      if (bv) bv.textContent = b.toFixed(2);
-      if (cv) cv.textContent = c.toFixed(2);
-    }
-    document.getElementById('adj-b')?.addEventListener('input', _updateAdjPreview);
-    document.getElementById('adj-c')?.addEventListener('input', _updateAdjPreview);
-  }
-
   // ── 26b. Compress Image(s) ────────────────────────────────────────────────
   function _fmtBytes(n) {
     n = Number(n) || 0;
@@ -1838,127 +1426,6 @@ const Dialogs = (() => {
       _appendLog('Error starting: ' + err);
       if (statEl) statEl.textContent = '❌ Could not start.';
     });
-  }
-
-  // ── 25. Photo Sizer ──────────────────────────────────────────────────────
-  function openPhotoSizer(path) {
-    const PRESETS = [
-      { label: '35×45 mm', w: 35, h: 45, note: 'Standard passport (most countries)' },
-      { label: '25×35 mm', w: 25, h: 35, note: 'Small passport / visa (some countries)' },
-      { label: '40×60 mm', w: 40, h: 60, note: 'Large passport photo' },
-      { label: '30×40 mm', w: 30, h: 40, note: 'Indonesian passport / KTP' },
-      { label: '40×40 mm', w: 40, h: 40, note: 'Square (WhatsApp / social)' },
-      { label: '51×51 mm', w: 51, h: 51, note: 'US visa (2×2 inch)' },
-      { label: '33×48 mm', w: 33, h: 48, note: 'South Korean passport' },
-      { label: 'Custom',   w: null, h: null, note: '' },
-    ];
-
-    function _px(w, h, dpi) {
-      return Math.round(w * dpi / 25.4) + ' × ' + Math.round(h * dpi / 25.4) + ' px';
-    }
-
-    const presetBtns = PRESETS.map((p, i) =>
-      '<button class="btn' + (i===0?' primary':'') + '" id="ps-preset-' + i + '" style="margin:2px;padding:5px 10px;font-size:12px" title="' + _esc(p.note) + '">' + _esc(p.label) + '</button>'
-    ).join('');
-
-    const body = `
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Preset sizes</label>
-        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:2px">${presetBtns}</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-        <div>
-          <label class="detail-label">Width (mm)</label>
-          <input id="ps-w" class="input-text" type="number" value="35" min="1" max="300" step="0.5" style="margin-top:4px">
-        </div>
-        <div>
-          <label class="detail-label">Height (mm)</label>
-          <input id="ps-h" class="input-text" type="number" value="45" min="1" max="300" step="0.5" style="margin-top:4px">
-        </div>
-        <div>
-          <label class="detail-label">DPI</label>
-          <select id="ps-dpi" class="input-text" style="margin-top:4px">
-            <option value="72">72 (screen)</option>
-            <option value="150">150 (web)</option>
-            <option value="300" selected>300 (print)</option>
-            <option value="600">600 (high-res)</option>
-          </select>
-        </div>
-      </div>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Crop mode</label>
-        <div style="display:flex;gap:16px;margin-top:6px">
-          <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-            <input type="radio" name="ps-crop" value="center" checked> Center crop (fills frame, may trim edges)
-          </label>
-          <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-            <input type="radio" name="ps-crop" value="fit"> Fit + pad with white (no cropping)
-          </label>
-        </div>
-      </div>
-      <div id="ps-info" style="font-size:12px;color:var(--accent);margin-bottom:8px;min-height:18px">
-        → 413 × 531 px @ 300 dpi
-      </div>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Output file (leave blank = auto)</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="ps-out" class="input-text" placeholder="auto-named next to source" style="flex:1">
-        </div>
-      </div>
-      <div id="ps-result" style="font-size:12px;min-height:18px"></div>`;
-
-    _openModal('photo-sizer', '📐 Photo Sizer', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Resize & Save', primary: true, onClick: async () => {
-        const w   = parseFloat(document.getElementById('ps-w')?.value) || 35;
-        const h   = parseFloat(document.getElementById('ps-h')?.value) || 45;
-        const dpi = parseInt(document.getElementById('ps-dpi')?.value)  || 300;
-        const mode = document.querySelector('input[name="ps-crop"]:checked')?.value || 'center';
-        const out  = document.getElementById('ps-out')?.value.trim() || '';
-        const resEl = document.getElementById('ps-result');
-        if (resEl) resEl.textContent = 'Processing…';
-        App.setStatus('Resizing photo…', true);
-        const r = await SFM.resizePhotoToMm(path, w, h, dpi, out, mode);
-        App.setStatus('Ready');
-        if (r.ok) {
-          if (resEl) resEl.innerHTML = '✅ Saved: <strong>' + _esc(r.out.split(/[\\/]/).pop()) + '</strong>';
-          App.toast('Photo resized → ' + r.out.split(/[\\/]/).pop(), 'success');
-          FileTree.refresh();
-        } else {
-          if (resEl) resEl.textContent = '❌ ' + r.error;
-          App.toast('Failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    // Wire presets
-    PRESETS.forEach((p, i) => {
-      document.getElementById('ps-preset-' + i)?.addEventListener('click', () => {
-        document.querySelectorAll('[id^="ps-preset-"]').forEach(b => b.classList.remove('primary'));
-        document.getElementById('ps-preset-' + i)?.classList.add('primary');
-        if (p.w !== null) {
-          document.getElementById('ps-w').value = p.w;
-          document.getElementById('ps-h').value = p.h;
-        }
-        _updateInfo();
-      });
-    });
-
-    // Live info updater
-    function _updateInfo() {
-      const w   = parseFloat(document.getElementById('ps-w')?.value) || 35;
-      const h   = parseFloat(document.getElementById('ps-h')?.value) || 45;
-      const dpi = parseInt(document.getElementById('ps-dpi')?.value)  || 300;
-      const px_w = Math.round(w * dpi / 25.4);
-      const px_h = Math.round(h * dpi / 25.4);
-      const infoEl = document.getElementById('ps-info');
-      if (infoEl) infoEl.textContent = '→ ' + px_w + ' × ' + px_h + ' px  @  ' + dpi + ' dpi  (' + w + '×' + h + ' mm)';
-    }
-    ['ps-w', 'ps-h', 'ps-dpi'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', _updateInfo);
-      document.getElementById(id)?.addEventListener('change', _updateInfo);
-    });
-    _updateInfo();
   }
 
   // ── Helper ────────────────────────────────────────────────────────────────
@@ -2225,17 +1692,12 @@ const Dialogs = (() => {
 
   return {
     openCombinePdf, openFullView, openArrangePages,
-    openA4Placer, openIdCard, openPrint, openTemplates, openUppercase,
-    openCompressPdf, openSettings, openExtractPages, openDuplicatePages,
-    openSimilarMove, openPassportCheck, openMoreMenu,
+    openTemplates, openUppercase,
+    openCompressPdf, openSettings, openExtractPages, openMoreMenu,
     openSmartSplitProgress,
     openCopyTo, openMoveTo,
     openPdfToImages, openSplitRenameOcrProgress,
-    openZipContents,
-    openBulkSplitPdfs,
-    openPhotoSizer,
     openCropImage,
-    openImageAdjust,
     openCompressImages,
     openOcrRenameProgress,
     openQrOverlay,

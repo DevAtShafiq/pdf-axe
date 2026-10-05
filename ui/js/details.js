@@ -25,6 +25,7 @@ const Details = (() => {
     _renderBadge(entry);
     _renderRows(entry);
     _setRenameValue(entry.name);
+    _showConvertAction(entry);
     _showAiSection(entry);
 
     try {
@@ -259,10 +260,18 @@ const Details = (() => {
       App.setStatus('Converting to PDF…', true);
       const r = await SFM.convertToPdf(_path);
       App.setStatus('Ready');
-      if (r.ok) { App.toast('Converted: ' + r.out, 'success'); FileTree.refresh(); }
+      if (r.ok) { App.toast('Converted: ' + String(r.out_path || '').split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
       else       { App.toast('Failed: ' + r.error, 'error'); }
     });
-    wire('qa-print', () => { if (_path) Dialogs.openPrint(_path); });
+  }
+
+  // "Convert to PDF" is image → PDF only.
+  const _PDF_CONVERTIBLE_EXTS = ['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tif','.tiff'];
+  function _showConvertAction(entry) {
+    const btn = $('qa-convert-pdf');
+    if (!btn) return;
+    const isImg = !entry.is_dir && _PDF_CONVERTIBLE_EXTS.includes((entry.ext||'').toLowerCase());
+    btn.classList.toggle('hidden', !isImg);
   }
 
   // ── AI Photo section ──────────────────────────────────────────────────────
@@ -381,28 +390,5 @@ const Details = (() => {
     input.setSelectionRange(0, dot > 0 ? dot : name.length);
   }
 
-  // ── Public: translateRename — toolbar 🇰🇷 button ─────────────────────────
-  async function translateRename() {
-    if (!_path) { App.toast('Select a file first', 'warning'); return; }
-    const name = _entry?.name || '';
-    const stem = name.replace(/\.[^.]+$/, '');
-    App.setStatus('Translating…', true);
-    try {
-      const r = await SFM.translateKorean(stem);
-      App.setStatus('Ready');
-      if (r.ok && r.text) {
-        const ext   = _entry?.ext || '';
-        const input = $('rename-input');
-        if (input) { input.value = r.text + ext; input.focus(); }
-        App.toast('Korean: ' + r.text, 'info', 5000);
-      } else {
-        App.toast('Translation failed: ' + (r.error || ''), 'error');
-      }
-    } catch(e) {
-      App.setStatus('Ready');
-      App.toast('Translation error', 'error');
-    }
-  }
-
-  return { showFile, showMultiple, clear, beginRename, translateRename, runAiPhoto };
+  return { showFile, showMultiple, clear, beginRename, runAiPhoto };
 })();
