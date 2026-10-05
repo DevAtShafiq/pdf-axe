@@ -65,12 +65,68 @@ const Dialogs = (() => {
     return overlay;
   }
 
-  function closeModal() {
+  // closeModal()    → close the top-most modal
+  // closeModal(id)  → close the overlay #mo-<id> (dialogs built with _modal /
+  //                   _attachClose, e.g. Crop Image and the QR overlay)
+  function closeModal(id) {
+    if (typeof id === 'string' && id) {
+      const ov = document.getElementById('mo-' + id);
+      if (ov && ov._close) { ov._close(); return; }
+    }
     if (_stack.length) _stack[_stack.length - 1].overlay._close();
   }
 
   function closeAllModals() {
     while (_stack.length) closeModal();
+  }
+
+  // ── Helpers for dialogs that build their own overlay markup ──────────────
+  // openCropImage / openQrOverlay render <div class="modal-overlay" id="mo-<id>">
+  // themselves; these register it on the same stack as _openModal so Escape and
+  // closeModal() behave the same. (No backdrop-click close: a crop drag that
+  // ends outside the image must not dismiss the dialog.)
+  let _uid = 0;
+  function _nextId() { return 'dlg' + (++_uid); }
+  function _nextZ()  { return _Z_BASE + _stack.length * 50; }
+
+  function _attachClose(id) {
+    const overlay = document.getElementById('mo-' + id);
+    if (!overlay) return;
+    function close() {
+      const idx = _stack.findIndex(s => s.overlay === overlay);
+      if (idx !== -1) {
+        document.removeEventListener('keydown', _stack[idx].onKeyDown);
+        _stack.splice(idx, 1);
+      }
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    const onKeyDown = e => {
+      if (e.key === 'Escape' && _stack[_stack.length - 1]?.overlay === overlay) close();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    _stack.push({ overlay, onKeyDown });
+    overlay._close = close;
+  }
+
+  // _modal(name, {title, width, extraStyle, body, footer}) → id
+  function _modal(name, opts) {
+    const o  = opts || {};
+    const id = _nextId();
+    const html = `
+<div class="modal-overlay" id="mo-${id}" style="z-index:${_nextZ()}">
+<div class="modal" id="modal-${_esc(name)}" style="width:${o.width || '560px'};max-width:98vw;${o.extraStyle || ''}">
+  <div class="modal-header">
+    <h2 class="modal-title">${_esc(o.title || '')}</h2>
+    <button class="modal-close" aria-label="Close">&#x2715;</button>
+  </div>
+  <div class="modal-body">${o.body || ''}</div>
+  ${o.footer ? `<div class="modal-footer">${o.footer}</div>` : ''}
+</div></div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    _attachClose(id);
+    document.querySelector('#mo-' + id + ' .modal-close')
+      ?.addEventListener('click', () => closeModal(id));
+    return id;
   }
 
   // ── 1. Combine PDFs ───────────────────────────────────────────────────────
