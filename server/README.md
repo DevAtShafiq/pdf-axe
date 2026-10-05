@@ -4,11 +4,16 @@ A small FastAPI + SQLite service that the PDF Axe desktop app (`cloud_client.py`
 signs in to. It provides:
 
 - **Accounts**: email + password registration and sign-in, with per-device session tokens
-  (PBKDF2 password hashes; only token hashes are stored).
+  (PBKDF2 password hashes; only token hashes are stored). Sign-in attempts are throttled per
+  email and per client IP, sign-out revokes the session on the server, and users can list
+  and sign out their other devices.
 - **Monthly subscription**: Stripe Checkout to subscribe, the Stripe customer portal
   to cancel or change the card, and a webhook that keeps subscription status in sync.
 - **Cloud storage**: a private file area for each subscriber, with a storage quota,
-  a maximum upload size, and trash/restore.
+  a maximum upload size, rename/move (files and folders), and trash/restore. Files in the
+  trash do not count against the quota. Nothing is ever erased: trashing sets a flag and
+  replacing a file keeps the old blob on disk (clean up old blobs yourself if disk space
+  matters).
 - **Live updates**: a Server-Sent Events stream at `/events`. Every signed-in device
   is told straight away when a file or the subscription changes.
 
@@ -34,6 +39,12 @@ Copy `server/.env.example` and fill it in. That file describes every variable:
 | `STRIPE_WEBHOOK_SECRET` | (none) | Signing secret of the webhook endpoint |
 | `STRIPE_PRICE_ID` | (none) | Monthly recurring Price ID |
 | `SFM_PLAN_LABEL` | `Monthly plan` | Plan text shown in the app, e.g. `$9.99 / month` |
+| `SFM_PAST_DUE_GRACE_DAYS` | `7` | Days paid features keep working after a renewal payment fails (`past_due`) |
+| `SFM_FREE_PLAN` | (off) | `1` = every signed-in user gets the paid features without Stripe (self-hosted/team servers) |
+| `SFM_LOGIN_MAX_ATTEMPTS` | `8` | Failed sign-ins allowed per email per window, then HTTP 429 |
+| `SFM_LOGIN_IP_MAX_ATTEMPTS` | `40` | Failed sign-ins allowed per client IP per window |
+| `SFM_LOGIN_WINDOW_MINUTES` | `15` | Length of the sign-in throttling window |
+| `SFM_REGISTER_PER_HOUR` | `10` | New accounts allowed per client IP per hour |
 
 ## Run locally
 
@@ -85,6 +96,7 @@ About the image:
      - `customer.subscription.created`
      - `customer.subscription.updated`
      - `customer.subscription.deleted`
+     - `invoice.payment_failed` (starts the `past_due` grace period)
 
    After saving, reveal the **Signing secret** (`whsec_...`) and put it in
    `STRIPE_WEBHOOK_SECRET`.
@@ -134,6 +146,9 @@ stripe listen --forward-to localhost:8000/billing/webhook
   ```
 
   The server sends a heartbeat about every 15 seconds. Idle timeouts must be longer than that.
+- **Rate limits are per process.** The sign-in throttle lives in memory, which matches the
+  single-instance setup above. Make sure the proxy passes the real client IP
+  (`X-Forwarded-For`) so per-IP limits apply to clients, not to the proxy.
 - **Upload size.** Allow request bodies at least as large as `SFM_MAX_UPLOAD_MB` in the proxy,
   for example with `client_max_body_size 200m;` on nginx.
 
@@ -150,9 +165,12 @@ Use either of these:
 ## API
 
 All endpoints except `/health`, `/auth/register`, `/auth/login`, `/billing/webhook` and the
-billing return pages need `Authorization: Bearer <token>`. `/events` also accepts
-`?token=` because EventSource clients cannot set headers. Endpoints marked "subscriber" also
-need an active (or trialing) subscription. Without one they return 402.
+billing return pages need `Authorization: Bearer <token>`. That includes `/events`: a token in
+the URL (`?token=`) is rejected with 400, because URLs end up in access logs. Endpoints marked
+"subscriber" also need an active (or trialing) subscription, or a `past_due` one still inside
+its grace period. Without one they return 402. Sign-in throttling answers 429 with a
+`Retry-After` header. Webhook events are processed once (by Stripe event id) and an event older
+than the last one applied is ignored.
 
 | Method | Path | Description |
 |---|---|---|
@@ -160,19 +178,24 @@ need an active (or trialing) subscription. Without one they return 402.
 | POST | `/auth/register` | `{email, password, device}` → `{token, user}` |
 | POST | `/auth/login` | `{email, password, device}` → `{token, user}` |
 | POST | `/auth/logout` | Ends the current session |
-| GET  | `/me` | Current user and subscription status |
+| GET  | `/me` | Current user and subscription status (`status`, `active`, `current_period_end`, `grace_until`, `plan_label`, `billing_available`, `free_plan`) |
+| GET  | `/auth/sessions` | This user's signed-in devices |
+| POST | `/auth/sessions/{id}/revoke` | Sign out one device (its live stream closes) |
 | POST | `/billing/checkout` | Returns a Stripe Checkout URL for subscribing |
 | POST | `/billing/portal` | Returns a Stripe customer portal URL |
 | POST | `/billing/webhook` | Stripe webhook receiver (verified by signature) |
 | GET  | `/billing/success` | Page shown after Checkout or the portal |
 | GET  | `/billing/cancel` | Page shown when Checkout is cancelled |
-| GET  | `/usage` | `{used, quota}` in bytes |
+| GET  | `/usage` | `{used, quota, max_upload}` in bytes (trash not counted) |
 | GET  | `/files?trashed=false` | List files (subscriber) |
-| POST | `/files` | Multipart upload: form `path` plus `file` (subscriber) |
+| POST | `/files` | Multipart upload: form `path` plus `file`, optional `base_sha256` (409 if the cloud copy changed since) (subscriber) |
 | GET  | `/files/{id}/download` | Download a file (subscriber) |
 | POST | `/files/{id}/trash` | Move a file to the trash (subscriber) |
-| POST | `/files/{id}/restore` | Restore a file from the trash (subscriber) |
-| GET  | `/events` | Server-Sent Events stream: `hello`, `file_updated`, `file_trashed`, `subscription_updated`, plus `: ping` heartbeats |
+| POST | `/files/{id}/restore` | Restore a file from the trash; 507 if it no longer fits the quota (subscriber) |
+| POST | `/files/{id}/move` | `{path}` rename/move one file; 409 if the name is taken (subscriber) |
+| POST | `/folders/move` | `{path, new_path}` rename/move a folder and everything in it (subscriber) |
+| POST | `/folders/trash` | `{path}` move every file in a folder to the trash (subscriber) |
+| GET  | `/events` | Server-Sent Events stream: `hello`, `file_updated`, `file_trashed`, `file_moved`, `folder_moved`, `folder_trashed`, `subscription_updated`, `session_revoked`, `session_expired`, plus `: ping` heartbeats |
 
 ## Tests
 
