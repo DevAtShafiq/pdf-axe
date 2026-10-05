@@ -185,6 +185,7 @@ const ContextMenu = (() => {
       _item(menu, '\u{1F5A8}️', 'Print…',          '', () => { hide(); Dialogs.openPrint(mainPath); });
       _item(menu, '\u{1F4D0}', 'Resize to Photo Size\u2026', '', () => { hide(); Dialogs.openPhotoSizer(mainPath); });
       _item(menu, '✂️', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
+      _item(menu, '\u{1F454}', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
       _item(menu, '\u{1F504}', 'Rotate CW 90°', '', async () => {
         hide(); App.setStatus('Rotating…', true);
         const r = await SFM.rotateImage(mainPath, 90);

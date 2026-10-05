@@ -1817,21 +1817,56 @@ class SFMBridge:
 
     # ── AI Photo Editor ───────────────────────────────────────────────────────
 
+    def ai_photo_actions(self) -> dict:
+        """List the AI photo actions as [{key, label}, ...]."""
+        try:
+            from ai_photo_editor import ai_photo_actions as _actions
+            return _ok(actions=_actions())
+        except Exception as exc:
+            return _err(str(exc))
+
     def run_ai_photo_action(self, path: str, action: str, opts: dict = None) -> dict:
+        """Start an AI photo edit in the background.
+
+        Returns {ok, started:true} immediately; the result arrives as the
+        ``ai_photo_result`` event: {ok:true, out, action} or {ok:false, error, action}.
+        The original file is never overwritten (a new *_ai file is written).
+        """
         opts = opts or {}
+        require_plan = getattr(self, "_require_plan", None)
+        if callable(require_plan):
+            import inspect
+            try:
+                takes_arg = bool(inspect.signature(require_plan).parameters)
+            except (TypeError, ValueError):
+                takes_arg = False
+            gate = require_plan("ai_photo") if takes_arg else require_plan()
+            if gate:
+                return gate
+        if not path or not os.path.isfile(path):
+            return _err(f"File not found: {path}")
+
+        api_key = ""
+        try:
+            api_key = (self._load_settings().get("openai_api_key") or "").strip()
+        except Exception:
+            pass
+
         def _run():
             try:
-                from ai_photo_editor import AIPhotoEditor
-                editor = AIPhotoEditor(path)
-                result = editor.run_action(action, **opts)
-                if result and result.get("ok"):
-                    self._emit("ai_photo_result", result)
+                from ai_photo_editor import run_ai_edit
+                ok, msg = run_ai_edit(
+                    path, action,
+                    out_path=str(opts.get("out_path") or ""),
+                    api_key=api_key,
+                )
+                if ok:
+                    self._emit("ai_photo_result", {"ok": True, "out": msg, "action": action})
                 else:
-                    self._emit("ai_photo_result", {"ok": False, "error": result.get("error", "Unknown error") if result else "No result"})
-            except ImportError:
-                self._emit("ai_photo_result", {"ok": False, "error": "ai_photo_editor module not found"})
+                    self._emit("ai_photo_result", {"ok": False, "error": msg, "action": action})
             except Exception as exc:
-                self._emit("ai_photo_result", {"ok": False, "error": str(exc)})
+                _log.exception("run_ai_photo_action failed")
+                self._emit("ai_photo_result", {"ok": False, "error": str(exc), "action": action})
         self._thread(_run)
         return _ok(started=True)
 
