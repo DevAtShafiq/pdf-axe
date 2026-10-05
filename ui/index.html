@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Student File Manager</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="media-tools.css">
 </head>
 <body>
 
@@ -299,7 +300,24 @@
           <div class="detail-section hidden" id="ai-photo-section">
             <div class="detail-section-title">AI Photo Edit</div>
             <div style="display:flex;flex-direction:column;gap:4px">
+              <div class="ai-opts">
+                <label title="Suit colour">Suit
+                  <select id="ai-suit-color">
+                    <option value="black">Black</option>
+                    <option value="navy">Navy</option>
+                    <option value="charcoal">Charcoal</option>
+                    <option value="grey">Grey</option>
+                  </select></label>
+                <label title="Add a necktie"><input type="checkbox" id="ai-tie" checked> Tie</label>
+                <label title="High = best detail; Medium = cheaper">Quality
+                  <select id="ai-quality">
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                  </select></label>
+              </div>
               <button class="qa-btn primary" id="ai-wear-suit" data-ai-action="wear_suit"><span class="icon">👔</span> Wear Suit &amp; Tie</button>
+              <div class="ai-cost" id="ai-cost-est"></div>
+              <button class="qa-btn hidden" id="ai-compare" title="Before / after slider"><span class="icon">⇆</span> Compare with original</button>
               <button class="qa-btn" id="ai-crop"><span class="icon">✂️</span> Crop…</button>
               <div id="ai-photo-status" style="font-size:11px;color:var(--text-muted);min-height:14px"></div>
             </div>
@@ -386,6 +404,8 @@
 <script src="js/context-menu.js"></script>
 <script src="js/dialogs.js"></script>
 <script src="js/panels.js"></script>
+<script src="js/qr.js"></script>
+<script src="js/photo-tools.js"></script>
 
 </body>
 </html>

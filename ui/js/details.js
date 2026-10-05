@@ -279,62 +279,14 @@ const Details = (() => {
     const imgExts = ['.jpg','.jpeg','.png','.bmp','.webp'];
     const isImg   = imgExts.includes((entry.ext||'').toLowerCase());
     $('ai-photo-section').classList.toggle('hidden', !isImg);
+    if (isImg && typeof AiPhoto !== 'undefined') AiPhoto.onShowFile(entry);
   }
 
-  // Shared AI photo runner (also used by the context menu).
-  // Resolves with the ai_photo_result payload: {ok, out, action} | {ok:false, error}.
-  let _aiBusy = false;
-  const _AI_LABELS = {
-    wear_suit: 'Wear Suit & Tie',
-  };
-
-  function _setAiBusy(on, msg) {
-    _aiBusy = on;
-    document.querySelectorAll('#ai-photo-section [data-ai-action]').forEach(b => { b.disabled = on; });
-    const st = $('ai-photo-status');
-    if (st) st.textContent = msg || '';
-  }
-
-  async function runAiPhoto(path, action) {
-    if (!path) return { ok: false, error: 'No image selected' };
-    if (_aiBusy) { App.toast('An AI photo edit is already running', 'warning'); return { ok: false, error: 'busy' }; }
-    const label = _AI_LABELS[action] || action;
-    try {
-      const k = await SFM.getApiKey();
-      if (!k || !k.has_key) {
-        App.toast('Set your OpenAI API key in Settings first', 'error', 5000);
-        return { ok: false, error: 'No API key' };
-      }
-    } catch (e) { /* let the backend report key problems */ }
-
-    _setAiBusy(true, `Running ${label}… (may take up to a minute)`);
-    App.setStatus(`AI: ${label}…`, true);
-    App.toast(`AI ${label} started…`, 'info');
-
-    let unsub = null;
-    const result = await new Promise(async resolve => {
-      unsub = SFM.on('ai_photo_result', r => resolve(r || { ok: false, error: 'No result' }));
-      try {
-        const r = await SFM.runAiPhoto(path, action, {});
-        if (!r || !r.ok) resolve({ ok: false, error: (r && r.error) || 'Could not start AI edit' });
-      } catch (e) { resolve({ ok: false, error: String(e) }); }
-    });
-    if (unsub) unsub();
-
-    _setAiBusy(false);
-    App.setStatus('Ready');
-    if (result.ok) {
-      const name = String(result.out || '').split(/[\\/]/).pop();
-      App.toast(`${label} saved → ${name}`, 'success', 5000);
-      try { FileTree.refresh(); } catch (_) {}
-      try {
-        const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')).toLowerCase() : '';
-        Preview.previewFile(result.out, ext);
-      } catch (_) {}
-    } else {
-      App.toast(`AI ${label} failed: ${result.error}`, 'error', 6000);
-    }
-    return result;
+  // Shared AI photo runner (also used by the context menu). The flow — plan
+  // gate, API-key check, options, busy state, result reveal and before/after —
+  // lives in photo-tools.js (AiPhoto). Resolves with the ai_photo_result payload.
+  function runAiPhoto(path, action) {
+    return AiPhoto.run(path, action || 'wear_suit');
   }
 
   function _initAiPhoto() {
@@ -342,7 +294,7 @@ const Details = (() => {
       btn.addEventListener('click', () => { if (_path) runAiPhoto(_path, btn.dataset.aiAction); });
     });
     const crop = $('ai-crop');
-    if (crop) crop.addEventListener('click', () => { if (_path) Dialogs.openCropImage(_path); });
+    if (crop) crop.addEventListener('click', () => { if (_path) Cropper.open(_path); });
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

@@ -131,7 +131,8 @@ const SFM = (() => {
     convertToPdf:        (path, out='')            => call('convert_to_pdf', path, out),
     convertToPdfAsync:   (paths)                   => call('convert_to_pdf_async', paths),
     // Image
-    cropImage:           (path, x, y, w, h, out='')        => call('crop_image', path, x, y, w, h, out),
+    cropImage:           (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
+    getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),
     compressImage:       (path, quality=70, maxEdge=0, fmt='', out='') => call('compress_image', path, quality, maxEdge, fmt, out),
     compressImages:      (paths, quality=70, maxEdge=0, fmt='')        => call('compress_images', paths, quality, maxEdge, fmt),
     convertImage:        (path, fmt, out='')                           => call('convert_image', path, fmt, out),
@@ -145,6 +146,10 @@ const SFM = (() => {
     scanQrFromFile:      (path)                    => call('scan_qr_from_file', path),
     getScreenCapture:    ()                        => call('get_screen_capture'),
     decodeQrAtPoint:     (cx, cy)                  => call('decode_qr_at_point', cx, cy),
+    decodeQrInRegion:    (x, y, w, h)              => call('decode_qr_in_region', x, y, w, h),
+    scanQrFiles:         (paths, jobId='')         => call('scan_qr_files', paths, jobId),
+    qrScanCancel:        (jobId)                   => call('qr_scan_cancel', jobId),
+    qrOpenUrl:           (url)                     => call('qr_open_url', url),
     getCost:             ()                        => call('get_cost'),
     resetCost:           ()                        => call('reset_cost'),
     getSettings:         ()                        => call('get_settings'),
@@ -158,6 +163,7 @@ const SFM = (() => {
     // AI photo
     runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
     aiPhotoActions:      ()                        => call('ai_photo_actions'),
+    aiPhotoEstimate:     (path, opts={})           => call('ai_photo_estimate', path, opts),
     // Account / subscription / cloud storage
     accountGetState:     ()                        => call('account_get_state'),
     accountSetServer:    (url)                     => call('account_set_server', url),
