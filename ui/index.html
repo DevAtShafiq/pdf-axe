@@ -277,17 +277,6 @@
             <div class="detail-rows" id="detail-rows"></div>
           </div>
 
-          <!-- Rename -->
-          <div class="detail-section" id="rename-wrap">
-            <div class="detail-section-title">Rename</div>
-            <div style="position:relative">
-              <input type="text" class="rename-input input-text" id="rename-input"
-                     placeholder="New name… (type to see templates)" autocomplete="off" spellcheck="false">
-              <div id="rename-autocomplete" class="rename-suggestions hidden" style="position:absolute;width:100%;z-index:200"></div>
-            </div>
-            <button class="btn btn-primary btn-block" id="rename-btn" title="Apply rename (Enter) · Shift+Enter: best template · Ctrl+Enter: rename + save as template"><i data-icon="check" data-size="14"></i>Apply rename</button>
-          </div>
-
           <!-- Quick actions -->
           <div class="detail-section" id="quick-actions">
             <div class="detail-section-title">Actions</div>
@@ -295,6 +284,7 @@
               <button class="qa-btn primary" id="qa-open"><span class="icon"><i data-icon="external-link"></i></span> Open</button>
               <button class="qa-btn"         id="qa-opendir"><span class="icon"><i data-icon="folder-open"></i></span> Show in folder</button>
               <button class="qa-btn"         id="qa-copy-path"><span class="icon"><i data-icon="copy"></i></span> Copy path</button>
+              <button class="qa-btn"         id="qa-rename" title="Rename in the file list (F2) · Tab moves on to the next file"><span class="icon"><i data-icon="text-cursor"></i></span> Rename (F2)</button>
               <button class="qa-btn hidden"  id="qa-convert-pdf" title="Convert this image to PDF"><span class="icon"><i data-icon="file-pdf"></i></span> Convert to PDF</button>
               <button class="qa-btn hidden"  id="qa-convert-img" title="Convert to JPG / PNG / WEBP / BMP / TIFF"><span class="icon"><i data-icon="convert"></i></span> Convert format…</button>
               <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon"><i data-icon="images"></i></span> PDF to images…</button>

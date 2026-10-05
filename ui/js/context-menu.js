@@ -84,7 +84,7 @@ const ContextMenu = (() => {
     _sep(menu);
 
     // Section: file ops
-    _item(menu, 'text-cursor', 'Rename',         'F2',  () => { hide(); setTimeout(() => Details.beginRename(), 100); });
+    _item(menu, 'text-cursor', 'Rename',         'F2',  () => { hide(); setTimeout(() => FileTree.startRename(), 50); });
     _item(menu, 'archive', 'Move to Review', 'Del', async () => {
       hide();
       if (!confirm('Move ' + paths.length + ' item(s) to _to_review/?')) return;

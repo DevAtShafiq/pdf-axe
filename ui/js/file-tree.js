@@ -399,6 +399,9 @@ const FileTree = (() => {
       _focusIdx = _filtered.findIndex(f => f.path === entry.path);
       _renderCurrent();
       _selectionChanged();
+    } else {
+      // Keep the right-clicked item focused (context-menu Rename acts on it).
+      _focusIdx = _filtered.findIndex(f => f.path === entry.path);
     }
     const selectedEntries = _filtered.filter(f => _selected.has(f.path));
     ContextMenu.show(e.clientX, e.clientY, selectedEntries);
