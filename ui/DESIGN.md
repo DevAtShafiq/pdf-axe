@@ -121,6 +121,44 @@ Use `Dialogs.openModal(id, title, bodyHtml, buttons)` or `Dialogs.modal(name, {t
 - Logs: `.log-output` (mono, scroll) or `.mono-box`.
 - `.kbd` / `<kbd>` for shortcuts; `data-tooltip="text"` for a CSS tooltip (native `title` is fine too).
 
+### Feature-shared components (end of `style.css`)
+Used by every feature dialog (convert, compress, merge/split/extract, arrange, QR, crop, AI, templates).
+
+- **Dialog header with icon + subtitle** — `Dialogs.openModal(id, title, body, buttons, {icon, subtitle, tone?, size?})`
+  or `Dialogs.modal(name, {title, icon, subtitle, ...})`. Dialogs that build their own overlay use
+  `Dialogs.header(title, {icon, subtitle})`. Markup: `.modal-header > .modal-head-icon(.tone-warning|.tone-danger) + .modal-heading(.modal-title, .modal-subtitle) + .modal-close`.
+  Subtitle = the file name or a count (“3 images”).
+- `Dialogs.setBtn(button, label, icon)` relabels a button without losing its icon (use instead of `textContent`).
+- Footer buttons: secondary (Cancel/Close) then the primary with an icon; `.footer-left` for an extra action
+  (“Arrange pages…”, “Copy all results”). While working add `.is-loading` to the primary.
+- `.field-grid` (two columns of `.field`), `.field-suffix` (“.pdf”, “KB”), `.section-head` (label + small actions),
+  `.field.is-dim` (inactive option).
+- **Option cards** (presets / modes):
+  ```html
+  <div class="option-cards">            <!-- .option-cards-1 for one column -->
+    <label class="option-card"><input type="radio" name="x" value="a" checked>
+      <span class="option-card-icon"><i data-icon="compress"></i></span>
+      <span class="option-card-body"><span class="option-card-title">Smallest</span>
+        <span class="option-card-desc">Images at 72 dpi…</span>
+        <span class="option-card-meta"><span class="pill pill-green">Largest saving</span></span></span>
+      <span class="option-card-check"><i data-icon="check" data-size="10"></i></span></label>
+  </div>
+  ```
+- **Reorder list**: `.reorder-list > .reorder-row` with `.reorder-grip` (grip-vertical icon), `.reorder-num`,
+  `.reorder-thumb` (image or `Icons.file()`), `.reorder-name` (name + `<small>` path), a pill, and
+  `.reorder-actions` (`.icon-btn-sm` up/down/remove). Drag states: `.is-dragging`, `.drop-before`, `.drop-after`.
+- **Progress**: `.progress-block > .progress-wrap + .progress-label` (status line; may hold a `.spinner`).
+- **Results**: summary `.callout.success|warning|error` containing `svg + .callout-body(.callout-title + text)`,
+  then `.result-list > .result-row(.ok|.kept|.warn|.err) > .result-icon + .result-name + .result-detail`;
+  sizes as `.size-change` (“4.0 MB → **1.1 MB**”) plus a `.pill` with the percentage.
+- **Switch**: `<label class="switch"><input type="checkbox"><span class="switch-track"></span>Label</label>`.
+- **Swatches**: `.swatches > button.swatch(.active)` with `--swatch` set per option.
+- **Keyboard hints**: `.kbd-hints > span > .kbd…` (bottom row of command-palette lists);
+  `mark.hl` highlights the matched text.
+- `.log-output.log-tall` — 220 px activity log for long jobs (Smart Split, OCR).
+- Hidden-select pattern: a visible `.segmented`/swatch group can mirror a hidden `<select id>` so existing
+  code reading `.value` / listening for `change` keeps working (convert-tools `_segSelect`, AI section).
+
 ### Menus
 `.menu` / `.context-menu` container, `.menu-item`/`.ctx-item` rows (30 px) with
 `.icon`/`.ctx-icon`, `.ctx-label`, `.ctx-shortcut`; `.menu-sep`/`.ctx-sep`; `.danger` rows.
@@ -179,6 +217,6 @@ sidebar/page headers, 24–28 px inside empty-state tiles.
 - No emoji as icons (they render inconsistently and look unprofessional) — use `Icons`.
 - No hard-coded hex colours (`#000`, `#fff` on accent excepted via `--text-on-accent`).
 - No inline `font-size`/`padding` soup in JS templates — add a small class to the feature CSS.
-- Don't show API cost figures in the shell. (The per-photo estimate in the AI section is the only
-  remaining cost text; it lives in photo-tools.js.)
+- Don't show API cost figures anywhere in the UI. (The AI section shows only the output file name,
+  “Saves as photo_suit.jpg”.)
 - Don't rename element ids that JS queries.

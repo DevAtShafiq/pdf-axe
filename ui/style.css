@@ -42,6 +42,9 @@
      Misc       .kbd  .segmented > .seg-btn  .menu / .ctx-item  [data-tooltip]
                 .avatar  .divider  .hint  utilities (.hidden .flex-1 .truncate …)
      Icons      <i data-icon="name"></i>  or  Icons.svg('name', 16)  — see js/icons.js
+     Feature    (end of file) .modal-head-icon/.modal-heading  .field-grid
+                .option-cards/.option-card  .reorder-list/.reorder-row  .progress-block
+                .result-list/.result-row  .size-change  .switch  .swatches  .kbd-hints
    ============================================================ */
 
 /* ── Tokens: dark (default) ─────────────────────────────────── */
