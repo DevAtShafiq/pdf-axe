@@ -16,24 +16,45 @@ const Dialogs = (() => {
   const _Z_BASE = 9100;
 
   // ── Core modal open / close ───────────────────────────────────────────────
-  function _openModal(id, title, bodyHtml, buttons) {
+  // Shared modal header: optional icon tile + title + subtitle + close button.
+  // opts: { icon?, tone? ('danger'|'warning'), subtitle? (plain text), titleId? }
+  function _header(title, opts) {
+    const o = opts || {};
+    const icon = o.icon ? `<span class="modal-head-icon${o.tone ? ' tone-' + o.tone : ''}">${Icons.svg(o.icon, 18)}</span>` : '';
+    return `<div class="modal-header">${icon}
+        <div class="modal-heading">
+          <h2 class="modal-title"${o.titleId ? ` id="${o.titleId}"` : ''}>${_esc(title)}</h2>
+          ${o.subtitle ? `<div class="modal-subtitle" title="${_esc(o.subtitle)}">${_esc(o.subtitle)}</div>` : ''}
+        </div>
+        <button class="modal-close" aria-label="Close" title="Close (Esc)">${Icons.svg('x', 16)}</button>
+      </div>`;
+  }
+
+  // Set a button's icon + label (keeps data-modal-btn etc.)
+  function _setBtn(btn, label, icon) {
+    if (!btn) return;
+    btn.innerHTML = (icon ? Icons.svg(icon, btn.classList.contains('btn-sm') ? 14 : 16) : '') + _esc(label);
+  }
+
+  // _openModal(id, title, bodyHtml, buttons, opts?)
+  //   opts: { icon, tone, subtitle, size: 'sm'|'lg'|'xl', cls }
+  function _openModal(id, title, bodyHtml, buttons, opts) {
+    const o = opts || {};
     const z = _Z_BASE + _stack.length * 50;
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.style.zIndex = z;
     document.body.appendChild(overlay);
 
-    // buttons: [{ label, primary?, danger?, icon? (Icons name), onClick }]
+    // buttons: [{ label, primary?, danger?, icon? (Icons name), left?, onClick }]
     const btnHtml = (buttons || []).map(b =>
-      `<button class="btn ${b.primary ? 'btn-primary' : ''} ${b.danger ? 'btn-danger' : ''}" data-modal-btn="${b.label}">${b.icon ? Icons.svg(b.icon, 16) : ''}${_esc(b.label)}</button>`
+      `<button class="btn ${b.primary ? 'btn-primary' : ''} ${b.danger ? 'btn-danger' : ''} ${b.left ? 'footer-left' : ''}" data-modal-btn="${b.label}">${b.icon ? Icons.svg(b.icon, 16) : ''}${_esc(b.label)}</button>`
     ).join('');
 
+    const cls = [o.size ? 'modal-' + o.size : '', o.cls || ''].join(' ').trim();
     overlay.innerHTML = `
-      <div class="modal" id="modal-${id}" role="dialog" aria-labelledby="modal-title-${id}">
-        <div class="modal-header">
-          <h2 class="modal-title" id="modal-title-${id}">${_esc(title)}</h2>
-          <button class="modal-close" aria-label="Close">${Icons.svg('x', 16)}</button>
-        </div>
+      <div class="modal ${cls}" id="modal-${id}" role="dialog" aria-labelledby="modal-title-${id}">
+        ${_header(title, { ...o, titleId: 'modal-title-' + id })}
         <div class="modal-body" id="modal-body-${id}">${bodyHtml}</div>
         ${btnHtml ? `<div class="modal-footer">${btnHtml}</div>` : ''}
       </div>`;
@@ -109,17 +130,14 @@ const Dialogs = (() => {
     overlay._close = close;
   }
 
-  // _modal(name, {title, width, extraStyle, body, footer}) → id
+  // _modal(name, {title, icon?, tone?, subtitle?, width, extraStyle, cls?, body, footer}) → id
   function _modal(name, opts) {
     const o  = opts || {};
     const id = _nextId();
     const html = `
 <div class="modal-overlay" id="mo-${id}" style="z-index:${_nextZ()}">
-<div class="modal" id="modal-${_esc(name)}" style="width:${o.width || '560px'};max-width:98vw;${o.extraStyle || ''}">
-  <div class="modal-header">
-    <h2 class="modal-title">${_esc(o.title || '')}</h2>
-    <button class="modal-close" aria-label="Close">${Icons.svg('x', 16)}</button>
-  </div>
+<div class="modal ${o.cls || ''}" id="modal-${_esc(name)}" style="width:${o.width || '560px'};max-width:98vw;${o.extraStyle || ''}">
+  ${_header(o.title || '', o)}
   <div class="modal-body">${o.body || ''}</div>
   ${o.footer ? `<div class="modal-footer">${o.footer}</div>` : ''}
 </div></div>`;
@@ -388,18 +406,24 @@ const Dialogs = (() => {
 
   // ── 9. Change Case / Uppercase ────────────────────────────────────────────
   function openUppercase() {
+    const selected = App.state.selectedPaths || [];
     const body = `
-      <p class="text-muted" style="font-size:12px">Convert selected filenames to UPPERCASE, Title Case, or lowercase.</p>
-      <div id="uc-preview" style="max-height:160px;overflow:auto;font-size:12px;background:var(--bg-app);border-radius:6px;padding:8px;margin-bottom:12px;font-family:monospace"></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" id="uc-upper">UPPERCASE</button>
-        <button class="btn" id="uc-title">Title Case</button>
-        <button class="btn" id="uc-lower">lowercase</button>
+      <div class="field">
+        <span class="field-label">Convert names to</span>
+        <div class="segmented segmented-block" id="uc-seg" role="radiogroup" aria-label="Case">
+          <button type="button" class="seg-btn active" id="uc-upper">UPPERCASE</button>
+          <button type="button" class="seg-btn" id="uc-title">Title Case</button>
+          <button type="button" class="seg-btn" id="uc-lower">lowercase</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">Preview</span>
+        <div id="uc-preview" class="result-list"></div>
       </div>`;
 
-    _openModal('uppercase', 'Change Case', body, [
+    _openModal('uppercase', 'Change case', body, [
       { label: 'Cancel', onClick: closeModal },
-      { label: 'Apply', primary: true, onClick: async () => {
+      { label: 'Rename', primary: true, icon: 'case', onClick: async () => {
         const rows = document.querySelectorAll('#uc-preview .uc-row');
         closeModal();
         let done = 0;
@@ -410,26 +434,31 @@ const Dialogs = (() => {
         App.toast(`Renamed ${done} file(s)`, 'success');
         FileTree.refresh();
       }},
-    ]);
+    ], { icon: 'case', subtitle: selected.length ? `${selected.length} selected item${selected.length === 1 ? '' : 's'}` : 'No selection', size: 'sm' });
 
-    const selected = App.state.selectedPaths || [];
     const preview  = document.getElementById('uc-preview');
 
     function buildPreview(fn) {
       preview.innerHTML = selected.map(p => {
         const name    = p.split(/[\\/]/).pop();
         const newName = fn(name);
-        return `<div class="uc-row" data-old="${_esc(p)}" data-new="${_esc(newName)}">
-          <span style="color:var(--text-muted)">${_esc(name)}</span> &#8594; <span style="color:var(--accent)">${_esc(newName)}</span>
+        return `<div class="uc-row result-row" data-old="${_esc(p)}" data-new="${_esc(newName)}">
+          <span class="result-name text-muted" title="${_esc(name)}">${_esc(name)}</span>
+          ${Icons.svg('arrow-right', 14, 'text-muted')}
+          <span class="result-name" title="${_esc(newName)}">${_esc(newName)}</span>
         </div>`;
-      }).join('') || '<p class="text-muted">No files selected.</p>';
+      }).join('') || `<div class="empty-state empty-state-sm"><div class="empty-state-icon">${Icons.svg('files', 22)}</div><div class="empty-state-text">Select files in the list first.</div></div>`;
     }
 
     const toTitle = s => s.replace(/\b\w/g, c => c.toUpperCase());
+    const pick = (id, fn) => document.getElementById(id).addEventListener('click', () => {
+      document.querySelectorAll('#uc-seg .seg-btn').forEach(b => b.classList.toggle('active', b.id === id));
+      buildPreview(fn);
+    });
     buildPreview(s => s.toUpperCase());
-    document.getElementById('uc-upper').addEventListener('click', () => buildPreview(s => s.toUpperCase()));
-    document.getElementById('uc-title').addEventListener('click', () => buildPreview(toTitle));
-    document.getElementById('uc-lower').addEventListener('click', () => buildPreview(s => s.toLowerCase()));
+    pick('uc-upper', s => s.toUpperCase());
+    pick('uc-title', toTitle);
+    pick('uc-lower', s => s.toLowerCase());
   }
 
   // ── 10. Compress PDF — implemented in convert-tools.js (single or batch) ──
@@ -594,18 +623,7 @@ const Dialogs = (() => {
   // ── 17. Smart Split Progress ──────────────────────────────────────────────
   function openSmartSplitProgress(path) {
     const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-        AI is identifying, splitting and merging pages in:<br>
-        <strong>${_esc(name)}</strong>
-      </p>
-      <div id="ss-log"
-           style="font-family:monospace;font-size:11px;line-height:1.6;
-                  background:var(--bg-app);border-radius:6px;padding:10px;
-                  height:260px;overflow-y:auto;white-space:pre-wrap;
-                  color:var(--text-primary)">Starting…\n</div>
-      <div id="ss-status"
-           style="font-size:12px;color:var(--accent);margin-top:8px;min-height:18px"></div>`;
+    const body = _jobBody('ss', 'AI identifies each document in the PDF, splits it and merges related pages. Files are saved next to the original.', 'Starting…\n', 'Analysing pages…');
 
     _openModal('smart-split', 'Smart Split & Merge', body, [
       { label: 'Close', onClick: () => {
@@ -614,7 +632,7 @@ const Dialogs = (() => {
           closeModal();
         }
       },
-    ]);
+    ], { icon: 'sparkles', subtitle: name });
 
     const logEl    = document.getElementById('ss-log');
     const statusEl = document.getElementById('ss-status');
@@ -630,11 +648,11 @@ const Dialogs = (() => {
       SFM.off('smart_rename_done', _onDone);
       App.setStatus('Ready');
       if (r.ok) {
-        if (statusEl) statusEl.textContent = 'Complete — files saved alongside original.';
+        _jobDone('ss', true, 'Smart Split complete', 'The new files are saved next to the original.');
         App.toast('Smart Split complete', 'success');
         FileTree.refresh();
       } else {
-        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '' + (r.error || 'Failed'); }
+        _jobDone('ss', false, 'Smart Split failed', r.error || 'Failed');
         App.toast('Smart Split failed: ' + r.error, 'error', 7000);
       }
     }
@@ -649,20 +667,11 @@ const Dialogs = (() => {
   // ── 18. Copy To ─────────────────────────────────────────────────────────
   async function openCopyTo(paths) {
     if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = `
-      <p class="text-muted" style="font-size:12px">Copy ${paths.length} file(s) to a destination folder.</p>
-      <div style="margin-top:10px">
-        <label class="detail-label">Destination folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="ct-dest" class="input-text" placeholder="Select destination…" style="flex:1">
-          <button class="btn" id="ct-browse">Browse&#x2026;</button>
-        </div>
-      </div>
-      <div id="ct-status" style="font-size:12px;color:var(--accent);min-height:18px;margin-top:8px"></div>`;
+    const body = _destBody('ct', 'Copies are added to the destination; the originals stay where they are.');
 
-    _openModal('copyto', 'Copy To…', body, [
+    _openModal('copyto', 'Copy to folder', body, [
       { label: 'Cancel', onClick: closeModal },
-      { label: 'Copy', primary: true, onClick: async () => {
+      { label: 'Copy', primary: true, icon: 'copy', onClick: async () => {
         const dest = document.getElementById('ct-dest')?.value.trim();
         if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
         closeModal();
@@ -672,7 +681,7 @@ const Dialogs = (() => {
         if (r.ok) { App.toast('Copied ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
         else       { App.toast('Copy failed: ' + r.error, 'error'); }
       }},
-    ]);
+    ], { icon: 'copy', subtitle: _countLabel(paths), size: 'sm' });
 
     document.getElementById('ct-browse')?.addEventListener('click', async () => {
       const r = await SFM.call('browse_for_folder');
@@ -683,20 +692,11 @@ const Dialogs = (() => {
   // ── 19. Move To ───────────────────────────────────────────────────────────
   async function openMoveTo(paths) {
     if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = `
-      <p class="text-muted" style="font-size:12px">Move ${paths.length} file(s) to a destination folder.</p>
-      <div style="margin-top:10px">
-        <label class="detail-label">Destination folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="mv-dest" class="input-text" placeholder="Select destination…" style="flex:1">
-          <button class="btn" id="mv-browse">Browse…</button>
-        </div>
-      </div>
-      <div id="mv-status" style="font-size:12px;color:var(--accent);min-height:18px;margin-top:8px"></div>`;
+    const body = _destBody('mv', 'The files are moved out of the current folder. An existing file is never replaced.');
 
-    _openModal('moveto', 'Move To…', body, [
+    _openModal('moveto', 'Move to folder', body, [
       { label: 'Cancel', onClick: closeModal },
-      { label: 'Move', primary: true, onClick: async () => {
+      { label: 'Move', primary: true, icon: 'folder-input', onClick: async () => {
         const dest = document.getElementById('mv-dest')?.value.trim();
         if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
         closeModal();
@@ -706,7 +706,7 @@ const Dialogs = (() => {
         if (r.ok) { App.toast('Moved ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
         else       { App.toast('Move failed: ' + r.error, 'error'); }
       }},
-    ]);
+    ], { icon: 'folder-input', subtitle: _countLabel(paths), size: 'sm' });
 
     document.getElementById('mv-browse')?.addEventListener('click', async () => {
       const r = await SFM.call('browse_for_folder');
@@ -720,26 +720,16 @@ const Dialogs = (() => {
   // ── 22. Split & Rename OCR Progress ──────────────────────────────────────
   function openSplitRenameOcrProgress(path) {
     const name = path.split(/[\\\/]/).pop();
-    const body = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-        OCR scanning and splitting: <strong>${_esc(name)}</strong>
-      </p>
-      <div id="sor-log"
-           style="font-family:monospace;font-size:11px;line-height:1.6;
-                  background:var(--bg-app);border-radius:6px;padding:10px;
-                  height:220px;overflow-y:auto;white-space:pre-wrap;
-                  color:var(--text-primary)">Starting OCR split…
-</div>
-      <div id="sor-status" style="font-size:12px;color:var(--accent);margin-top:8px;min-height:18px"></div>`;
+    const body = _jobBody('sor', 'Reads every page with OCR, splits the PDF into documents and names each one by its type.', 'Starting OCR split…\n', 'Reading pages…');
 
-    _openModal('split-ocr', 'Split & Rename by OCR', body, [
+    _openModal('split-ocr', 'Split & rename by OCR', body, [
       { label: 'Close', onClick: () => {
           SFM.off('ocr_rename_log', _onLog);
           SFM.off('ocr_rename_done', _onDone);
           closeModal();
         }
       },
-    ]);
+    ], { icon: 'scan-text', subtitle: name });
 
     const logEl    = document.getElementById('sor-log');
     const statusEl = document.getElementById('sor-status');
@@ -754,11 +744,11 @@ const Dialogs = (() => {
       SFM.off('ocr_rename_done', _onDone);
       App.setStatus('Ready');
       if (r.ok) {
-        if (statusEl) statusEl.textContent = 'Done — ' + (r.files?.length || '?') + ' file(s) created';
+        _jobDone('sor', true, 'OCR split complete', (r.files?.length || '?') + ' file(s) created next to the original.');
         App.toast('OCR Split complete', 'success');
         FileTree.refresh();
       } else {
-        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '' + (r.error || 'Failed'); }
+        _jobDone('sor', false, 'OCR split failed', r.error || 'Failed');
         App.toast('OCR Split failed: ' + r.error, 'error', 7000);
       }
     }
@@ -774,17 +764,11 @@ const Dialogs = (() => {
 
   // ── 27. OCR Rename Progress ───────────────────────────────────────────────
   function openOcrRenameProgress(paths) {
-    const body = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
-        Renaming <strong>${paths.length}</strong> PDF(s) by detected document type using OCR.
-        This may take a few seconds per file.
-      </p>
-      <div id="ocr-log" style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:10px;height:200px;overflow-y:auto;font-family:monospace;font-size:11px;white-space:pre-wrap"></div>
-      <div id="ocr-status" style="margin-top:8px;font-size:12px;color:var(--accent);min-height:18px">Starting…</div>`;
+    const body = _jobBody('ocr', 'Each PDF is renamed by the document type detected with OCR. This takes a few seconds per file.', '', 'Starting…');
 
-    _openModal('ocr-rename-prog', 'Rename by Document Type (OCR)', body, [
+    _openModal('ocr-rename-prog', 'Rename by document type', body, [
       { label: 'Close', onClick: closeModal },
-    ]);
+    ], { icon: 'scan-text', subtitle: _countLabel(paths, 'PDF') });
 
     const logEl  = document.getElementById('ocr-log');
     const statEl = document.getElementById('ocr-status');
@@ -798,10 +782,10 @@ const Dialogs = (() => {
     const _unsubDone = SFM.on('ocr_rename_done', e => {
       _unsubLog(); _unsubDone();
       if (e.ok) {
-        if (statEl) statEl.textContent = 'Done — all files renamed.';
+        _jobDone('ocr', true, 'Rename complete', 'All files were renamed.');
         App.toast('OCR rename complete', 'success');
       } else {
-        if (statEl) statEl.textContent = 'Error: ' + (e.error || 'unknown');
+        _jobDone('ocr', false, 'Rename failed', e.error || 'unknown error');
         App.toast('OCR rename failed', 'error');
       }
       FileTree.refresh();
@@ -809,8 +793,53 @@ const Dialogs = (() => {
 
     SFM.ocrRenameProgress(paths).catch(err => {
       _appendLog('Error starting: ' + err);
-      if (statEl) statEl.textContent = 'Could not start.';
+      if (statEl) _jobDone('ocr', false, 'Could not start', String(err));
     });
+  }
+
+  // ── Shared bodies for the job / destination dialogs ──────────────────────
+  function _countLabel(paths, noun) {
+    const n = (paths || []).length;
+    if (n === 1) return String(paths[0]).split(/[\\/]/).pop();
+    return `${n} ${noun || 'file'}${n === 1 ? '' : 's'}`;
+  }
+  function _destBody(p, hint) {
+    return `
+      <div class="field">
+        <label class="field-label" for="${p}-dest">Destination folder</label>
+        <div class="field-row">
+          <div class="input-group flex-1">
+            <span class="input-icon">${Icons.svg('folder', 14)}</span>
+            <input id="${p}-dest" class="input-text" placeholder="Choose a folder…">
+          </div>
+          <button class="btn" id="${p}-browse">Browse&#x2026;</button>
+        </div>
+        <div class="field-hint">${hint}</div>
+      </div>
+      <div id="${p}-status" class="progress-label"></div>`;
+  }
+  // Progress body: intro, indeterminate bar + status line, activity log.
+  function _jobBody(p, intro, logInit, statusText) {
+    return `
+      <p class="text-sm text-muted">${_esc(intro)}</p>
+      <div class="progress-block" id="${p}-progress">
+        <div class="progress-wrap"><div class="progress-bar indeterminate"></div></div>
+        <div class="progress-label" id="${p}-status"><span class="spinner"></span><span>${_esc(statusText || 'Working…')}</span></div>
+      </div>
+      <div class="field">
+        <span class="field-label">Activity</span>
+        <div id="${p}-log" class="log-output log-tall">${_esc(logInit || '')}</div>
+      </div>`;
+  }
+  // Replace the progress bar + status with a success / error callout.
+  function _jobDone(p, ok, title, text) {
+    const prog = document.getElementById(p + '-progress');
+    const st = document.getElementById(p + '-status');
+    if (!prog || !st) return;
+    prog.querySelector('.progress-wrap')?.remove();
+    st.className = 'callout ' + (ok ? 'success' : 'error');
+    st.innerHTML = `${Icons.svg(ok ? 'check-circle' : 'alert-circle', 16)}
+      <div class="callout-body"><span class="callout-title">${_esc(title)}</span><span>${_esc(text || '')}</span></div>`;
   }
 
   // ── Helper ────────────────────────────────────────────────────────────────
@@ -840,6 +869,8 @@ const Dialogs = (() => {
     openQrOverlay,
     closeModal, closeAllModals,
     openModal: _openModal,
-    modal: _modal,   // _modal(name, {title, width, extraStyle, body, footer}) → id (for qr.js / photo-tools.js)
+    modal: _modal,   // _modal(name, {title, icon, subtitle, width, extraStyle, body, footer}) → id (for qr.js / photo-tools.js)
+    header: _header, // header HTML for dialogs that build their own overlay (pdf-tools, rename-templates)
+    setBtn: _setBtn, // setBtn(button, label, icon) — relabel without losing the icon
   };
 })();
