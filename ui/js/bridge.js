@@ -194,5 +194,6 @@ const SFM = (() => {
     getExpiryHeatmap:    (folder)                  => call('get_expiry_heatmap', folder),
     // AI photo
     runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
+    aiPhotoActions:      ()                        => call('ai_photo_actions'),
   };
 })();

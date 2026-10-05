@@ -15,9 +15,17 @@ import shutil
 import sys
 import tempfile
 import threading
-import tkinter as tk
 import uuid
-from tkinter import messagebox, ttk
+
+try:  # Tk is only needed for the legacy desktop frame; run_ai_edit() is Tk-free.
+    import tkinter as tk
+    from tkinter import messagebox, ttk
+except Exception:  # pragma: no cover - headless / tkinter-less environments
+    import types as _types
+
+    tk = _types.SimpleNamespace(Frame=object, Misc=object, Toplevel=object)  # type: ignore[assignment]
+    messagebox = None  # type: ignore[assignment]
+    ttk = None  # type: ignore[assignment]
 from typing import Any, Callable
 
 import file_ops as fo
@@ -311,6 +319,158 @@ def _unique_ai_sidecar_path(original_path: str) -> str:
         n += 1
         if n > 5000:
             return os.path.join(d, f"{stem}_ai_{uuid.uuid4().hex[:8]}{ext}")
+
+
+UPLOAD_MAX_EDGE = 1024
+
+
+def ai_photo_actions() -> list[dict]:
+    """Return the available AI photo actions as [{key, label}, ...]."""
+    return [{"key": k, "label": v["label"]} for k, v in _ACTION_PROMPTS.items()]
+
+
+def run_ai_edit(
+    path: str,
+    action: str,
+    out_path: str = "",
+    api_key: str = "",
+) -> tuple[bool, str]:
+    """Run an OpenAI image edit on *path* and save the result as a NEW file.
+
+    Headless (no Tk). Returns ``(True, out_path)`` on success or
+    ``(False, error_message)`` on failure. The original file is never
+    modified; when *out_path* is empty (or already exists) a unique
+    ``<stem>_ai<ext>`` sidecar path is chosen next to the original.
+    """
+    Image = _pil_image()
+    if not Image:
+        return False, "Pillow is required (pip install pillow)."
+    if action not in _ACTION_PROMPTS:
+        return False, f"Unknown AI photo action: {action}"
+    path = os.path.abspath(os.path.normpath(path or ""))
+    if not path or not os.path.isfile(path):
+        return False, f"Image not found: {path}"
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in fo.IMAGE_EXT:
+        return False, f"Not a supported image format: {ext}"
+
+    # ── API key ──────────────────────────────────────────────────────────
+    merge_dotenv_into_environ()
+    key = (api_key or os.environ.get("OPENAI_API_KEY") or "").strip()
+    if not key:
+        return False, (
+            "No OpenAI API key found. Set it in Settings, or create .env in "
+            f"{_app_base_dir()} with OPENAI_API_KEY=sk-..."
+        )
+    if not _openai_key_looks_valid(key):
+        return False, "OPENAI_API_KEY does not look valid (should start with sk-)."
+    OpenAI = _openai_client()
+    if not OpenAI:
+        return False, "OpenAI SDK not installed (pip install openai)."
+
+    # ── Output path (never the original) ─────────────────────────────────
+    if out_path:
+        out_path = os.path.abspath(os.path.normpath(out_path))
+        if os.path.normcase(out_path) == os.path.normcase(path) or os.path.exists(out_path):
+            out_path = _unique_ai_sidecar_path(out_path)
+    else:
+        out_path = _unique_ai_sidecar_path(path)
+
+    info = _ACTION_PROMPTS[action]
+    try:
+        with Image.open(path) as src:
+            orig_size = src.size
+            im = src.convert("RGBA")
+        w, h = im.size
+        edge = max(w, h)
+        if edge > UPLOAD_MAX_EDGE:
+            scale = UPLOAD_MAX_EDGE / float(edge)
+            im = im.resize(
+                (max(1, int(w * scale)), max(1, int(h * scale))),
+                Image.Resampling.LANCZOS,
+            )
+        up_w, up_h = im.size
+        img_buf = io.BytesIO()
+        im.save(img_buf, format="PNG", compress_level=6)
+    except Exception as e:
+        return False, f"Could not read or resize the image: {e}"
+
+    mask_buf: io.BytesIO | None = None
+    mask_img = _build_mask_for_action(action, up_w, up_h)
+    if mask_img is not None:
+        try:
+            mask_buf = io.BytesIO()
+            mask_img.save(mask_buf, format="PNG")
+        except Exception:
+            mask_buf = None
+
+    # ── API call ─────────────────────────────────────────────────────────
+    try:
+        client_kw: dict = {"api_key": key}
+        for env, kw in (
+            ("OPENAI_PROJECT_ID", "project"),
+            ("OPENAI_ORG_ID", "organization"),
+            ("OPENAI_BASE_URL", "base_url"),
+        ):
+            val = (os.environ.get(env) or "").strip()
+            if val:
+                client_kw[kw] = val
+        client = OpenAI(**client_kw)
+        call_kwargs: dict = dict(
+            model=_AI_EDIT_MODEL,
+            prompt=info["prompt"],
+            n=1,
+            size="auto",
+            quality=info.get("quality", "high"),
+            background=info.get("background", "opaque"),
+        )
+        image_file = ("upload.png", img_buf.getvalue(), "image/png")
+        if mask_buf is not None:
+            mask_file = ("mask.png", mask_buf.getvalue(), "image/png")
+            result = client.images.edit(image=image_file, mask=mask_file, **call_kwargs)
+        else:
+            result = client.images.edit(image=image_file, **call_kwargs)
+    except Exception as e:
+        return False, f"OpenAI request failed: {e}"
+
+    data = getattr(result, "data", None) if result is not None else None
+    if not data:
+        return False, "Empty response from API."
+    item = data[0]
+    b64 = getattr(item, "b64_json", None)
+    url = getattr(item, "url", None)
+    try:
+        if b64:
+            out_bytes = base64.b64decode(b64)
+        elif url:
+            import urllib.request
+            with urllib.request.urlopen(url, timeout=120) as resp:
+                out_bytes = resp.read()
+        else:
+            return False, "No image data in API response."
+    except Exception as e:
+        return False, f"Failed to get result image: {e}"
+
+    # ── Decode, resize back, save ────────────────────────────────────────
+    try:
+        result_img = Image.open(io.BytesIO(out_bytes)).convert("RGB")
+        if result_img.size != orig_size:
+            result_img = result_img.resize(orig_size, Image.Resampling.LANCZOS)
+        out_ext = os.path.splitext(out_path)[1].lower()
+        fmt = {
+            ".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".bmp": "BMP",
+            ".webp": "WEBP", ".tif": "TIFF", ".tiff": "TIFF", ".gif": "GIF",
+        }.get(out_ext)
+        if fmt is None:
+            out_path = os.path.splitext(out_path)[0] + ".png"
+            if os.path.exists(out_path):
+                out_path = _unique_ai_sidecar_path(out_path)
+            fmt = "PNG"
+        save_kw: dict = {"quality": 95} if fmt in ("JPEG", "WEBP") else {}
+        result_img.save(out_path, format=fmt, **save_kw)
+    except Exception as e:
+        return False, f"Could not process API result image: {e}"
+    return True, out_path
 
 
 # ---------------------------------------------------------------------------
