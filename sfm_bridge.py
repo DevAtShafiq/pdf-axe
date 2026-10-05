@@ -910,10 +910,23 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
-    def crop_image(self, path: str, x: int, y: int, w: int, h: int, out_path: str = "") -> dict:
+    def crop_image(self, path: str, x: int, y: int, w: int, h: int, out_path: str = "",
+                   rotate: int = 0) -> dict:
+        """Crop at full resolution (EXIF-upright, then *rotate*° clockwise) into a
+        NEW file <name>_cropped<ext>; (x, y, w, h) are full-size pixels."""
         try:
-            ok, result = _fo.crop_image(path, int(x), int(y), int(w), int(h), out_path)
+            import image_crop
+            ok, result = image_crop.crop_image(path, int(x), int(y), int(w), int(h),
+                                               int(rotate or 0), out_path or "")
             return _ok(out=result) if ok else _err(result)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def get_crop_source(self, path: str, max_dim: int = 1600) -> dict:
+        """Scaled preview + full (EXIF-upright) size for the Crop dialog."""
+        try:
+            import image_crop
+            return _ok(**image_crop.crop_source(path, int(max_dim or 1600)))
         except Exception as exc:
             return _err(str(exc))
 
@@ -1050,127 +1063,150 @@ class SFMBridge:
     # QR
     # =========================================================================
 
-    def scan_qr_from_screen(self) -> dict:
-        """Minimise the app window, wait 1.5 s, grab the whole screen,
-        decode any QR code, restore the window, emit qr_result.
+    # All decoding lives in qr_scan.py. Nothing here opens a browser on its
+    # own: links are opened only by qr_open_url(), i.e. after the user clicks.
 
-        This is the fallback path (toolbar button). The preferred path is
-        scan_qr_from_file() which reads QR directly from a selected file.
+    def _grab_screen(self):
+        """Minimise the window, screenshot the whole virtual desktop, restore."""
+        import mss
+        from PIL import Image as _Img
+        if self._window:
+            try:
+                self._window.minimize()
+            except Exception:
+                pass
+        try:
+            time.sleep(1.2)   # let the minimise animation finish
+            with mss.mss() as sct:
+                monitor = sct.monitors[0]  # full virtual desktop
+                shot = sct.grab(monitor)
+                return _Img.frombytes("RGB", (shot.width, shot.height), shot.rgb)
+        finally:
+            if self._window:
+                try:
+                    self._window.restore()
+                except Exception:
+                    pass
+
+    def scan_qr_from_screen(self) -> dict:
+        """Screenshot the whole screen and decode every QR code on it.
+
+        Emits ``qr_result`` {ok, source:'screen', results:[...], url, text} or
+        {ok:false, error}. (The Dialogs QR overlay is the interactive path.)
         """
         def _run():
             try:
-                import mss
-                from PIL import Image as _Img
-                import qr_screen_capture as qr
-
-                # Hide our window so the QR code behind it is visible
-                if self._window:
-                    try:
-                        self._window.minimize()
-                    except Exception:
-                        pass
-                import time
-                time.sleep(1.5)   # let OS animation finish
-
-                decoder = qr.QRDecoder()
-                with mss.mss() as sct:
-                    monitor = sct.monitors[0]  # full virtual desktop
-                    shot = sct.grab(monitor)
-                    img = _Img.frombytes("RGB", (shot.width, shot.height), shot.rgb)
-
-                result = decoder.try_decode_qr(img)
-
-                # Restore window
-                if self._window:
-                    try:
-                        self._window.restore()
-                    except Exception:
-                        pass
-
-                if result:
-                    self._emit("qr_result", {"ok": True, "url": result.text})
+                import qr_scan
+                img = self._grab_screen()
+                self._last_screenshot = img
+                results = qr_scan.scan_pil(img)
+                if results:
+                    first = results[0]["text"]
+                    self._emit("qr_result", {"ok": True, "source": "screen", "results": results,
+                                             "url": first, "text": first})
                 else:
-                    self._emit("qr_result", {"ok": False,
+                    self._emit("qr_result", {"ok": False, "source": "screen",
                                              "error": "No QR code found on screen"})
             except Exception as exc:
-                if self._window:
-                    try:
-                        self._window.restore()
-                    except Exception:
-                        pass
                 self._emit("qr_result", {"ok": False, "error": str(exc)})
         self._thread(_run)
         return _ok(started=True)
 
     def scan_qr_from_file(self, path: str) -> dict:
-        """Decode QR codes directly from an image or PDF file.
+        """Decode every QR code in one image or PDF (all pages) in the background.
 
-        For images  → pyzbar on the PIL image directly.
-        For PDFs    → scan each page (up to 10) converted at 200 dpi.
-        Returns {ok, url, text, page} on success or {ok:false, error} on failure.
-        This is the primary QR scan path in the UI (right-click a file).
+        Emits ``qr_result`` {ok, path, results:[...], page_count, pages_scanned,
+        url, text, page} — url/text/page describe the first code (older callers).
         """
         def _run():
             try:
-                import qr_screen_capture as qr
-                from PIL import Image as _Img
-                decoder = qr.QRDecoder()
-
-                ext = os.path.splitext(path)[1].lower()
-
-                # ── Image file ───────────────────────────────────────────────
-                if ext in (".jpg", ".jpeg", ".png", ".bmp", ".webp",
-                           ".gif", ".tiff", ".tif"):
-                    img = _Img.open(path).convert("RGB")
-                    result = decoder.try_decode_qr(img)
-                    if result:
-                        self._emit("qr_result", {
-                            "ok": True, "url": result.text, "text": result.text})
-                    else:
-                        self._emit("qr_result", {
-                            "ok": False, "error": "No QR code found in image"})
+                import qr_scan
+                res = qr_scan.scan_file(path)
+                if not res["ok"]:
+                    self._emit("qr_result", {"ok": False, "path": path, "error": res.get("error")})
                     return
-
-                # ── PDF file ─────────────────────────────────────────────────
-                if ext == ".pdf":
-                    try:
-                        import fitz  # type: ignore  (PyMuPDF)
-                    except ImportError:
-                        self._emit("qr_result", {
-                            "ok": False,
-                            "error": "PyMuPDF (fitz) not installed — cannot scan PDF"})
-                        return
-                    doc = fitz.open(path)
-                    for page_num in range(min(doc.page_count, 10)):
-                        page = doc.load_page(page_num)
-                        mat = fitz.Matrix(200 / 72, 200 / 72)  # 200 dpi
-                        pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
-                        img = _Img.frombytes("RGB",
-                                             (pix.width, pix.height), pix.samples)
-                        result = decoder.try_decode_qr(img)
-                        if result:
-                            self._emit("qr_result", {
-                                "ok": True,
-                                "url": result.text,
-                                "text": result.text,
-                                "page": page_num + 1,
-                            })
-                            doc.close()
-                            return
-                    doc.close()
-                    self._emit("qr_result", {
-                        "ok": False,
-                        "error": f"No QR code found in first {min(doc.page_count,10)} PDF pages"})
+                if not res["results"]:
+                    where = (f"{res['pages_scanned']} PDF page(s)" if res["kind"] == "pdf"
+                             else "the image")
+                    self._emit("qr_result", {"ok": False, "path": path, "results": [],
+                                             "error": f"No QR code found in {where}"})
                     return
-
-                self._emit("qr_result", {
-                    "ok": False,
-                    "error": f"Unsupported file type for QR scan: {ext}"})
+                first = res["results"][0]
+                self._emit("qr_result", dict(res, url=first["text"], text=first["text"],
+                                             page=first.get("page")))
             except Exception as exc:
-                self._emit("qr_result", {"ok": False, "error": str(exc)})
+                self._emit("qr_result", {"ok": False, "path": path, "error": str(exc)})
         self._thread(_run)
         return _ok(started=True)
 
+    def scan_qr_files(self, paths: list, job_id: str = "") -> dict:
+        """Batch QR check of images / PDFs (one results table in the UI).
+
+        Returns {ok, started, job_id, total} immediately, then emits
+        ``qr_scan_progress`` {job_id, index, total, path, name, file} after each
+        file and ``qr_scan_done`` {job_id, ok, files:[...], cancelled}.
+        """
+        import qr_scan
+        paths = [p for p in (paths or []) if isinstance(p, str) and p]
+        if not paths:
+            return _err("No files selected")
+        if not qr_scan.decoder_available():
+            return _err(qr_scan.decoder_error())
+        job_id = str(job_id or f"qr{int(time.time() * 1000)}")
+        if not hasattr(self, "_qr_cancel"):
+            self._qr_cancel = set()
+        self._qr_cancel.discard(job_id)
+
+        def _run():
+            files = []
+            cancelled = False
+            try:
+                for i, p in enumerate(paths):
+                    if job_id in self._qr_cancel:
+                        cancelled = True
+                        break
+                    res = qr_scan.scan_file(p, cancelled=lambda: job_id in self._qr_cancel)
+                    files.append(res)
+                    self._emit("qr_scan_progress", {"job_id": job_id, "index": i + 1,
+                                                    "total": len(paths), "path": p,
+                                                    "name": os.path.basename(p), "file": res})
+                self._emit("qr_scan_done", {"job_id": job_id, "ok": True, "files": files,
+                                            "cancelled": cancelled})
+            except Exception as exc:
+                _log.exception("scan_qr_files failed")
+                self._emit("qr_scan_done", {"job_id": job_id, "ok": False, "files": files,
+                                            "error": str(exc)})
+            finally:
+                self._qr_cancel.discard(job_id)
+        self._thread(_run)
+        return _ok(started=True, job_id=job_id, total=len(paths))
+
+    def qr_scan_cancel(self, job_id: str) -> dict:
+        if not hasattr(self, "_qr_cancel"):
+            self._qr_cancel = set()
+        self._qr_cancel.add(str(job_id))
+        return _ok()
+
+    def qr_open_url(self, url: str) -> dict:
+        """Open a decoded http(s) link in the default browser (user clicked 'Open')."""
+        try:
+            import qr_scan
+            url = (url or "").strip()
+            if not qr_scan.is_safe_to_open(url):
+                return _err("Only http:// and https:// links can be opened")
+            import webbrowser
+            webbrowser.open_new_tab(url)
+            return _ok(url=url)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def qr_classify(self, text: str) -> dict:
+        """Type + warnings for a QR payload (URL checks etc.)."""
+        try:
+            import qr_scan
+            return _ok(**qr_scan.classify_payload(text or ""))
+        except Exception as exc:
+            return _err(str(exc))
     # =========================================================================
     # DOCUMENT RENAME TEMPLATES
     # =========================================================================
@@ -1220,6 +1256,11 @@ class SFMBridge:
     def get_cost(self) -> dict:
         try:
             _tin, _tout, cost_usd = _fo.get_gpt4o_session_cost()
+            try:  # + AI photo edits (gpt-image-1) run this session
+                import ai_photo_editor as _ape
+                cost_usd += _ape.session_cost_usd()
+            except Exception:
+                pass
             return _ok(cost_usd=round(cost_usd, 4))
         except Exception as exc:
             return _err(str(exc))
@@ -1227,6 +1268,11 @@ class SFMBridge:
     def reset_cost(self) -> dict:
         try:
             _fo.reset_gpt4o_session_cost()
+            try:
+                import ai_photo_editor as _ape
+                _ape.reset_session_cost()
+            except Exception:
+                pass
             return _ok()
         except Exception as exc:
             return _err(str(exc))
@@ -1306,19 +1352,57 @@ class SFMBridge:
     # ── AI Photo Editor ───────────────────────────────────────────────────────
 
     def ai_photo_actions(self) -> dict:
-        """List the AI photo actions as [{key, label}, ...]."""
+        """List the AI photo actions as [{key, label}, ...] plus option choices."""
         try:
-            from ai_photo_editor import ai_photo_actions as _actions
-            return _ok(actions=_actions())
+            import ai_photo_editor as _ape
+            return _ok(actions=_ape.ai_photo_actions(), options=_ape.ai_photo_options(),
+                       cost_est_usd=_ape.estimate_cost_usd())
+        except Exception as exc:
+            return _err(str(exc))
+
+    def _openai_key(self) -> str:
+        key = ""
+        try:
+            key = (self._load_settings().get("openai_api_key") or "").strip()
+        except Exception:
+            pass
+        if not key:
+            try:
+                from ai_photo_editor import merge_dotenv_into_environ
+                merge_dotenv_into_environ()
+            except Exception:
+                pass
+            key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+        return key
+
+    def ai_photo_estimate(self, path: str, opts: dict = None) -> dict:
+        """Estimated USD + output file name for running Wear Suit on *path*."""
+        try:
+            import ai_photo_editor as _ape
+            o = _ape.normalize_options(opts or {})
+            w = h = 0
+            try:
+                from PIL import Image as _Img, ImageOps as _IO
+                with _Img.open(path) as im:
+                    w, h = _IO.exif_transpose(im).size
+            except Exception:
+                pass
+            return _ok(cost_est_usd=_ape.estimate_cost_usd(w, h, o["quality"]),
+                       out_name=os.path.basename(_ape.ai_output_path(path, "wear_suit")),
+                       options=o)
         except Exception as exc:
             return _err(str(exc))
 
     def run_ai_photo_action(self, path: str, action: str, opts: dict = None) -> dict:
         """Start an AI photo edit in the background.
 
-        Returns {ok, started:true} immediately; the result arrives as the
-        ``ai_photo_result`` event: {ok:true, out, action} or {ok:false, error, action}.
-        The original file is never overwritten (a new *_ai file is written).
+        The subscription gate, file and API-key checks happen synchronously, so a
+        rejected call returns {ok:false, error, need_subscription|need_login|
+        need_api_key} and nothing starts. Otherwise returns {ok, started:true,
+        job_id, cost_est_usd}; the result arrives as the ``ai_photo_result``
+        event: {ok:true, out, src, action, job_id} or {ok:false, error, action, job_id}.
+        The original file is never overwritten (a new <name>_suit<ext> is written).
+        opts: {suit_color, tie, quality, job_id, out_path}.
         """
         opts = opts or {}
         gate = self._require_plan()
@@ -1326,57 +1410,60 @@ class SFMBridge:
             return gate
         if not path or not os.path.isfile(path):
             return _err(f"File not found: {path}")
-
-        api_key = ""
+        import ai_photo_editor as _ape
+        if action not in {a["key"] for a in _ape.ai_photo_actions()}:
+            return _err(f"Unknown AI photo action: {action}")
+        api_key = self._openai_key()
+        if not api_key:
+            return _err("Add your OpenAI API key in Settings to use AI photo editing",
+                        need_api_key=True)
+        options = _ape.normalize_options(opts)
+        job_id = str(opts.get("job_id") or f"ai{int(time.time() * 1000)}")
+        est = None
         try:
-            api_key = (self._load_settings().get("openai_api_key") or "").strip()
+            est = self.ai_photo_estimate(path, options).get("cost_est_usd")
         except Exception:
             pass
 
         def _run():
+            base = {"action": action, "job_id": job_id, "src": path}
             try:
-                from ai_photo_editor import run_ai_edit
-                ok, msg = run_ai_edit(
+                ok, msg = _ape.run_ai_edit(
                     path, action,
                     out_path=str(opts.get("out_path") or ""),
                     api_key=api_key,
+                    options=options,
                 )
                 if ok:
-                    self._emit("ai_photo_result", {"ok": True, "out": msg, "action": action})
+                    self._emit("ai_photo_result", dict(base, ok=True, out=msg))
                 else:
-                    self._emit("ai_photo_result", {"ok": False, "error": msg, "action": action})
+                    self._emit("ai_photo_result", dict(base, ok=False, error=msg))
             except Exception as exc:
                 _log.exception("run_ai_photo_action failed")
-                self._emit("ai_photo_result", {"ok": False, "error": str(exc), "action": action})
+                self._emit("ai_photo_result", dict(base, ok=False, error=str(exc)))
         self._thread(_run)
-        return _ok(started=True)
+        return _ok(started=True, job_id=job_id, cost_est_usd=est, options=options)
 
     # ── Screen capture / QR overlay ───────────────────────────────────────────
 
     def get_screen_capture(self) -> dict:
-        """Minimize window, screenshot full screen, restore, return base64 data-URL."""
+        """Minimize window, screenshot full screen, restore, emit a base64 data-URL.
+
+        The full-resolution screenshot is kept for decode_qr_at_point /
+        decode_qr_in_region (the JPEG sent to the UI is only for display).
+        """
         def _run():
             try:
-                import mss, time, base64, io
-                from PIL import Image as _Img
-                if self._window:
-                    try: self._window.minimize()
-                    except Exception: pass
-                time.sleep(1.2)
-                with mss.mss() as sct:
-                    monitor = sct.monitors[0]
-                    shot = sct.grab(monitor)
-                    img = _Img.frombytes("RGB", (shot.width, shot.height), shot.rgb)
-                if self._window:
-                    try: self._window.restore()
-                    except Exception: pass
-                # Store for decode_qr_at_point
+                import io
+                img = self._grab_screen()
                 self._last_screenshot = img
-                # Encode as JPEG data-URL (smaller than PNG)
+                disp = img
+                if max(img.size) > 3840:
+                    r = 3840.0 / max(img.size)
+                    disp = img.resize((int(img.width * r), int(img.height * r)))
                 buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=80)
-                b64 = base64.b64encode(buf.getvalue()).decode()
-                data_url = f"data:image/jpeg;base64,{b64}"
+                disp.save(buf, format="JPEG", quality=82)
+                data_url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
                 self._emit("screen_capture_ready", {
                     "ok": True,
                     "data_url": data_url,
@@ -1384,49 +1471,60 @@ class SFMBridge:
                     "height": img.height,
                 })
             except Exception as exc:
-                if self._window:
-                    try: self._window.restore()
-                    except Exception: pass
                 self._emit("screen_capture_ready", {"ok": False, "error": str(exc)})
         self._thread(_run)
         return _ok(started=True)
 
     def decode_qr_at_point(self, cx: float, cy: float) -> dict:
-        """Crop last screenshot around (cx,cy) at multiple sizes, decode QR, open URL."""
+        """Decode QR codes around (cx, cy) of the last screenshot (growing crops).
+
+        Returns {ok, results:[...], text, is_url} — no browser is opened here.
+        """
         try:
-            import qr_screen_capture as qr
+            import qr_scan
             img = getattr(self, "_last_screenshot", None)
             if img is None:
                 return _err("No screenshot available — call get_screen_capture first")
-            decoder = qr.QRDecoder()
             icx, icy = int(cx), int(cy)
-            # Try multiple crop radii around click point
             for half in (125, 175, 250, 350, 500):
-                x1 = max(0, icx - half)
-                y1 = max(0, icy - half)
-                x2 = min(img.width, icx + half)
-                y2 = min(img.height, icy + half)
-                crop = img.crop((x1, y1, x2, y2))
-                result = decoder.try_decode_qr(crop)
-                if result:
-                    text = result.text
-                    is_url = text.startswith("http://") or text.startswith("https://")
-                    if is_url:
-                        import webbrowser
-                        webbrowser.open_new_tab(text)
-                    return _ok(text=text, is_url=is_url)
-            # Full image fallback
-            result = decoder.try_decode_qr(img)
-            if result:
-                text = result.text
-                is_url = text.startswith("http://") or text.startswith("https://")
-                if is_url:
-                    import webbrowser
-                    webbrowser.open_new_tab(text)
-                return _ok(text=text, is_url=is_url)
-            return _err("No QR code found near that point")
+                x1, y1 = max(0, icx - half), max(0, icy - half)
+                x2, y2 = min(img.width, icx + half), min(img.height, icy + half)
+                if x2 - x1 < 10 or y2 - y1 < 10:
+                    continue
+                results = qr_scan.scan_pil(img.crop((x1, y1, x2, y2)), region_offset=(x1, y1))
+                if results:
+                    return self._qr_screen_ok(results)
+            return _err("No QR code found near that point — try dragging a box around it")
         except Exception as exc:
             return _err(str(exc))
+
+    def decode_qr_in_region(self, x: float = 0, y: float = 0, w: float = 0, h: float = 0) -> dict:
+        """Decode QR codes inside a rectangle of the last screenshot
+        (w or h <= 0 → the whole screenshot). Returns {ok, results, text, is_url}."""
+        try:
+            import qr_scan
+            img = getattr(self, "_last_screenshot", None)
+            if img is None:
+                return _err("No screenshot available — call get_screen_capture first")
+            if w and h and w > 0 and h > 0:
+                x1 = max(0, int(x)); y1 = max(0, int(y))
+                x2 = min(img.width, int(x + w)); y2 = min(img.height, int(y + h))
+                if x2 - x1 < 8 or y2 - y1 < 8:
+                    return _err("Selection is too small")
+                results = qr_scan.scan_pil(img.crop((x1, y1, x2, y2)), region_offset=(x1, y1))
+            else:
+                results = qr_scan.scan_pil(img)
+            if not results:
+                return _err("No QR code found in the selected area" if (w and h)
+                            else "No QR code found on screen")
+            return self._qr_screen_ok(results)
+        except Exception as exc:
+            return _err(str(exc))
+
+    @staticmethod
+    def _qr_screen_ok(results: list) -> dict:
+        first = results[0]
+        return _ok(results=results, text=first["text"], is_url=first.get("type") == "url")
 
     # =========================================================================
     # ACCOUNT / CLOUD
