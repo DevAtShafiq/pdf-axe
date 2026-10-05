@@ -184,10 +184,10 @@ const ContextMenu = (() => {
         hide();
         QrScan.scanPaths(_qrPaths);
       });
-      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
+      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.pick(); });
     } else {
       // Screen scan — open click-overlay
-      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
+      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.pick(); });
     }
 
     // Section: copy path

@@ -1,20 +1,19 @@
 /**
- * qr.js — QR code checking (files, batches and the screen).
+ * qr.js — QR codes: pick one on screen, or check files.
  *
- *   QrScan.scanSelection()   toolbar "QR": scan selected images/PDFs, else screen
- *   QrScan.scanPaths(paths)  one results dialog for one or many files
- *   QrScan.openScreen()      screenshot overlay: click a code or drag a box
+ *   QrScan.pick()            toolbar "QR": native overlay over the whole desktop
+ *                            (qr_pick.py helper) — click a code or drag a box;
+ *                            links open immediately, plain text shows in a dialog
+ *   QrScan.scanPaths(paths)  one results dialog for one or many images / PDFs
  *
- * Backend: sfm_bridge scan_qr_files / decode_qr_at_point / decode_qr_in_region
- * / qr_open_url (qr_scan.py). Links are opened ONLY when the user clicks
- * "Open link" (with a confirmation when the link looks unusual).
+ * Backend: sfm_bridge qr_pick_start (→ event qr_pick_result) / scan_qr_files /
+ * qr_open_url (qr_scan.py). Only http(s) links are ever opened (checked in Python).
  */
 const QrScan = (() => {
   const EXTS = ['.jpg', '.jpeg', '.jfif', '.png', '.bmp', '.webp', '.gif', '.tif', '.tiff', '.pdf'];
   const TYPE_ICON = { url: 'link', email: 'mail', phone: 'user-circle', sms: 'mail', wifi: 'globe', vcard: 'user',
                       contact: 'user', geo: 'globe', event: 'clock', text: 'file-text', other: 'alert-triangle' };
   const tIcon = (type, size = 12) => Icons.svg(TYPE_ICON[type] || 'qr-code', size);
-  const cssVar = (name, dflt) => (getComputedStyle(document.documentElement).getPropertyValue(name) || '').trim() || dflt;
 
   function _esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -30,35 +29,11 @@ const QrScan = (() => {
     App.toast('Copied to clipboard', 'success', 1800);
   }
 
-  // ── Open link (only on click; confirm when flagged) ───────────────────────
-  async function _doOpen(url) {
+  // ── Open link — immediately, like the old app (http/https only, enforced in Python)
+  async function openLink(res) {
+    const url = (res && (res.url || res.text)) || '';
     const r = await SFM.qrOpenUrl(url).catch(e => ({ ok: false, error: String(e) }));
-    if (!r || !r.ok) App.toast('Cannot open link: ' + ((r && r.error) || 'unknown error'), 'error');
-  }
-
-  function openLink(res) {
-    const url = res.url || res.text;
-    const warns = res.warnings || [];
-    if (!warns.length) { _doOpen(url); return; }
-    const id = Dialogs.modal('qr-open-confirm', {
-      title: 'Check this link before opening',
-      icon: 'alert-triangle', tone: 'warning',
-      subtitle: res.host ? 'Points to ' + res.host : '',
-      width: '520px',
-      body: `<div class="field">
-               <span class="field-label">Full link</span>
-               <div class="mono-box qr-confirm-url">${_esc(url)}</div>
-             </div>
-             <div class="callout warning">${Icons.svg('alert-triangle', 16)}<div class="callout-body">
-               <span class="callout-title">Why this looks unusual</span>
-               <ul class="qr-warn-list">${warns.map(w => `<li>${_esc(w)}</li>`).join('')}</ul></div></div>
-             <div class="field-hint">Genuine verification links normally use https and the issuing authority's own domain.</div>`,
-      footer: `<button class="btn" id="qoc-cancel-__ID__">Cancel</button>
-               <button class="btn btn-danger" id="qoc-open-__ID__">${Icons.svg('external-link', 16)}Open anyway</button>`,
-    });
-    _fixIds(id);
-    document.getElementById('qoc-cancel-' + id).addEventListener('click', () => Dialogs.closeModal(id));
-    document.getElementById('qoc-open-' + id).addEventListener('click', () => { Dialogs.closeModal(id); _doOpen(url); });
+    if (!r || !r.ok) App.toast('Cannot open link: ' + _esc((r && r.error) || 'unknown error'), 'error');
   }
 
   // _modal() picks the id; buttons in body/footer are written with __ID__ and patched here.
@@ -110,11 +85,10 @@ const QrScan = (() => {
         </div>
         ${head}
         <div class="qr-text">${_esc(isUrl ? (res.url || res.text) : res.text)}</div>
-        ${warns.length ? `<div class="callout ${res.type === 'other' ? 'error' : 'warning'} qr-warn">${Icons.svg('alert-triangle', 16)}
-          <div class="callout-body"><span class="callout-title">Check before opening</span>
-          <ul class="qr-warn-list">${warns.map(w => `<li>${_esc(w)}</li>`).join('')}</ul></div></div>` : ''}
+        ${warns.length ? `<div class="qr-warn-pills">${warns.map(w =>
+          `<span class="pill ${res.type === 'other' ? 'pill-red' : 'pill-yellow'}" title="${_esc(w)}">${Icons.svg('alert-triangle', 12)}<span class="truncate">${_esc(w)}</span></span>`).join('')}</div>` : ''}
         <div class="qr-actions">
-          ${isUrl && res.openable ? `<button class="btn btn-sm ${warns.length ? '' : 'btn-primary'}" data-act="open">${Icons.svg('external-link', 14)}Open link</button>` : ''}
+          ${isUrl && res.openable ? `<button class="btn btn-sm btn-primary" data-act="open">${Icons.svg('external-link', 14)}Open link</button>` : ''}
           <button class="btn btn-sm" data-act="copy">${Icons.svg('copy', 14)}Copy${isUrl ? ' text' : ''}</button>
           ${isUrl ? `<button class="btn btn-sm btn-ghost" data-act="copyurl">${Icons.svg('link', 14)}Copy link</button>` : ''}
         </div>
@@ -126,14 +100,6 @@ const QrScan = (() => {
   }
 
   // ── Files → results dialog ───────────────────────────────────────────────
-  function scanSelection() {
-    const st = App.state;
-    let paths = (st.selectedPaths || []).filter(isScannable);
-    if (!paths.length && st.focusedPath && isScannable(st.focusedPath)) paths = [st.focusedPath];
-    if (paths.length) scanPaths(paths);
-    else openScreen();
-  }
-
   async function scanPaths(paths) {
     paths = (paths || []).filter(isScannable);
     if (!paths.length) { App.toast('Select an image or PDF to scan for QR codes', 'warning'); return; }
@@ -177,7 +143,7 @@ const QrScan = (() => {
       } else if (!(f.results || []).length) {
         const pages = f.kind === 'pdf' ? ` (${f.pages_scanned} page${f.pages_scanned === 1 ? '' : 's'} checked)` : '';
         list.appendChild(_note('', `No QR code found${pages}`,
-          'If the code is small or blurred, try a sharper scan, or use “Scan from screen” and drag a box around it.'));
+          'If the code is small or blurred, try a sharper scan — or open the file, press QR and click the code.'));
       } else {
         const multiPage = f.kind === 'pdf' || (f.page_count || 0) > 1;
         f.results.forEach(r => list.appendChild(renderItem(r, multiPage)));
@@ -253,150 +219,140 @@ const QrScan = (() => {
     }
   }
 
-  // ── Screen overlay: click a code, drag a box, or scan everything ─────────
-  function openScreen() {
-    const id = Dialogs.modal('qr-overlay', {
-      title: 'Scan QR from screen',
-      icon: 'scan',
-      subtitle: 'Click a code or drag a box around it',
-      width: '96vw',
-      extraStyle: 'max-width:none;',
-      body: `<div class="qrs-toolbar">
-               <div class="qrs-status" id="qrs-status-__ID__"><span class="mt-spinner"></span> Minimising window and taking a screenshot…</div>
-               <button class="btn btn-sm" id="qrs-all-__ID__" disabled>${Icons.svg('scan', 14)}Scan whole screen</button>
-               <button class="btn btn-sm btn-ghost" id="qrs-retake-__ID__">${Icons.svg('refresh', 14)}Retake screenshot</button>
-             </div>
-             <div class="qrs-stage" id="qrs-stage-__ID__" style="display:none">
-               <img id="qrs-img-__ID__" alt="Screen capture" draggable="false">
-               <canvas id="qrs-canvas-__ID__"></canvas>
-             </div>
-             <div class="qrs-results" id="qrs-results-__ID__"></div>`,
-      footer: `<button class="btn btn-primary" id="qrs-close-__ID__">Close</button>`,
+  // ── Pick a QR code on screen (native overlay, qr_pick.py) ───────────────
+  // The overlay covers every monitor, this window included, so a certificate
+  // open in the preview pane can be clicked directly. Python opens http(s)
+  // links itself (no confirmation) and reports back with `qr_pick_result`.
+  let _picking = false;
+
+  async function pick() {
+    if (_picking) { App.toast('The QR picker is already open — click a code, or press Esc', 'info', 3000); return; }
+    let r;
+    try { r = await SFM.qrPickStart(); } catch (e) { r = { ok: false, error: String(e) }; }
+    if (!r || !r.ok) {
+      if (r && r.busy) App.toast('The QR picker is already open — click a code, or press Esc', 'info', 3000);
+      else App.toast('Could not start the QR picker: ' + _esc((r && r.error) || 'unknown error'), 'error', 5000);
+      return;
+    }
+    _picking = true;
+    App.setStatus('Click a QR code anywhere on screen — drag a box around it, or press Esc to cancel', true);
+  }
+
+  function _hostHtml(res) {
+    const host = res.host || '';
+    if (!host) return _esc(res.url || res.text || '');
+    const dom = res.domain || host;
+    const i = host.lastIndexOf(dom);
+    return i >= 0
+      ? `<span class="sub">${_esc(host.slice(0, i))}</span><span class="dom">${_esc(dom)}</span>${_esc(host.slice(i + dom.length))}`
+      : `<span class="dom">${_esc(host)}</span>`;
+  }
+
+  // Toast with a Copy action (App.toast has no actions).
+  function _linkToast(res) {
+    const container = document.getElementById('toast-container');
+    if (!container) { App.toast('Opened link: ' + _esc(res.url), 'success', 6000); return; }
+    const el = document.createElement('div');
+    el.className = 'toast success qr-toast';
+    el.setAttribute('role', 'status');
+    el.innerHTML = `<span class="icon">${Icons.svg('external-link', 16)}</span>
+      <span class="qr-toast-body">
+        <span class="qr-toast-title">Opened link</span>
+        <span class="qr-host-name qr-toast-host">${_hostHtml(res)}</span>
+        <span class="qr-toast-url" title="${_esc(res.url)}">${_esc(res.url)}</span>
+      </span>
+      <button class="btn btn-sm btn-ghost qr-toast-copy" title="Copy link" aria-label="Copy link">${Icons.svg('copy', 14)}Copy</button>`;
+    let timer = null;
+    const close = () => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 300); };
+    const arm = () => { clearTimeout(timer); timer = setTimeout(close, 7000); };
+    el.querySelector('.qr-toast-copy').addEventListener('click', () => _copy(res.url));
+    el.addEventListener('mouseenter', () => clearTimeout(timer));
+    el.addEventListener('mouseleave', arm);
+    container.appendChild(el);
+    arm();
+  }
+
+  function _useAsFileName(text) {
+    const name = String(text || '').replace(/[\\/:*?"<>|\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+    if (!name) return false;
+    if (typeof FileTree !== 'undefined' && FileTree.startRename) { FileTree.startRename(undefined, name); return true; }
+    const ri = document.getElementById('rename-input');
+    const st = App.state || {};
+    if (!ri || !(st.focusedPath || (st.selectedPaths || []).length)) {
+      App.toast('Select a file first, then use the QR text as its name', 'warning', 4000);
+      return false;
+    }
+    ri.value = name;
+    ri.dispatchEvent(new Event('input', { bubbles: true }));
+    ri.focus();
+    ri.select();
+    return true;
+  }
+
+  // Plain text (or a link that could not be opened) → small dialog
+  function _textDialog(res) {
+    const isUrl = !!res.is_url;
+    const text = isUrl ? res.url : (res.text || '');
+    const id = Dialogs.modal('qr-pick-text', {
+      title: isUrl ? 'QR code link' : 'QR code text',
+      icon: 'qr-code',
+      subtitle: res.label && res.label !== 'Text' ? res.label : 'Decoded from the screen',
+      width: '520px',
+      body: `${isUrl && res.open_error ? `<div class="callout warning">${Icons.svg('alert-triangle', 16)}<div class="callout-body">
+               <span class="callout-title">The link could not be opened</span><span>${_esc(res.open_error)}</span></div></div>` : ''}
+             <div class="mono-box selectable qr-pick-text">${_esc(text)}</div>
+             <div class="field-hint">${text.length} character${text.length === 1 ? '' : 's'}</div>`,
+      footer: `<button class="btn btn-ghost footer-left" id="qpt-name-__ID__">${Icons.svg('text-cursor', 16)}Use as file name</button>
+               <button class="btn" id="qpt-close-__ID__">Close</button>
+               ${isUrl ? `<button class="btn" id="qpt-copy-__ID__">${Icons.svg('copy', 16)}Copy</button>
+                          <button class="btn btn-primary" id="qpt-open-__ID__">${Icons.svg('external-link', 16)}Open link</button>`
+                       : `<button class="btn btn-primary" id="qpt-copy-__ID__">${Icons.svg('copy', 16)}Copy</button>`}`,
     });
     _fixIds(id);
     const $ = s => document.getElementById(s + '-' + id);
-    const statusEl = $('qrs-status'), stage = $('qrs-stage'), img = $('qrs-img'),
-          canvas = $('qrs-canvas'), resultsEl = $('qrs-results'), allBtn = $('qrs-all');
-    const ctx = canvas.getContext('2d');
-    $('qrs-close').addEventListener('click', () => Dialogs.closeModal(id));
-    let screenW = 0, screenH = 0, drag = null, boxes = [], busy = false;
-
-    function status(html, err) { statusEl.innerHTML = html; statusEl.classList.toggle('err', !!err); }
-    const scale = () => (canvas.width ? screenW / canvas.width : 1);
-
-    function sizeCanvas() {
-      canvas.width = img.clientWidth; canvas.height = img.clientHeight;
-      canvas.style.width = img.clientWidth + 'px'; canvas.style.height = img.clientHeight + 'px';
-      draw();
-    }
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const s = scale();
-      ctx.lineWidth = 2;
-      const okCol = cssVar('--green', 'green'), selCol = cssVar('--accent', 'blue');
-      boxes.forEach(b => {
-        ctx.strokeStyle = okCol;
-        ctx.strokeRect(b[0] / s - 3, b[1] / s - 3, b[2] / s + 6, b[3] / s + 6);
-      });
-      if (drag && drag.moved) {
-        const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1);
-        const w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
-        ctx.fillStyle = 'rgba(0,0,0,.45)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.clearRect(x, y, w, h);
-        ctx.strokeStyle = selCol; ctx.setLineDash([6, 4]);
-        ctx.strokeRect(x + 1, y + 1, w - 2, h - 2); ctx.setLineDash([]);
-      }
-    }
-
-    function showResults(r) {
-      resultsEl.innerHTML = '';
-      if (r && r.ok) {
-        boxes = r.results.map(x => x.bbox);
-        r.results.forEach(x => resultsEl.appendChild(renderItem(x, false)));
-        const n = r.results.length;
-        status(`${Icons.svg('check-circle', 16, 'text-green')} ${n} QR code${n === 1 ? '' : 's'} decoded — click another code or drag a box to scan again`);
-      } else {
-        boxes = [];
-        status(Icons.svg('alert-circle', 16) + ' ' + _esc((r && r.error) || 'No QR code found') +
-               ' — drag a box around the code, or try “Scan whole screen”', true);
-      }
-      draw();
-    }
-
-    async function decode(fn) {
-      if (busy) return;
-      busy = true;
-      status('<span class="mt-spinner"></span> Decoding…');
-      let r;
-      try { r = await fn(); } catch (e) { r = { ok: false, error: String(e) }; }
-      busy = false;
-      if (document.getElementById('mo-' + id)) showResults(r);
-    }
-
-    function pos(e) {
-      const rc = canvas.getBoundingClientRect();
-      return { x: Math.max(0, Math.min(canvas.width, e.clientX - rc.left)),
-               y: Math.max(0, Math.min(canvas.height, e.clientY - rc.top)) };
-    }
-    canvas.addEventListener('pointerdown', e => {
-      if (e.button !== 0 || busy) return;
-      const p = pos(e);
-      drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false };
-      canvas.setPointerCapture(e.pointerId);
-    });
-    canvas.addEventListener('pointermove', e => {
-      if (!drag) return;
-      const p = pos(e);
-      drag.x1 = p.x; drag.y1 = p.y;
-      if (Math.abs(p.x - drag.x0) > 6 || Math.abs(p.y - drag.y0) > 6) drag.moved = true;
-      draw();
-    });
-    canvas.addEventListener('pointerup', () => {
-      if (!drag) return;
-      const d = drag; drag = null;
-      const s = scale();
-      if (d.moved) {
-        const x = Math.min(d.x0, d.x1) * s, y = Math.min(d.y0, d.y1) * s;
-        const w = Math.abs(d.x1 - d.x0) * s, h = Math.abs(d.y1 - d.y0) * s;
-        draw();
-        decode(() => SFM.decodeQrInRegion(Math.round(x), Math.round(y), Math.round(w), Math.round(h)));
-      } else {
-        decode(() => SFM.decodeQrAtPoint(Math.round(d.x0 * s), Math.round(d.y0 * s)));
-      }
-    });
-    allBtn.addEventListener('click', () => decode(() => SFM.decodeQrInRegion(0, 0, 0, 0)));
-
-    const onResize = () => { if (stage.style.display !== 'none') sizeCanvas(); };
-    window.addEventListener('resize', onResize);
-    let unsub = null;
-    const obs = new MutationObserver(() => {
-      if (!document.getElementById('mo-' + id)) {
-        obs.disconnect(); window.removeEventListener('resize', onResize); if (unsub) unsub();
-      }
-    });
-    obs.observe(document.body, { childList: true });
-
-    function capture() {
-      if (unsub) unsub();
-      stage.style.display = 'none'; resultsEl.innerHTML = ''; boxes = []; allBtn.disabled = true;
-      status('<span class="mt-spinner"></span> Minimising window and taking a screenshot…');
-      unsub = SFM.on('screen_capture_ready', r => {
-        unsub(); unsub = null;
-        if (!document.getElementById('mo-' + id)) return;
-        if (!r || !r.ok) { status(Icons.svg('alert-circle', 16) + ' Screenshot failed: ' + _esc((r && r.error) || 'unknown error'), true); return; }
-        screenW = r.width; screenH = r.height;
-        img.onload = () => {
-          stage.style.display = 'block'; allBtn.disabled = false; sizeCanvas();
-          status(Icons.svg('info', 16, 'text-accent') + ' Click a QR code, or drag a box around it. Links open only when you click “Open link”.');
-        };
-        img.src = r.data_url;
-      });
-      SFM.getScreenCapture().catch(err => status(Icons.svg('alert-circle', 16) + ' Failed to start capture: ' + _esc(err), true));
-    }
-    $('qrs-retake').addEventListener('click', capture);
-    capture();
+    $('qpt-close').addEventListener('click', () => Dialogs.closeModal(id));
+    $('qpt-copy').addEventListener('click', () => _copy(text));
+    $('qpt-name').addEventListener('click', () => { if (_useAsFileName(res.text)) Dialogs.closeModal(id); });
+    $('qpt-open')?.addEventListener('click', () => { Dialogs.closeModal(id); openLink(res); });
   }
 
-  return { scanSelection, scanPaths, openScreen, isScannable, renderItem, openLink };
+  function _unavailableDialog(res) {
+    Dialogs.openModal('qr-pick-missing', 'QR picking is not available',
+      `<div class="callout warning">${Icons.svg('alert-triangle', 16)}<div class="callout-body">
+         <span class="callout-title">Screen capture or the QR decoder is missing</span>
+         <span>${_esc(res.detail || '')}</span></div></div>
+       <div class="field">
+         <span class="field-label">Install the components (in the app's Python environment)</span>
+         <div class="mono-box selectable">pip install mss pyzbar pillow</div>
+         <div class="field-hint">On Windows the pyzbar wheel already includes the zbar DLL. If it still fails,
+           install the Microsoft Visual C++ Redistributable, then restart Office Axe.</div>
+       </div>`,
+      [{ label: 'Close', primary: true, onClick: () => {} }],
+      { icon: 'qr-code', subtitle: 'Needs mss, pyzbar and Pillow' });
+  }
+
+  function _onPickResult(res) {
+    _picking = false;
+    App.setStatus('Ready');
+    res = res || { ok: false, reason: 'error' };
+    if (res.ok) {
+      if (res.is_url && res.opened) {
+        App.setStatus('QR link opened: ' + (res.url || ''));
+        _linkToast(res);
+      } else {
+        _textDialog(res);
+      }
+      return;
+    }
+    switch (res.reason) {
+      case 'cancelled':   return;
+      case 'not_found':   App.toast('No QR code found', 'info', 3500); return;
+      case 'unavailable': _unavailableDialog(res); return;
+      default:            App.toast('QR picker failed: ' + _esc(res.detail || res.error || 'unknown error'), 'error', 6000);
+    }
+  }
+
+  if (typeof SFM !== 'undefined' && SFM.on) SFM.on('qr_pick_result', _onPickResult);
+
+  return { pick, scanPaths, isScannable, renderItem, openLink };
 })();
