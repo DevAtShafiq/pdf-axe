@@ -532,7 +532,7 @@ def _pick_output(path: str, fmt: str, target: bool):
 
 def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "",
                    out_path: str = "", target_bytes: int = 0,
-                   save_smallest: bool = True) -> dict:
+                   save_smallest: bool = True, dry_run: bool = False) -> dict:
     """Re-encode an image smaller; the original is never touched.
 
     target_bytes > 0 searches for the best quality that fits under that size
@@ -546,6 +546,8 @@ def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "
     Returns {"out", "before", "after", "quality", "size", "kept_original",
              "target_met", "note", "target_bytes", "smallest",
              "can_save_smallest", "format_changed"}.
+    ``dry_run`` does everything in memory and writes nothing ("out" is "",
+    "after" is the size the copy would have).
     """
     Image = _pil()
     if not os.path.isfile(path):
@@ -602,11 +604,15 @@ def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "
     if not target and same_kind and not resized and len(data) >= before:
         return _kept("Already well compressed — the original was kept")
 
+    with Image.open(io.BytesIO(data)) as chk:
+        size = list(chk.size)
+    if dry_run:
+        return {"out": "", "before": before, "after": len(data), "quality": quality,
+                "size": size, "kept_original": False, "target_met": target_met,
+                "note": note, "dry_run": True, **extra}
     if not out_path:
         out_path = os.path.splitext(path)[0] + "_compressed" + ext
     final = _write_new(out_path, data)
-    with Image.open(io.BytesIO(data)) as chk:
-        size = list(chk.size)
     return {"out": final, "before": before, "after": len(data), "quality": quality,
             "size": size, "kept_original": False, "target_met": target_met,
             "note": note, **extra}
@@ -615,11 +621,31 @@ def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "
 # ── PDF compression ──────────────────────────────────────────────────────────
 
 def resolve_preset(preset: str) -> str:
+    """Preset name / alias -> key.  "level-N" (1..len(PDF_TARGET_LADDER)-1)
+    picks a step of the target-size ladder: the "Custom level" slider."""
     key = (preset or "ebook").lower().strip()
     key = _PRESET_ALIASES.get(key, key)
+    m = re.fullmatch(r"level-(\d+)", key)
+    if m and 1 <= int(m.group(1)) < len(PDF_TARGET_LADDER):
+        return f"level-{int(m.group(1))}"
     if key not in PDF_PRESETS:
         raise ConvertError(f"Unknown compression preset: {preset}")
     return key
+
+
+def preset_label(key: str) -> str:
+    if key.startswith("level-"):
+        return "Custom level (" + _step_label(PDF_TARGET_LADDER[int(key[6:])]) + ")"
+    return PDF_PRESETS[key]["label"]
+
+
+def _preset_bytes(src: bytes, key: str, images: list, cache: dict | None = None) -> bytes:
+    """Compressed bytes of an in-memory PDF for a preset / level key."""
+    if key.startswith("level-"):
+        return _ladder_pass(src, PDF_TARGET_LADDER[int(key[6:])], images,
+                            cache if cache is not None else {})
+    cfg = PDF_PRESETS[key]
+    return _pdf_pass(src, cfg["dpi_threshold"], cfg["dpi_target"], cfg["quality"])
 
 
 def _rewrite_images_fallback(doc, threshold: int, target: int, quality: int) -> None:
@@ -794,6 +820,34 @@ def _step_label(step) -> str:
     return "Clean-up only" if step is None else f"{step[0]} dpi, quality {step[1]}"
 
 
+def _scan_images(doc) -> list:
+    """Raster images without a transparency mask, once each (see _read_pdf)."""
+    images: dict = {}
+    for page in doc:
+        try:
+            infos = page.get_images(full=True)
+        except Exception:
+            continue
+        for info in infos:
+            xref, smask = info[0], info[1]
+            if smask:
+                continue
+            try:
+                rects = page.get_image_rects(xref)
+                w = max((r.width for r in rects), default=0) / 72.0
+                if w <= 0:
+                    continue
+                cur = images.get(xref)
+                if cur is None:
+                    images[xref] = {"xref": xref, "pno": page.number, "width_in": w,
+                                    "raw_len": len(doc.xref_stream_raw(xref) or b"")}
+                elif w > cur["width_in"]:
+                    cur["width_in"] = w
+            except Exception:
+                continue
+    return list(images.values())
+
+
 def _read_pdf(path: str):
     """Validate a PDF and return (bytes, images).
 
@@ -813,33 +867,11 @@ def _read_pdf(path: str):
             raise ConvertError("This PDF is password-protected")
         if not doc.is_pdf:
             raise ConvertError("Not a PDF file")
-        images: dict = {}
-        for page in doc:
-            try:
-                infos = page.get_images(full=True)
-            except Exception:
-                continue
-            for info in infos:
-                xref, smask = info[0], info[1]
-                if smask:
-                    continue
-                try:
-                    rects = page.get_image_rects(xref)
-                    w = max((r.width for r in rects), default=0) / 72.0
-                    if w <= 0:
-                        continue
-                    cur = images.get(xref)
-                    if cur is None:
-                        images[xref] = {"xref": xref, "pno": page.number, "width_in": w,
-                                        "raw_len": len(doc.xref_stream_raw(xref) or b"")}
-                    elif w > cur["width_in"]:
-                        cur["width_in"] = w
-                except Exception:
-                    continue
+        images = _scan_images(doc)
     finally:
         doc.close()
     with open(path, "rb") as f:
-        return f.read(), list(images.values())
+        return f.read(), images
 
 
 def _search_target(src: bytes, target: int, images: list,
@@ -938,10 +970,9 @@ def compress_pdf(path: str, preset: str = "ebook", out_path: str = "",
 
     # ── named preset ──
     if not target:
-        cfg = PDF_PRESETS[key]
         if progress:
-            progress(0, 1, cfg["label"])
-        data = _pdf_pass(src, cfg["dpi_threshold"], cfg["dpi_target"], cfg["quality"])
+            progress(0, 1, preset_label(key))
+        data = _preset_bytes(src, key, images)
         if progress:
             progress(1, 1, "Done")
         after = len(data)
@@ -991,3 +1022,133 @@ def compress_pdf(path: str, preset: str = "ebook", out_path: str = "",
         return r
     _PDF_PENDING.pop(pkey, None)
     return written(smallest, msg + " — saved the smallest version", target_met=False)
+
+
+# ── size preview (in memory, nothing is written) ─────────────────────────────
+
+# Bigger PDFs are measured on a few sample pages and extrapolated.
+PREVIEW_SAMPLE_MIN_BYTES = 3 * 1024 * 1024
+PREVIEW_SAMPLE_MIN_PAGES = 8
+PREVIEW_SAMPLE_PAGES = 4
+_PREVIEW_CACHE: dict = {}
+_PREVIEW_CACHE_MAX = 400
+_PREVIEW_SRC: dict = {}           # last few prepared sources (path key -> tuple)
+
+
+def _file_key(path: str):
+    st = os.stat(path)
+    return (os.path.abspath(path).lower(), st.st_mtime_ns, st.st_size)
+
+
+def _cache_put(key, value) -> None:
+    _PREVIEW_CACHE[key] = value
+    while len(_PREVIEW_CACHE) > _PREVIEW_CACHE_MAX:
+        _PREVIEW_CACHE.pop(next(iter(_PREVIEW_CACHE)))
+
+
+def _preview_source(path: str):
+    """(fkey, before, src_bytes, images, scale, estimate) for a PDF preview.
+
+    Small PDFs use the whole file (exact).  Large ones use a handful of
+    evenly spaced pages; ``scale`` turns a sample result into a whole-file
+    estimate."""
+    fkey = _file_key(path)
+    hit = _PREVIEW_SRC.get(fkey)
+    if hit:
+        return hit
+    src, images = _read_pdf(path)
+    before = len(src)
+    out = (fkey, before, src, images, 1.0, False)
+    fitz = _fitz()
+    if before >= PREVIEW_SAMPLE_MIN_BYTES:
+        doc = fitz.open(stream=src, filetype="pdf")
+        try:
+            n = doc.page_count
+            if n >= PREVIEW_SAMPLE_MIN_PAGES:
+                k = PREVIEW_SAMPLE_PAGES
+                pages = sorted({round(i * (n - 1) / (k - 1)) for i in range(k)})
+                sub = fitz.open()
+                try:
+                    for p in pages:
+                        sub.insert_pdf(doc, from_page=p, to_page=p)
+                    sample = sub.tobytes(garbage=3, deflate=True)
+                finally:
+                    sub.close()
+                sdoc = fitz.open(stream=sample, filetype="pdf")
+                try:
+                    simgs = _scan_images(sdoc)
+                finally:
+                    sdoc.close()
+                if sample:
+                    out = (fkey, before, sample, simgs, before / len(sample), True)
+        finally:
+            doc.close()
+    _preview_src_put(fkey, out)
+    return out
+
+
+def _preview_src_put(fkey, value) -> None:
+    _PREVIEW_SRC[fkey] = value
+    while len(_PREVIEW_SRC) > 3:
+        _PREVIEW_SRC.pop(next(iter(_PREVIEW_SRC)))
+
+
+def preview_pdf(path: str, keys: Iterable[str] = (), smallest: bool = False,
+                cancelled: Callable[[], bool] | None = None) -> dict:
+    """Predicted compressed size of a PDF for each preset / "level-N" key,
+    computed in memory (nothing is written).
+
+    ``smallest`` also measures the smallest size the target-size search can
+    reach (to tell whether "Under 100 KB" is reachable).
+    Returns {"before", "sizes": {key: bytes}, "smallest", "estimate"}.
+    ``estimate`` is True when only sample pages were measured."""
+    fkey, before, src, images, scale, estimate = _preview_source(path)
+    cache: dict = {}
+    sizes = {}
+    for key in [resolve_preset(k) for k in (keys or [])]:
+        if cancelled and cancelled():
+            break
+        ck = (fkey, "pdf", key)
+        if ck not in _PREVIEW_CACHE:
+            _cache_put(ck, int(len(_preset_bytes(src, key, images, cache)) * scale))
+        sizes[key] = _PREVIEW_CACHE[ck]
+    small = None
+    if smallest and not (cancelled and cancelled()):
+        ck = (fkey, "pdf", "smallest")
+        if ck not in _PREVIEW_CACHE:
+            vals = [len(_ladder_pass(src, None, images, cache))]
+            if images:
+                vals.append(len(_ladder_pass(src, PDF_TARGET_LADDER[-1], images, cache)))
+            _cache_put(ck, int(min(vals) * scale))
+        small = _PREVIEW_CACHE[ck]
+    return {"before": before, "sizes": sizes, "smallest": small, "estimate": estimate}
+
+
+def preview_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "",
+                  smallest: bool = False) -> dict:
+    """Predicted size of compress_image(path, quality, max_edge, fmt) without
+    writing anything, plus (``smallest``) roughly the smallest size a target
+    search can reach.  Returns {"before", "after", "kept_original", "smallest",
+    "estimate"} — "after" is exact, "smallest" approximate."""
+    fkey = _file_key(path)
+    q = max(1, min(95, int(quality or 70)))
+    ck = (fkey, "img", q, int(max_edge or 0), (fmt or "").lower())
+    if ck not in _PREVIEW_CACHE:
+        r = compress_image(path, q, int(max_edge or 0), fmt or "", dry_run=True)
+        _cache_put(ck, (r["after"], r["kept_original"]))
+    after, kept = _PREVIEW_CACHE[ck]
+    small = None
+    if smallest:
+        sk = (fkey, "img", "smallest")
+        if sk not in _PREVIEW_CACHE:
+            Image = _pil()
+            img, dpi = _load_oriented(path)
+            if min(img.size) > 160:
+                s = 160 / min(img.size)
+                img = img.resize((max(1, round(img.width * s)), max(1, round(img.height * s))),
+                                 Image.LANCZOS)
+            pil_fmt = _pick_output(path, "", True)[0]
+            _cache_put(sk, min(len(_encode(img, pil_fmt, 10, dpi)), fkey[2]))
+        small = _PREVIEW_CACHE[sk]
+    return {"before": fkey[2], "after": after, "kept_original": kept,
+            "smallest": small, "estimate": False}

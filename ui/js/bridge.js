@@ -128,6 +128,8 @@ const SFM = (() => {
     // job='' → compress_done event (legacy); job set → media_progress (per attempt) + media_done
     compressPdfAsync:    (path, out='', preset='ebook', targetKb=0, job='', saveSmallest=false) => call('compress_pdf_async', path, out, preset, targetKb, job, saveSmallest),
     fileSizes:           (paths)                   => call('file_sizes', paths),
+    // Predicted sizes, in memory; emits compress_preview events tagged with job
+    compressPreview:     (paths, settings={}, job='') => call('compress_preview', paths, settings, job),
     rotatePage:          (path, page, deg)         => call('rotate_pdf_page', path, page, deg),
     deletePage:          (path, page)              => call('delete_pdf_page', path, page),
     reorderPages:        (path, order, out)        => call('reorder_pdf_pages', path, order, out),

@@ -494,7 +494,16 @@ const ConvertTools = (() => {
     ['2048', '2 MB', 'Print-ready'],
     ['custom', 'Custom', 'Any size'],
   ];
-  const CMP_DEFAULTS = { target: '0', custom: 300, unit: 'KB', preset: 'ebook', quality: 70, edge: 1600, fmt: '' };
+  // Mirror of media_convert.PDF_TARGET_LADDER (index 0 = clean-up only): the
+  // "Custom level" slider picks a step; slider value s -> ladder index (length - s).
+  const PDF_LADDER = [null, [300, 85], [300, 80], [250, 80], [200, 80], [200, 70], [170, 70],
+    [150, 70], [150, 60], [135, 60], [120, 55], [110, 55], [96, 55], [96, 45], [85, 45],
+    [72, 40], [72, 35], [60, 35], [60, 30], [50, 30]];
+  const LEVEL_MAX = PDF_LADDER.length - 1;
+  const _levelIdx = s => PDF_LADDER.length - Math.max(1, Math.min(LEVEL_MAX, s | 0));
+  const _levelText = s => { const st = PDF_LADDER[_levelIdx(s)]; return `Images ${st[0]} dpi · quality ${st[1]}`; };
+  const CMP_DEFAULTS = { target: '0', custom: 300, unit: 'KB', preset: 'ebook', level: 12, quality: 70, edge: 1600, fmt: '' };
+  const PREVIEW_DEBOUNCE = 250;
   const _check = () => `<span class="option-card-check">${Icons.svg('check', 10)}</span>`;
 
   // "100 KB", "1 MB", "1.5 MB" for a size given in KB.
@@ -552,13 +561,24 @@ const ConvertTools = (() => {
                 <span class="option-card-icon">${Icons.svg(ic, 16)}</span>
                 <span class="option-card-body"><span class="option-card-title">${t}</span>
                   <span class="option-card-desc">${d}</span>
-                  <span class="option-card-meta"><span class="pill ${tone}">${fx}</span></span></span>
+                  <span class="option-card-meta"><span class="pill ${tone}">${fx}</span><span class="pill pill-neutral cmp-est" id="pc-est-${k}"></span></span></span>
                 ${_check()}</label>`).join('')}
+            <label class="option-card cmp-level-card"><input type="radio" name="pc-preset" value="level" ${o.preset === 'level' ? 'checked' : ''}>
+              <span class="option-card-icon">${Icons.svg('settings', 16)}</span>
+              <span class="option-card-body"><span class="option-card-title">Custom level</span>
+                <span class="option-card-desc">Drag the slider until the size looks right.</span>
+                <span class="option-card-meta"><span class="pill pill-neutral cmp-est" id="pc-est-level"></span></span></span>
+              ${_check()}</label>
+          </div>
+          <div class="cmp-level hidden" id="pc-level-row">
+            <div class="section-head"><label class="field-label" for="pc-level" id="pc-level-text">${_esc(_levelText(o.level))}</label><span class="cmp-readout" id="pc-level-est"></span></div>
+            <input id="pc-level" type="range" min="1" max="${LEVEL_MAX}" step="1" value="${_esc(o.level)}" class="cvt-range">
+            <div class="cvt-range-scale"><span>Smaller file</span><span>Better quality</span></div>
           </div>
         </div>` : ''}
         ${imgs.length ? `
         <div class="field" id="ic-q-row">
-          <div class="section-head"><label class="field-label" for="ic-q">${pdfs.length ? 'Image quality' : 'Quality'}</label><span class="pill pill-neutral" id="ic-q-val">${_esc(o.quality)}</span></div>
+          <div class="section-head"><label class="field-label" for="ic-q">${pdfs.length ? 'Image quality' : 'Quality'} <span class="pill pill-neutral" id="ic-q-val">${_esc(o.quality)}</span></label><span class="cmp-readout" id="ic-est"></span></div>
           <input id="ic-q" type="range" min="10" max="95" step="1" value="${_esc(o.quality)}" class="cvt-range">
           <div class="cvt-range-scale"><span>Smaller file</span><span>Better quality</span></div>
         </div>
@@ -590,6 +610,143 @@ const ConvertTools = (() => {
     const sizes = {};          // path -> bytes (current size)
     const results = {};        // path -> last bridge result
     const busy = {};           // path -> status line while running
+    // Size previews (computed in memory by the bridge; nothing is written)
+    const pvPdf = {};          // path -> {sizes: {key: bytes}, smallest, estimate, error}
+    const pvImg = {};          // path -> {[imgKey]: {after, kept}, smallest, error}
+    const jobKeys = {};        // preview job -> image settings key it measured
+    const jobPrefix = _newJob('cpv');
+    let pvSeq = 0;
+    const timers = {};
+
+    const pdfMode = () => overlay.querySelector('input[name="pc-preset"]:checked')?.value || 'ebook';
+    const levelVal = () => parseInt($('pc-level')?.value, 10) || o.level || 12;
+    const pdfKey = () => pdfMode() === 'level' ? 'level-' + _levelIdx(levelVal()) : pdfMode();
+    const imgOpts = () => ({ quality: parseInt($('ic-q')?.value, 10) || 70,
+                             edge: $('ic-edge') ? (parseInt($('ic-edge').value, 10) || 0) : 0,
+                             fmt: $('ic-fmt') ? ($('ic-fmt').value || '') : '' });
+    const imgKey = () => { const x = imgOpts(); return `${x.quality}|${x.edge}|${x.fmt}`; };
+
+    // Predicted size of one PDF for a preset/level key ({bytes, kept, estimate} or null).
+    function pdfPred(p, key) {
+      const v = pvPdf[p], b = v && v.sizes && v.sizes[key];
+      if (b == null) return null;
+      const before = sizes[p] || v.before || 0;
+      const kept = b >= before * 0.99;
+      return { bytes: kept ? before : b, kept, estimate: !!v.estimate };
+    }
+    // Predicted size of one file for the current "No limit" settings.
+    function predicted(p) {
+      if (isPdf(p)) return pdfPred(p, pdfKey());
+      const v = pvImg[p] && pvImg[p][imgKey()];
+      return v ? { bytes: v.kept ? (sizes[p] || v.after) : v.after, kept: !!v.kept, estimate: false } : null;
+    }
+    function smallestOf(p) {
+      const v = isPdf(p) ? pvPdf[p] : pvImg[p];
+      return v && v.smallest != null ? { bytes: v.smallest, estimate: !!v.estimate } : null;
+    }
+    const pvError = p => (isPdf(p) ? pvPdf[p] : pvImg[p])?.error;
+
+    function requestPdf() {
+      if (!pdfs.length) return;
+      const keys = [...PDF_PRESETS.map(x => x[0]), pdfKey()]
+        .filter((k, i, a) => a.indexOf(k) === i)
+        .filter(k => pdfs.some(p => !pvError(p) && !(pvPdf[p] && pvPdf[p].sizes && k in pvPdf[p].sizes)));
+      const needSmall = pdfs.some(p => !pvError(p) && !(pvPdf[p] && pvPdf[p].smallest != null));
+      if (keys.length || needSmall) {
+        const job = `${jobPrefix}-pdf-${++pvSeq}`;
+        SFM.compressPreview(pdfs.filter(p => !pvError(p)), { channel: 'pdf', pdf_keys: keys, smallest: needSmall }, job).catch(() => {});
+      }
+      renderEstimates();
+    }
+    function requestImg() {
+      if (!imgs.length) return;
+      const key = imgKey(), x = imgOpts();
+      const need = imgs.filter(p => !pvError(p) && !(pvImg[p] && pvImg[p][key]));
+      const needSmall = imgs.some(p => !pvError(p) && !(pvImg[p] && pvImg[p].smallest != null));
+      if (need.length || needSmall) {
+        const job = `${jobPrefix}-img-${++pvSeq}`;
+        jobKeys[job] = key;
+        SFM.compressPreview(need.length ? need : imgs.filter(p => !pvError(p)),
+          { channel: 'img', img_quality: x.quality, img_edge: x.edge, img_fmt: x.fmt, smallest: needSmall }, job).catch(() => {});
+      }
+      renderEstimates();
+    }
+    function debounce(name, fn) {
+      clearTimeout(timers[name]);
+      timers[name] = setTimeout(fn, PREVIEW_DEBOUNCE);
+    }
+    const offPreview = SFM.on('compress_preview', ev => {
+      if (!overlay.isConnected) { offPreview(); return; }
+      if (!ev || !String(ev.job || '').startsWith(jobPrefix) || ev.done) return;
+      const p = ev.path;
+      if (isPdf(p)) {
+        const cur = pvPdf[p] || (pvPdf[p] = { sizes: {} });
+        if (!ev.ok) cur.error = ev.error;
+        else {
+          Object.assign(cur.sizes, ev.sizes || {});
+          if (ev.smallest != null) cur.smallest = ev.smallest;
+          cur.estimate = !!ev.estimate; cur.before = ev.before;
+        }
+      } else {
+        const cur = pvImg[p] || (pvImg[p] = {});
+        if (!ev.ok) cur.error = ev.error;
+        else {
+          const key = jobKeys[ev.job];
+          if (key) cur[key] = { after: ev.after, kept: ev.kept_original };
+          if (ev.smallest != null) cur.smallest = ev.smallest;
+        }
+      }
+      if (ev.before != null && sizes[p] == null) sizes[p] = ev.before;
+      renderEstimates();
+    });
+
+    const _delta = (before, after) => before ? ` ${after <= before ? '−' : '+'}${Math.abs(Math.round((before - after) * 100 / before))}%` : '';
+    const measuring = `<span class="spinner cmp-spin"></span>Measuring…`;
+    // Total predicted size for a set of files, or null while any is unknown.
+    function totalFor(list, fn) {
+      let before = 0, after = 0, est = false;
+      for (const p of list) {
+        if (pvError(p)) continue;
+        const v = fn(p); if (!v) return null;
+        before += sizes[p] || 0; after += v.bytes; est = est || v.estimate;
+      }
+      return { before, after, est };
+    }
+    function renderEstimates() {
+      if (!overlay.isConnected) return;
+      // PDF preset cards + custom level: "≈ 340 KB −62%"
+      if (pdfs.length) {
+        [...PDF_PRESETS.map(x => x[0]), 'level'].forEach(k => {
+          const el = $('pc-est-' + k); if (!el) return;
+          if (k === 'level' && pdfMode() !== 'level') { el.innerHTML = ''; return; }
+          const key = k === 'level' ? 'level-' + _levelIdx(levelVal()) : k;
+          const t = totalFor(pdfs, p => pdfPred(p, key));
+          el.innerHTML = t ? _esc(`≈ ${_short(t.after)}${_delta(t.before, t.after)}`) + (t.est ? ' <span class="cmp-est-tag">estimate</span>' : '') : measuring;
+          el.title = t && t.est ? 'Estimated from sample pages (large PDF)' : 'Predicted size, measured in memory';
+          el.classList.toggle('pill-green', !!t && t.after < t.before * 0.99);
+        });
+        const le = $('pc-level-est'), src = $('pc-est-level');
+        if (le && src) le.innerHTML = src.innerHTML;
+      }
+      // Image quality readout: "≈ 128 KB −55%"
+      const ie = $('ic-est');
+      if (ie) {
+        const t = totalFor(imgs, predicted);
+        ie.innerHTML = t ? `≈ ${_esc(_short(t.after))}<span class="text-muted">${_esc(_delta(t.before, t.after))}</span>` : measuring;
+      }
+      // Target cards: how many files can reach each size
+      const allSmall = items.map(p => pvError(p) ? { bytes: 0 } : smallestOf(p));
+      overlay.querySelectorAll('.cmp-target').forEach(card => {
+        const v = card.querySelector('input').value, d = card.querySelector('.cmp-target-desc');
+        if (!/^\d+$/.test(v) || v === '0') return;
+        const tb = parseInt(v, 10) * 1024;
+        if (allSmall.some(x => !x)) { d.textContent = TARGETS.find(t => t[0] === v)[2]; card.classList.remove('is-unreachable'); return; }
+        const ok = items.filter((p, i) => (sizes[p] || 0) <= tb || allSmall[i].bytes <= tb).length;
+        d.textContent = ok === items.length ? (single ? ((sizes[items[0]] || 0) <= tb ? 'Already under' : '✓ Reachable') : '✓ All files') : single ? 'min ≈ ' + _short(allSmall[0].bytes) : `${ok} of ${items.length} files`;
+        card.classList.toggle('is-unreachable', ok < items.length);
+      });
+      if (!Object.keys(results).length) renderRows();
+    }
 
     // Target in KB (0 = no limit).
     function targetKb() {
@@ -612,7 +769,21 @@ const ConvertTools = (() => {
       } else if (!r) {
         sub = isPdf(p) ? 'PDF' : _ext(p).replace('.', '').toUpperCase() + ' image';
         detail = size == null ? '<span class="text-muted">…</span>' : _fmtBytes(size);
-        if (tb && size != null && size <= tb) detail += `<span class="pill pill-neutral">Already under ${_kbLabel(tkb)}</span>`;
+        if (pvError(p)) { sub += ' · ' + pvError(p); }
+        else if (tb) {
+          const sm = smallestOf(p);
+          if (size != null && size <= tb) detail += `<span class="pill pill-neutral">Already under ${_kbLabel(tkb)}</span>`;
+          else if (!sm) detail += `<span class="pill pill-neutral">${measuring}</span>`;
+          else if (sm.bytes <= tb) detail += `<span class="pill pill-green">${Icons.svg('check', 12)}Reachable</span>`;
+          else detail += `<span class="pill pill-yellow" title="Even the strongest setting stays above ${_kbLabel(tkb)}">min ≈ ${_short(sm.bytes)}</span>`;
+          if (sm && sm.estimate) sub += ' · estimate from sample pages';
+        } else if (size != null) {
+          const pr = predicted(p);
+          if (!pr) detail += `<span class="pill pill-neutral">${measuring}</span>`;
+          else if (pr.kept) detail += `<span class="pill pill-neutral">No smaller copy possible</span>`;
+          else detail = `<span class="size-change">${_fmtBytes(size)}${Icons.svg('arrow-right', 12)}<strong>≈ ${_fmtBytes(pr.bytes)}</strong></span>${_pctPill(size, pr.bytes)}`;
+          if (pr && pr.estimate) sub += ' · estimate from sample pages';
+        }
       } else if (!r.ok) {
         cls = 'err';
         lead = `<span class="result-icon">${Icons.svg('x-circle', 16)}</span>`;
@@ -643,7 +814,14 @@ const ConvertTools = (() => {
       box.innerHTML = items.map(rowHtml).join('');
       const total = items.reduce((a, p) => a + (sizes[p] || 0), 0);
       const t = $('cmp-total');
-      if (t) t.textContent = Object.keys(sizes).length ? (single ? '' : 'Total ' + _fmtBytes(total)) : '';
+      if (t) {
+        let txt = Object.keys(sizes).length && !single ? 'Total ' + _fmtBytes(total) : '';
+        if (txt && !targetKb() && !Object.keys(results).length) {
+          const pt = totalFor(items, predicted);
+          if (pt) txt += ' → ≈ ' + _fmtBytes(pt.after + items.filter(pvError).reduce((a, p) => a + (sizes[p] || 0), 0));
+        }
+        t.textContent = txt;
+      }
     }
     function renderRow(p) {
       const row = $('cmp-files')?.querySelector(`[data-path="${CSS.escape(p)}"]`);
@@ -655,6 +833,8 @@ const ConvertTools = (() => {
       const tkb = targetKb();
       $('cmp-custom-row')?.classList.toggle('hidden', v !== 'custom');
       $('cmp-quality')?.classList.toggle('hidden', v !== '0');
+      $('pc-level-row')?.classList.toggle('hidden', pdfMode() !== 'level');
+      const lt = $('pc-level-text'); if (lt && $('pc-level')) lt.textContent = _levelText(levelVal());
       const hint = $('cmp-target-hint');
       if (hint) hint.textContent = tkb ? `${single ? 'The copy' : 'Every copy'} at or under ${_kbLabel(tkb)}` : '';
       const note = $('cmp-note');
@@ -667,19 +847,39 @@ const ConvertTools = (() => {
         }
         note.textContent = bits.join(' ');
       }
-      if (!Object.keys(results).length) renderRows();
+      renderEstimates();
+    }
+    // Changing a setting after a run goes back to showing predictions.
+    function changed() {
+      if (running) return;
+      if (Object.keys(results).length) {
+        items.forEach(p => delete results[p]);
+        $('cmp-summary')?.classList.add('hidden');
+        _btn(overlay, SAVE)?.classList.add('hidden');
+        Dialogs.setBtn(_btn(overlay, 'Compress'), 'Compress', 'compress');
+      }
+      sync();
     }
     overlay.querySelectorAll('input[name="cmp-target"]').forEach(r => r.addEventListener('change', () => {
-      sync();
+      changed();
       if (r.value === 'custom' && r.checked) $('cmp-custom')?.focus();
     }));
-    $('cmp-custom')?.addEventListener('input', sync);
-    $('cmp-unit')?.addEventListener('change', sync);
-    $('ic-q')?.addEventListener('input', () => { const v = $('ic-q-val'); if (v) v.textContent = $('ic-q').value; });
+    $('cmp-custom')?.addEventListener('input', changed);
+    $('cmp-unit')?.addEventListener('change', changed);
+    overlay.querySelectorAll('input[name="pc-preset"]').forEach(r => r.addEventListener('change', () => { changed(); requestPdf(); }));
+    $('pc-level')?.addEventListener('input', () => { changed(); debounce('pdf', requestPdf); });
+    $('ic-q')?.addEventListener('input', () => {
+      const v = $('ic-q-val'); if (v) v.textContent = $('ic-q').value;
+      changed(); debounce('img', requestImg);
+    });
+    $('ic-edge')?.addEventListener('change', () => { changed(); requestImg(); });
+    $('ic-fmt')?.addEventListener('change', () => { changed(); requestImg(); });
     sync();
     SFM.fileSizes(items).then(r => {
-      if (r && r.ok) { Object.assign(sizes, r.sizes || {}); renderRows(); }
+      if (r && r.ok) { Object.assign(sizes, r.sizes || {}); renderEstimates(); }
     }).catch(() => {});
+    requestPdf();
+    requestImg();
 
     async function compressOne(p, i, opts, saveSmallestFlag) {
       const prefix = items.length > 1 ? `Compressing ${i + 1} of ${items.length}: ${_name(p)}` : `Compressing ${_name(p)}`;
@@ -764,14 +964,14 @@ const ConvertTools = (() => {
       const v = overlay.querySelector('input[name="cmp-target"]:checked')?.value || '0';
       const opts = {
         tkb: targetKb(),
-        preset: overlay.querySelector('input[name="pc-preset"]:checked')?.value || o.preset || 'ebook',
+        preset: pdfKey(),
         quality: parseInt($('ic-q')?.value, 10) || o.quality || 70,
         edge: $('ic-edge') ? (parseInt($('ic-edge').value, 10) || 0) : o.edge,
         fmt: $('ic-fmt') ? ($('ic-fmt').value || '') : o.fmt,
         out: '',
       };
       _save('compress', { target: v, custom: parseFloat($('cmp-custom')?.value) || o.custom,
-                          unit: $('cmp-unit')?.value || 'KB', preset: opts.preset,
+                          unit: $('cmp-unit')?.value || 'KB', preset: pdfMode(), level: levelVal(),
                           quality: opts.quality, edge: opts.edge, fmt: opts.fmt });
       return opts;
     }

@@ -776,6 +776,52 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin):
         (aliases low/medium/high/prepress accepted), or to a target size."""
         return self.compress_pdf(path, out_path, quality, target_kb, save_smallest)
 
+    def compress_preview(self, paths: list, settings: dict = None, job: str = "") -> dict:
+        """Predict compressed sizes in a background thread; nothing is written.
+
+        settings: {"channel": "pdf"|"img"|..., "pdf_keys": ["screen", "level-7", ...],
+                   "img_quality": 70, "img_edge": 0, "img_fmt": "", "smallest": bool}
+        Emits ``compress_preview`` {job, path, ok, kind, before, sizes|after,
+        smallest, estimate} per file, then {job, done: True}. A newer job on the
+        same channel cancels this one (it stops between files / presets)."""
+        o = dict(settings or {})
+        channel = str(o.get("channel") or "default")
+        paths = list(paths or [])
+        with self._lock:
+            gens = getattr(self, "_preview_gens", None)
+            if gens is None:
+                gens = self._preview_gens = {}
+            gen = gens[channel] = gens.get(channel, 0) + 1
+
+        def stale() -> bool:
+            return self._preview_gens.get(channel) != gen
+
+        def _run():
+            for p in paths:
+                if stale():
+                    self._emit("compress_preview", {"job": job, "done": True, "cancelled": True})
+                    return
+                try:
+                    if _mc.is_image(p):
+                        r = _mc.preview_image(p, int(o.get("img_quality") or 70),
+                                              int(o.get("img_edge") or 0),
+                                              o.get("img_fmt") or "", bool(o.get("smallest")))
+                        r["kind"] = "image"
+                    else:
+                        r = _mc.preview_pdf(p, o.get("pdf_keys") or [],
+                                            bool(o.get("smallest")), cancelled=stale)
+                        r["kind"] = "pdf"
+                    payload = _ok(job=job, path=p, **r)
+                except Exception as exc:
+                    payload = _err(str(exc), job=job, path=p)
+                if stale():
+                    self._emit("compress_preview", {"job": job, "done": True, "cancelled": True})
+                    return
+                self._emit("compress_preview", payload)
+            self._emit("compress_preview", {"job": job, "done": True})
+        self._thread(_run)
+        return _ok(started=True, job=job)
+
     def file_sizes(self, paths: list) -> dict:
         """{path: size in bytes} for existing files (missing ones are left out)."""
         sizes = {}

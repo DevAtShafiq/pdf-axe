@@ -268,3 +268,34 @@ def test_bridge_image_target_flags(big_jpeg):
     assert ok["ok"] and ok["target_met"] is True and ok["after"] <= 60 * 1024
     miss = b.compress_image(big_jpeg, 70, 0, "", "", 0.3, False)
     assert miss["ok"] and miss["target_met"] is False and not miss["out"]
+
+
+def test_preview_image_matches_actual_and_writes_nothing(big_jpeg, tmp_path):
+    before = sorted(os.listdir(tmp_path))
+    pv = mc.preview_image(big_jpeg, 45, 600, "", smallest=True)
+    assert sorted(os.listdir(tmp_path)) == before                 # nothing written
+    assert pv["before"] == os.path.getsize(big_jpeg) and not pv["kept_original"]
+    real = mc.compress_image(big_jpeg, 45, 600)
+    assert pv["after"] == real["after"]                            # exact for images
+    assert 0 < pv["smallest"] < pv["after"]
+    lo, hi = mc.preview_image(big_jpeg, 30)["after"], mc.preview_image(big_jpeg, 90)["after"]
+    assert lo < hi
+
+
+def test_preview_image_dry_run_flag(big_jpeg, tmp_path):
+    before = sorted(os.listdir(tmp_path))
+    r = mc.compress_image(big_jpeg, 50, dry_run=True)
+    assert r["dry_run"] and r["out"] == "" and r["after"] < r["before"]
+    assert sorted(os.listdir(tmp_path)) == before
+
+
+def test_bridge_preview_images(big_jpeg, monkeypatch):
+    import sfm_bridge
+    b = sfm_bridge.SFMBridge()
+    events = []
+    monkeypatch.setattr(b, "_emit", lambda ev, payload=None: events.append((ev, payload)))
+    monkeypatch.setattr(b, "_thread", lambda fn, *a, **k: fn(*a, **k))
+    b.compress_preview([big_jpeg], {"channel": "img", "img_quality": 40, "smallest": True}, "pi")
+    res = events[0][1]
+    assert res["ok"] and res["kind"] == "image" and res["after"] < res["before"]
+    assert res["smallest"] and events[-1][1]["done"]

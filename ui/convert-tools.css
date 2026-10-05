@@ -47,6 +47,23 @@
 .cmp-custom .segmented { width: 96px; }
 
 .cmp-quality { display: flex; flex-direction: column; gap: var(--space-4); }
+.cmp-target.is-unreachable .cmp-target-desc { color: var(--yellow); }
+
+/* Live size predictions ("≈ 340 KB −62%") */
+.cmp-est:empty { display: none; }
+.cmp-est, .cmp-readout { font-variant-numeric: tabular-nums; }
+.cmp-readout {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary);
+}
+.cmp-readout .text-muted { font-weight: var(--fw-regular); font-size: var(--fs-sm); }
+.cmp-spin { width: 10px; height: 10px; border-width: 1.5px; }
+.cmp-readout .cmp-spin { width: 12px; height: 12px; }
+.cmp-est-tag { font-weight: var(--fw-regular); opacity: .8; }
+.cmp-level-card { grid-column: 1 / -1; }
+.cmp-level { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
+.cmp-level.hidden { display: none; }
+.cmp-level .field-label, .cmp-quality .section-head .field-label { display: inline-flex; align-items: center; gap: var(--space-2); }
 
 /* File rows: name + status line, size / result on the right */
 .cvt-modal .cmp-files { max-height: 220px; }

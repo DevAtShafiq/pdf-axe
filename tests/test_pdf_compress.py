@@ -300,3 +300,102 @@ def test_bridge_async_job_emits_progress_and_done(photo_pdf, monkeypatch):
     events.clear()
     b.compress_pdf_async(photo_pdf, "", "screen")
     assert [e for e, _ in events] == ["compress_done"]
+
+
+# ── size preview (nothing written) ───────────────────────────────────────────
+
+def _noise_jpeg(seed, w=900, h=1200):
+    img = Image.effect_noise((w, h), 30 + seed).convert("RGB")
+    img = Image.blend(img, Image.new("RGB", img.size, (40 * seed % 255, 120, 60)), 0.5)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def pages_pdf(tmp_path):
+    """Six pages, each with its own photo (for sampling)."""
+    p = tmp_path / "pages.pdf"
+    doc = fitz.open()
+    for i in range(6):
+        pg = doc.new_page()
+        pg.insert_text((50, 50), f"Page {i + 1}", fontsize=14)
+        pg.insert_image(fitz.Rect(40, 70, 560, 760), stream=_noise_jpeg(i))
+    doc.save(str(p))
+    doc.close()
+    return str(p)
+
+
+def test_level_presets(photo_pdf):
+    assert mc.resolve_preset("level-7") == "level-7"
+    with pytest.raises(mc.ConvertError):
+        mc.resolve_preset(f"level-{len(mc.PDF_TARGET_LADDER)}")
+    strong = mc.compress_pdf(photo_pdf, "level-17")
+    mild = mc.compress_pdf(photo_pdf, "level-5")
+    assert strong["after"] < mild["after"] < strong["before"]
+    assert strong["preset"] == "level-17"
+
+
+def test_preview_pdf_exact_and_writes_nothing(photo_pdf, tmp_path):
+    before_files = sorted(os.listdir(tmp_path))
+    keys = ["screen", "ebook", "printer", "lossless", "level-8"]
+    pv = mc.preview_pdf(photo_pdf, keys, smallest=True)
+    assert sorted(os.listdir(tmp_path)) == before_files           # nothing written
+    assert pv["estimate"] is False and pv["before"] == os.path.getsize(photo_pdf)
+    assert set(pv["sizes"]) == set(keys)
+    assert pv["smallest"] <= min(pv["sizes"].values())
+    for k in ("screen", "ebook", "level-8"):
+        r = mc.compress_pdf(photo_pdf, k)
+        assert abs(pv["sizes"][k] - r["after"]) <= r["after"] * 0.02, k
+    # smallest == what the target search can reach
+    t = mc.compress_pdf(photo_pdf, target_kb=pv["smallest"] / 1024)
+    assert t["target_met"] is True
+
+
+def test_preview_pdf_sampled_estimate_close(pages_pdf, tmp_path, monkeypatch):
+    monkeypatch.setattr(mc, "PREVIEW_SAMPLE_MIN_BYTES", 1)
+    monkeypatch.setattr(mc, "PREVIEW_SAMPLE_MIN_PAGES", 4)
+    monkeypatch.setattr(mc, "PREVIEW_SAMPLE_PAGES", 3)
+    before_files = sorted(os.listdir(tmp_path))
+    pv = mc.preview_pdf(pages_pdf, ["screen", "ebook"])
+    assert pv["estimate"] is True
+    assert sorted(os.listdir(tmp_path)) == before_files
+    for k in ("screen", "ebook"):
+        actual = mc.compress_pdf(pages_pdf, k)["after"]
+        assert abs(pv["sizes"][k] - actual) <= actual * 0.15, (k, pv["sizes"][k], actual)
+
+
+def test_preview_text_only_smallest_not_reachable(text_pdf):
+    pv = mc.preview_pdf(text_pdf, ["screen"], smallest=True)
+    assert pv["smallest"] > 100               # a 0.1 KB target is unreachable
+    assert pv["sizes"]["screen"] >= pv["before"] * 0.99   # UI: "no smaller copy"
+
+
+def test_bridge_compress_preview_events_and_cancel(photo_pdf, monkeypatch):
+    import sfm_bridge
+    b = sfm_bridge.SFMBridge()
+    events = []
+    monkeypatch.setattr(b, "_emit", lambda ev, payload=None: events.append((ev, payload)))
+    monkeypatch.setattr(b, "_thread", lambda fn, *a, **k: fn(*a, **k))
+    folder = os.path.dirname(photo_pdf)
+    files_before = sorted(os.listdir(folder))
+    r = b.compress_preview([photo_pdf, photo_pdf + ".missing"],
+                           {"channel": "pdf", "pdf_keys": ["screen", "level-9"], "smallest": True}, "pv-1")
+    assert r["ok"] and r["job"] == "pv-1"
+    first, second, done = [p for _, p in events]
+    assert first["ok"] and first["kind"] == "pdf" and first["job"] == "pv-1"
+    assert set(first["sizes"]) == {"screen", "level-9"} and first["smallest"] > 0
+    assert not second["ok"] and second["error"]
+    assert done == {"job": "pv-1", "done": True}
+    assert sorted(os.listdir(folder)) == files_before
+    # a newer job on the same channel cancels a running one
+    events.clear()
+    pending = []
+    monkeypatch.setattr(b, "_thread", lambda fn, *a, **k: pending.append(fn))
+    b.compress_preview([photo_pdf], {"channel": "pdf", "pdf_keys": ["ebook"]}, "old")
+    b.compress_preview([photo_pdf], {"channel": "pdf", "pdf_keys": ["ebook"]}, "new")
+    for fn in pending:
+        fn()
+    old = [p for _, p in events if p.get("job") == "old"]
+    assert old == [{"job": "old", "done": True, "cancelled": True}]
+    assert any(p.get("job") == "new" and p.get("ok") for _, p in events)
