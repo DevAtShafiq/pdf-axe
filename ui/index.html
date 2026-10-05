@@ -317,27 +317,56 @@
           <!-- AI Photo Editor (images only) -->
           <div class="detail-section hidden" id="ai-photo-section">
             <div class="detail-section-title">AI photo edit</div>
-            <div class="qa-list">
+            <div class="ai-card">
+              <div class="ai-card-head">
+                <span class="ai-card-icon"><i data-icon="shirt" data-size="16"></i></span>
+                <div class="ai-card-text">
+                  <div class="ai-card-title">Wear suit &amp; tie</div>
+                  <div class="ai-card-sub">Dresses the person in a formal suit</div>
+                </div>
+                <span class="badge badge-blue ai-card-badge"><i data-icon="sparkles" data-size="11"></i>AI</span>
+              </div>
               <div class="ai-opts">
-                <label title="Suit colour">Suit
-                  <select id="ai-suit-color">
+                <div class="ai-opt">
+                  <span class="ai-opt-label">Suit</span>
+                  <div class="swatches" id="ai-suit-swatches" role="radiogroup" aria-label="Suit colour">
+                    <button type="button" class="swatch ai-suit-black" data-v="black" title="Black" aria-label="Black"></button>
+                    <button type="button" class="swatch ai-suit-navy" data-v="navy" title="Navy" aria-label="Navy"></button>
+                    <button type="button" class="swatch ai-suit-charcoal" data-v="charcoal" title="Charcoal" aria-label="Charcoal"></button>
+                    <button type="button" class="swatch ai-suit-grey" data-v="grey" title="Grey" aria-label="Grey"></button>
+                  </div>
+                  <span class="ai-opt-value" id="ai-suit-name">Black</span>
+                  <select id="ai-suit-color" class="hidden" aria-hidden="true">
                     <option value="black">Black</option>
                     <option value="navy">Navy</option>
                     <option value="charcoal">Charcoal</option>
                     <option value="grey">Grey</option>
-                  </select></label>
-                <label title="Add a necktie"><input type="checkbox" id="ai-tie" checked> Tie</label>
-                <label title="High = best detail; Medium = faster">Quality
-                  <select id="ai-quality">
+                  </select>
+                </div>
+                <div class="ai-opt">
+                  <span class="ai-opt-label">Quality</span>
+                  <div class="segmented ai-seg" id="ai-quality-seg" role="radiogroup" aria-label="Quality" title="High = best detail; Medium = faster">
+                    <button type="button" class="seg-btn active" data-v="high">High</button>
+                    <button type="button" class="seg-btn" data-v="medium">Medium</button>
+                  </div>
+                  <select id="ai-quality" class="hidden" aria-hidden="true">
                     <option value="high">High</option>
                     <option value="medium">Medium</option>
-                  </select></label>
+                  </select>
+                </div>
+                <div class="ai-opt">
+                  <span class="ai-opt-label">Necktie</span>
+                  <label class="switch" title="Add a necktie"><input type="checkbox" id="ai-tie" checked><span class="switch-track"></span></label>
+                </div>
               </div>
-              <button class="qa-btn primary" id="ai-wear-suit" data-ai-action="wear_suit"><span class="icon"><i data-icon="shirt"></i></span> Wear Suit &amp; Tie</button>
-              <div class="ai-cost" id="ai-cost-est"></div>
+              <div class="callout ai-plan-note hidden" id="ai-plan-note"><i data-icon="lock" data-size="14"></i><span>Part of the PDF Axe monthly plan.</span></div>
+              <button class="btn btn-primary btn-block" id="ai-wear-suit" data-ai-action="wear_suit"><i data-icon="shirt" data-size="16"></i>Wear suit &amp; tie</button>
+              <div class="ai-out" id="ai-out-name"></div>
+              <div id="ai-photo-status" class="ai-status"></div>
+            </div>
+            <div class="qa-list ai-more">
               <button class="qa-btn hidden" id="ai-compare" title="Before / after slider"><span class="icon"><i data-icon="compare"></i></span> Compare with original</button>
               <button class="qa-btn" id="ai-crop"><span class="icon"><i data-icon="crop"></i></span> Crop…</button>
-              <div id="ai-photo-status" class="hint"></div>
             </div>
           </div>
 

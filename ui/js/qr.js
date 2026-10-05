@@ -11,8 +11,10 @@
  */
 const QrScan = (() => {
   const EXTS = ['.jpg', '.jpeg', '.jfif', '.png', '.bmp', '.webp', '.gif', '.tif', '.tiff', '.pdf'];
-  const TYPE_ICON = { url: '🔗', email: '✉️', phone: '📞', sms: '💬', wifi: '📶', vcard: '👤',
-                      contact: '👤', geo: '📍', event: '📅', text: '📝', other: '⚠️' };
+  const TYPE_ICON = { url: 'link', email: 'mail', phone: 'user-circle', sms: 'mail', wifi: 'globe', vcard: 'user',
+                      contact: 'user', geo: 'globe', event: 'clock', text: 'file-text', other: 'alert-triangle' };
+  const tIcon = (type, size = 12) => Icons.svg(TYPE_ICON[type] || 'qr-code', size);
+  const cssVar = (name, dflt) => (getComputedStyle(document.documentElement).getPropertyValue(name) || '').trim() || dflt;
 
   function _esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -39,16 +41,20 @@ const QrScan = (() => {
     const warns = res.warnings || [];
     if (!warns.length) { _doOpen(url); return; }
     const id = Dialogs.modal('qr-open-confirm', {
-      title: '⚠️ Check this link before opening',
+      title: 'Check this link before opening',
+      icon: 'alert-triangle', tone: 'warning',
+      subtitle: res.host ? 'Points to ' + res.host : '',
       width: '520px',
-      body: `<div style="font-size:12.5px;color:var(--text-secondary)">This QR code points to
-               <b style="color:var(--text-primary)">${_esc(res.host || '')}</b>:</div>
-             <div class="qr-confirm-url">${_esc(url)}</div>
-             <div class="qr-flags">${warns.map(w => `<div class="qr-flag warn">⚠ ${_esc(w)}</div>`).join('')}</div>
-             <div style="font-size:11.5px;color:var(--text-muted);margin-top:10px">
-               Genuine verification links normally use https and the issuing authority's own domain.</div>`,
+      body: `<div class="field">
+               <span class="field-label">Full link</span>
+               <div class="mono-box qr-confirm-url">${_esc(url)}</div>
+             </div>
+             <div class="callout warning">${Icons.svg('alert-triangle', 16)}<div class="callout-body">
+               <span class="callout-title">Why this looks unusual</span>
+               <ul class="qr-warn-list">${warns.map(w => `<li>${_esc(w)}</li>`).join('')}</ul></div></div>
+             <div class="field-hint">Genuine verification links normally use https and the issuing authority's own domain.</div>`,
       footer: `<button class="btn" id="qoc-cancel-__ID__">Cancel</button>
-               <button class="btn btn-danger" id="qoc-open-__ID__">Open anyway</button>`,
+               <button class="btn btn-danger" id="qoc-open-__ID__">${Icons.svg('external-link', 16)}Open anyway</button>`,
     });
     _fixIds(id);
     document.getElementById('qoc-cancel-' + id).addEventListener('click', () => Dialogs.closeModal(id));
@@ -62,13 +68,22 @@ const QrScan = (() => {
     root.querySelectorAll('[id*="__ID__"]').forEach(el => { el.id = el.id.replace('__ID__', id); });
   }
 
+  // Inline notice (tone: '' | 'warning' | 'error') → element
+  function _note(tone, title, text) {
+    const d = document.createElement('div');
+    d.className = 'callout qr-none ' + tone;
+    d.innerHTML = `${Icons.svg(tone === 'error' ? 'alert-circle' : tone === 'warning' ? 'alert-triangle' : 'scan', 16)}
+      <div class="callout-body"><span class="callout-title">${_esc(title)}</span>${text ? `<span>${_esc(text)}</span>` : ''}</div>`;
+    return d;
+  }
+
   // ── One decoded code → card ──────────────────────────────────────────────
   function renderItem(res, showPage) {
     const el = document.createElement('div');
     el.className = 'qr-item';
     const thumb = res.thumb
       ? `<img class="qr-thumb" src="${res.thumb}" alt="QR code">`
-      : `<div class="qr-thumb empty">${TYPE_ICON[res.type] || '▦'}</div>`;
+      : `<div class="qr-thumb empty">${tIcon(res.type, 26)}</div>`;
     const isUrl = res.type === 'url';
     const warns = res.warnings || [], notes = res.notes || [];
     let head = '';
@@ -76,27 +91,32 @@ const QrScan = (() => {
       const dom = res.domain || res.host;
       const i = res.host.lastIndexOf(dom);
       const hostHtml = i >= 0
-        ? _esc(res.host.slice(0, i)) + `<span class="dom">${_esc(dom)}</span>` + _esc(res.host.slice(i + dom.length))
-        : _esc(res.host);
-      head = `<div class="qr-host" title="Website the link points to">${res.scheme === 'https' ? '🔒' : '🔓'} ${hostHtml}</div>`;
+        ? `<span class="sub">${_esc(res.host.slice(0, i))}</span><span class="dom">${_esc(dom)}</span>${_esc(res.host.slice(i + dom.length))}`
+        : `<span class="dom">${_esc(res.host)}</span>`;
+      const secure = res.scheme === 'https';
+      head = `<div class="qr-host" title="Website the link points to">
+                <span class="qr-lock ${secure ? 'ok' : 'bad'}" title="${secure ? 'Encrypted (https)' : 'Not encrypted (http)'}">${Icons.svg(secure ? 'lock' : 'alert-circle', 14)}</span>
+                <span class="qr-host-name">${hostHtml}</span></div>`;
     }
-    const pageBadge = (showPage && res.page) ? `<span class="badge badge-blue">Page ${res.page}</span>` : '';
-    const sym = res.symbology && res.symbology !== 'QRCODE' ? `<span>${_esc(res.symbology)}</span>` : '';
+    const pageBadge = (showPage && res.page) ? `<span class="pill pill-neutral">Page ${res.page}</span>` : '';
+    const sym = res.symbology && res.symbology !== 'QRCODE' ? `<span class="pill pill-neutral">${_esc(res.symbology)}</span>` : '';
+    const tone = isUrl ? (warns.length ? 'pill-yellow' : 'pill-green') : (res.type === 'other' ? 'pill-red' : 'pill-blue');
     el.innerHTML = `${thumb}
-      <div style="min-width:0">
+      <div class="qr-body">
         <div class="qr-meta">
-          <span class="badge ${isUrl ? (warns.length ? 'badge-yellow' : 'badge-green') : 'badge-blue'}">${TYPE_ICON[res.type] || ''} ${_esc(res.label || res.type)}</span>
+          <span class="pill ${tone}">${tIcon(res.type)}${_esc(res.label || res.type)}</span>
           ${pageBadge}${sym}
+          ${notes.map(n => `<span class="pill pill-green">${Icons.svg('check', 12)}${_esc(n)}</span>`).join('')}
         </div>
         ${head}
         <div class="qr-text">${_esc(isUrl ? (res.url || res.text) : res.text)}</div>
-        ${(warns.length || notes.length) ? `<div class="qr-flags">
-          ${warns.map(w => `<div class="qr-flag ${res.type === 'other' ? 'bad' : 'warn'}">⚠ ${_esc(w)}</div>`).join('')}
-          ${notes.map(n => `<div class="qr-flag note">✓ ${_esc(n)}</div>`).join('')}</div>` : ''}
+        ${warns.length ? `<div class="callout ${res.type === 'other' ? 'error' : 'warning'} qr-warn">${Icons.svg('alert-triangle', 16)}
+          <div class="callout-body"><span class="callout-title">Check before opening</span>
+          <ul class="qr-warn-list">${warns.map(w => `<li>${_esc(w)}</li>`).join('')}</ul></div></div>` : ''}
         <div class="qr-actions">
-          <button class="btn btn-sm" data-act="copy">📋 Copy</button>
-          ${isUrl && res.openable ? `<button class="btn btn-sm btn-primary" data-act="open">🌐 Open link</button>` : ''}
-          ${isUrl ? `<button class="btn btn-sm" data-act="copyurl">Copy link</button>` : ''}
+          ${isUrl && res.openable ? `<button class="btn btn-sm ${warns.length ? '' : 'btn-primary'}" data-act="open">${Icons.svg('external-link', 14)}Open link</button>` : ''}
+          <button class="btn btn-sm" data-act="copy">${Icons.svg('copy', 14)}Copy${isUrl ? ' text' : ''}</button>
+          ${isUrl ? `<button class="btn btn-sm btn-ghost" data-act="copyurl">${Icons.svg('link', 14)}Copy link</button>` : ''}
         </div>
       </div>`;
     el.querySelector('[data-act="copy"]').addEventListener('click', () => _copy(res.text));
@@ -120,14 +140,18 @@ const QrScan = (() => {
     const batch = paths.length > 1;
     const jobId = 'qr' + Date.now();
     const id = Dialogs.modal('qr-results', {
-      title: batch ? `📷 QR check — ${paths.length} files` : `📷 QR check — ${_base(paths[0])}`,
+      title: 'QR code check',
+      icon: 'qr-code',
+      subtitle: batch ? `${paths.length} files` : _base(paths[0]),
       width: '680px',
-      body: `<div class="qr-summary" id="qrr-sum-__ID__"><span class="mt-spinner"></span>
-               <span id="qrr-sumtxt-__ID__">Scanning…</span></div>
-             <div class="qr-progress"><div id="qrr-bar-__ID__"></div></div>
+      body: `<div class="progress-block">
+               <div class="progress-label qr-summary" id="qrr-sum-__ID__"><span class="mt-spinner"></span>
+                 <span id="qrr-sumtxt-__ID__">Scanning…</span></div>
+               <div class="progress-wrap qr-progress"><div class="progress-bar" id="qrr-bar-__ID__" style="width:0%"></div></div>
+             </div>
              <div class="qr-list" id="qrr-list-__ID__"></div>`,
-      footer: `<button class="btn" id="qrr-copyall-__ID__" disabled>Copy all results</button>
-               <button class="btn" id="qrr-cancel-__ID__">Stop</button>
+      footer: `<button class="btn btn-ghost footer-left" id="qrr-copyall-__ID__" disabled>${Icons.svg('clipboard', 16)}Copy all results</button>
+               <button class="btn" id="qrr-cancel-__ID__">${Icons.svg('stop', 16)}Stop</button>
                <button class="btn btn-primary" id="qrr-close-__ID__">Close</button>`,
     });
     _fixIds(id);
@@ -144,29 +168,22 @@ const QrScan = (() => {
         const h = document.createElement('div');
         h.className = 'qr-file-head';
         const n = (f.results || []).length;
-        h.innerHTML = `📄 ${_esc(f.name)} <span class="muted">— ${f.ok ? (n ? n + ' code' + (n > 1 ? 's' : '') : 'no QR') : 'error'}</span>`;
+        h.innerHTML = `${Icons.file({ name: f.name }, 16)}<span class="qr-file-name">${_esc(f.name)}</span>
+          <span class="pill ${f.ok ? (n ? 'pill-blue' : 'pill-neutral') : 'pill-red'}">${f.ok ? (n ? n + ' code' + (n > 1 ? 's' : '') : 'No QR') : 'Error'}</span>`;
         list.appendChild(h);
       }
       if (!f.ok) {
-        const d = document.createElement('div');
-        d.className = 'qr-none err';
-        d.textContent = '❌ ' + (f.error || 'Could not scan this file');
-        list.appendChild(d);
+        list.appendChild(_note('error', 'Could not scan this file', f.error || ''));
       } else if (!(f.results || []).length) {
-        const d = document.createElement('div');
-        d.className = 'qr-none';
         const pages = f.kind === 'pdf' ? ` (${f.pages_scanned} page${f.pages_scanned === 1 ? '' : 's'} checked)` : '';
-        d.textContent = `No QR code found${pages}. If the code is small or blurred, try a sharper scan, or use "Scan from screen" and drag a box around it.`;
-        list.appendChild(d);
+        list.appendChild(_note('', `No QR code found${pages}`,
+          'If the code is small or blurred, try a sharper scan, or use “Scan from screen” and drag a box around it.'));
       } else {
         const multiPage = f.kind === 'pdf' || (f.page_count || 0) > 1;
         f.results.forEach(r => list.appendChild(renderItem(r, multiPage)));
       }
       if (f.truncated) {
-        const d = document.createElement('div');
-        d.className = 'qr-none';
-        d.textContent = `Only the first ${f.pages_scanned} of ${f.page_count} pages were checked.`;
-        list.appendChild(d);
+        list.appendChild(_note('warning', 'Partly checked', `Only the first ${f.pages_scanned} of ${f.page_count} pages were checked.`));
       }
     }
 
@@ -183,7 +200,12 @@ const QrScan = (() => {
       if (cancelled) t += ' · stopped';
       sumTxt.textContent = done ? t : `Scanning ${Math.min(files.length + 1, paths.length)} of ${paths.length}… ${t}`;
       bar.style.width = Math.round(files.length * 100 / paths.length) + '%';
-      if (done) { sum.querySelector('.mt-spinner')?.remove(); cancelBtn.style.display = 'none'; copyAll.disabled = !codes; }
+      if (done) {
+        sum.querySelector('.mt-spinner')?.remove();
+        if (!sum.querySelector('svg')) sum.insertAdjacentHTML('afterbegin', Icons.svg(errs ? 'alert-circle' : warn ? 'alert-triangle' : 'check-circle', 16, errs ? 'text-red' : warn ? 'text-yellow' : 'text-green'));
+        bar.parentElement.classList.add('hidden');
+        cancelBtn.style.display = 'none'; copyAll.disabled = !codes;
+      }
     }
 
     copyAll.addEventListener('click', () => {
@@ -203,14 +225,10 @@ const QrScan = (() => {
       offP(); offD(); finished = true;
       App.setStatus('Ready');
       if (!document.getElementById('mo-' + id)) return;
-      if (!p.ok) {
-        const d = document.createElement('div');
-        d.className = 'qr-none err'; d.textContent = '❌ ' + (p.error || 'Scan failed');
-        list.appendChild(d);
-      }
+      if (!p.ok) list.appendChild(_note('error', 'Scan failed', p.error || ''));
       summary(true, p.cancelled);
     });
-    cancelBtn.addEventListener('click', () => { SFM.qrScanCancel(jobId); cancelBtn.disabled = true; cancelBtn.textContent = 'Stopping…'; });
+    cancelBtn.addEventListener('click', () => { SFM.qrScanCancel(jobId); cancelBtn.disabled = true; cancelBtn.classList.add('is-loading'); });
     // closing the dialog stops a running batch
     const obs = new MutationObserver(() => {
       if (!document.getElementById('mo-' + id)) {
@@ -228,7 +246,8 @@ const QrScan = (() => {
     if (!r || !r.ok) {
       offP(); offD(); finished = true;
       App.setStatus('Ready');
-      list.innerHTML = `<div class="qr-none err">❌ ${_esc((r && r.error) || 'Could not start the scan')}</div>`;
+      list.innerHTML = '';
+      list.appendChild(_note('error', 'Could not start the scan', (r && r.error) || ''));
       summary(true);
       sumTxt.textContent = 'QR scanning is not available';
     }
@@ -237,13 +256,15 @@ const QrScan = (() => {
   // ── Screen overlay: click a code, drag a box, or scan everything ─────────
   function openScreen() {
     const id = Dialogs.modal('qr-overlay', {
-      title: '📷 Scan QR from screen',
+      title: 'Scan QR from screen',
+      icon: 'scan',
+      subtitle: 'Click a code or drag a box around it',
       width: '96vw',
       extraStyle: 'max-width:none;',
       body: `<div class="qrs-toolbar">
                <div class="qrs-status" id="qrs-status-__ID__"><span class="mt-spinner"></span> Minimising window and taking a screenshot…</div>
-               <button class="btn btn-sm" id="qrs-all-__ID__" disabled>Scan whole screen</button>
-               <button class="btn btn-sm" id="qrs-retake-__ID__">Retake screenshot</button>
+               <button class="btn btn-sm" id="qrs-all-__ID__" disabled>${Icons.svg('scan', 14)}Scan whole screen</button>
+               <button class="btn btn-sm btn-ghost" id="qrs-retake-__ID__">${Icons.svg('refresh', 14)}Retake screenshot</button>
              </div>
              <div class="qrs-stage" id="qrs-stage-__ID__" style="display:none">
                <img id="qrs-img-__ID__" alt="Screen capture" draggable="false">
@@ -272,8 +293,9 @@ const QrScan = (() => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const s = scale();
       ctx.lineWidth = 2;
+      const okCol = cssVar('--green', 'green'), selCol = cssVar('--accent', 'blue');
       boxes.forEach(b => {
-        ctx.strokeStyle = '#3fb950';
+        ctx.strokeStyle = okCol;
         ctx.strokeRect(b[0] / s - 3, b[1] / s - 3, b[2] / s + 6, b[3] / s + 6);
       });
       if (drag && drag.moved) {
@@ -282,7 +304,7 @@ const QrScan = (() => {
         ctx.fillStyle = 'rgba(0,0,0,.45)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.clearRect(x, y, w, h);
-        ctx.strokeStyle = '#58a6ff'; ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = selCol; ctx.setLineDash([6, 4]);
         ctx.strokeRect(x + 1, y + 1, w - 2, h - 2); ctx.setLineDash([]);
       }
     }
@@ -293,11 +315,11 @@ const QrScan = (() => {
         boxes = r.results.map(x => x.bbox);
         r.results.forEach(x => resultsEl.appendChild(renderItem(x, false)));
         const n = r.results.length;
-        status(`✅ ${n} QR code${n === 1 ? '' : 's'} decoded — click another code or drag a box to scan again`);
+        status(`${Icons.svg('check-circle', 16, 'text-green')} ${n} QR code${n === 1 ? '' : 's'} decoded — click another code or drag a box to scan again`);
       } else {
         boxes = [];
-        status('❌ ' + _esc((r && r.error) || 'No QR code found') +
-               ' — drag a box around the code, or try "Scan whole screen"', true);
+        status(Icons.svg('alert-circle', 16) + ' ' + _esc((r && r.error) || 'No QR code found') +
+               ' — drag a box around the code, or try “Scan whole screen”', true);
       }
       draw();
     }
@@ -362,15 +384,15 @@ const QrScan = (() => {
       unsub = SFM.on('screen_capture_ready', r => {
         unsub(); unsub = null;
         if (!document.getElementById('mo-' + id)) return;
-        if (!r || !r.ok) { status('❌ Screenshot failed: ' + _esc((r && r.error) || 'unknown error'), true); return; }
+        if (!r || !r.ok) { status(Icons.svg('alert-circle', 16) + ' Screenshot failed: ' + _esc((r && r.error) || 'unknown error'), true); return; }
         screenW = r.width; screenH = r.height;
         img.onload = () => {
           stage.style.display = 'block'; allBtn.disabled = false; sizeCanvas();
-          status('👆 Click a QR code, or drag a box around it. (Links open only when you click “Open link”.)');
+          status(Icons.svg('info', 16, 'text-accent') + ' Click a QR code, or drag a box around it. Links open only when you click “Open link”.');
         };
         img.src = r.data_url;
       });
-      SFM.getScreenCapture().catch(err => status('❌ Failed to start capture: ' + _esc(err), true));
+      SFM.getScreenCapture().catch(err => status(Icons.svg('alert-circle', 16) + ' Failed to start capture: ' + _esc(err), true));
     }
     $('qrs-retake').addEventListener('click', capture);
     capture();

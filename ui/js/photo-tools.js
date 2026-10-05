@@ -58,38 +58,43 @@ const Cropper = (() => {
     if (!src || !src.ok) { App.toast('Cannot load image: ' + ((src && src.error) || 'unknown'), 'error'); return; }
 
     const id = Dialogs.modal('crop-image', {
-      title: '✂️ Crop Image — ' + PhotoTools.base(path),
-      width: '880px',
+      title: 'Crop image',
+      icon: 'crop',
+      subtitle: PhotoTools.base(path) + ' · saved as a new file',
+      width: '900px',
+      cls: 'crop-modal',
       extraStyle: 'max-height:94vh;display:flex;flex-direction:column;',
       body: '',
-      footer: `<span class="crop-hint" style="margin-right:auto">Drag to draw · drag inside to move · handles resize ·
-                 arrows nudge (Shift ×10, Alt resizes) · Enter saves</span>
-               <button class="btn" id="cr-reset-__ID__">Reset</button>
+      footer: `<span class="crop-hint footer-left"><span class="kbd">Drag</span> draw · <span class="kbd">Arrows</span> nudge
+                 (<span class="kbd">Shift</span> ×10, <span class="kbd">Alt</span> resize) · <span class="kbd">Enter</span> save</span>
                <button class="btn" id="cr-cancel-__ID__">Cancel</button>
-               <button class="btn btn-primary" id="cr-save-__ID__">Save as new file</button>`,
+               <button class="btn btn-primary" id="cr-save-__ID__">${Icons.svg('check', 16)}Save as new file</button>`,
     });
     const root = document.getElementById('mo-' + id);
     root.querySelectorAll('[id*="__ID__"]').forEach(el => { el.id = el.id.replace('__ID__', id); });
     const body = root.querySelector('.modal-body');
-    body.style.cssText = 'padding:0;display:flex;flex-direction:column;flex:1;min-height:0;';
+    body.style.cssText = 'padding:0;display:flex;flex-direction:column;flex:1;min-height:0;gap:0;';
     body.innerHTML = `
       <div class="crop-bar">
-        <span class="lbl">Aspect:</span>
-        ${PRESETS.map(p => `<button class="btn btn-sm" data-preset="${p.key}">${p.label}</button>`).join('')}
-        <span id="cr-custom-${id}" style="display:none;align-items:center;gap:4px">
-          <input class="input-text" id="cr-cw-${id}" type="number" min="1" value="2" title="Width ratio">
-          <span class="lbl">:</span>
-          <input class="input-text" id="cr-ch-${id}" type="number" min="1" value="3" title="Height ratio">
+        <span class="crop-lbl">Aspect</span>
+        <div class="segmented crop-presets" role="radiogroup" aria-label="Aspect ratio">
+          ${PRESETS.map(p => `<button type="button" class="seg-btn" data-preset="${p.key}">${p.label}</button>`).join('')}
+        </div>
+        <span id="cr-custom-${id}" class="crop-custom" style="display:none">
+          <input class="input-text" id="cr-cw-${id}" type="number" min="1" value="2" title="Width ratio" aria-label="Width ratio">
+          <span class="crop-lbl">:</span>
+          <input class="input-text" id="cr-ch-${id}" type="number" min="1" value="3" title="Height ratio" aria-label="Height ratio">
         </span>
-        <button class="btn btn-sm" id="cr-flip-${id}" title="Swap portrait / landscape">⇄</button>
-        <span style="width:1px;height:18px;background:var(--border-strong);margin:0 4px"></span>
-        <button class="btn btn-sm" id="cr-rl-${id}" title="Rotate left 90°">⟲</button>
-        <button class="btn btn-sm" id="cr-rr-${id}" title="Rotate right 90°">⟳</button>
-        <span class="crop-readout" id="cr-read-${id}" style="margin-left:auto"></span>
+        <button class="icon-btn" id="cr-flip-${id}" data-tooltip="Swap portrait / landscape" aria-label="Swap portrait / landscape">${Icons.svg('arrow-left-right', 16)}</button>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="icon-btn" id="cr-rl-${id}" data-tooltip="Rotate left 90°" aria-label="Rotate left">${Icons.svg('rotate-ccw', 16)}</button>
+        <button class="icon-btn" id="cr-rr-${id}" data-tooltip="Rotate right 90°" aria-label="Rotate right">${Icons.svg('rotate-cw', 16)}</button>
+        <button class="icon-btn" id="cr-reset-${id}" data-tooltip="Reset" aria-label="Reset">${Icons.svg('undo', 16)}</button>
       </div>
       <div class="crop-stage" id="cr-stage-${id}">
         <canvas id="cr-canvas-${id}" tabindex="0"></canvas>
-      </div>`;
+      </div>
+      <div class="crop-readout" id="cr-read-${id}"></div>`;
     const $ = s => document.getElementById(s + '-' + id);
     const canvas = $('cr-canvas'), ctx = canvas.getContext('2d'), stage = $('cr-stage');
     const readout = $('cr-read'), saveBtn = $('cr-save');
@@ -120,7 +125,7 @@ const Cropper = (() => {
 
     function layout() {
       const availW = Math.max(200, stage.clientWidth - 24);
-      const availH = Math.max(220, window.innerHeight * 0.94 - 240);   // minus header, bars, footer
+      const availH = Math.max(220, window.innerHeight * 0.94 - 280);   // minus header, bars, readout, footer
       const s = Math.min(availW / W, availH / H);
       const dpr = window.devicePixelRatio || 1;
       view = { s, dw: Math.round(W * s), dh: Math.round(H * s) };
@@ -143,13 +148,18 @@ const Cropper = (() => {
         ctx.beginPath(); ctx.moveTo(x + w * i / 3, y); ctx.lineTo(x + w * i / 3, y + h); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(x, y + h * i / 3); ctx.lineTo(x + w, y + h * i / 3); ctx.stroke();
       }
-      ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
+      const acc = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '').trim() || 'blue';
+      ctx.strokeStyle = acc; ctx.lineWidth = 2;
       ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = '#58a6ff';
-      handles().forEach(hd => ctx.fillRect(hd.x - 4, hd.y - 4, 8, 8));
-      const rTxt = ratio ? ` · ${(rect.w / rect.h).toFixed(3)}` : '';
-      readout.textContent = `${Math.round(rect.w)} × ${Math.round(rect.h)} px  ·  at ${Math.round(rect.x)}, ${Math.round(rect.y)}` +
-                            `  ·  image ${W} × ${H}${rot ? ` (rotated ${rot}°)` : ''}${rTxt}`;
+      handles().forEach(hd => {
+        ctx.fillStyle = acc; ctx.fillRect(hd.x - 5, hd.y - 5, 10, 10);
+        ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fillRect(hd.x - 3, hd.y - 3, 6, 6);
+      });
+      const seg = (k, v) => `<span class="crop-ro"><span class="crop-ro-k">${k}</span>${v}</span>`;
+      readout.innerHTML = seg('Selection', `${Math.round(rect.w)} × ${Math.round(rect.h)} px`) +
+        seg('Position', `${Math.round(rect.x)}, ${Math.round(rect.y)}`) +
+        seg('Image', `${W} × ${H}${rot ? ` · rotated ${rot}°` : ''}`) +
+        (ratio ? seg('Ratio', (rect.w / rect.h).toFixed(3)) : '');
       saveBtn.disabled = rect.w < 1 || rect.h < 1;
     }
 
@@ -286,6 +296,7 @@ const Cropper = (() => {
       const p = PRESETS.find(x => x.key === key);
       ratio = p.r === 'orig' ? W / H : p.r === 'custom' ? customRatio() : p.r;
       root.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('active', b.dataset.preset === key));
+      $('cr-flip').disabled = !ratio;
       $('cr-custom').style.display = key === 'custom' ? 'inline-flex' : 'none';
       if (!keepRect) rect = fitRect(ratio, ratio ? 0.9 : 1);
       draw();
@@ -363,7 +374,7 @@ const Cropper = (() => {
     async function save() {
       if (saving || rect.w < 1 || rect.h < 1) return;
       saving = true;
-      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      saveBtn.disabled = true; saveBtn.classList.add('is-loading');
       const x = Math.round(rect.x), y = Math.round(rect.y);
       const w = Math.round(rect.x + rect.w) - x, h = Math.round(rect.y + rect.h) - y;
       const r = await SFM.cropImage(path, x, y, w, h, '', rot).catch(e => ({ ok: false, error: String(e) }));
@@ -374,7 +385,7 @@ const Cropper = (() => {
         if (!(await PhotoTools.revealFile(r.out))) { try { FileTree.refresh(); } catch (_) {} }
       } else {
         App.toast('Crop failed: ' + PhotoTools.esc((r && r.error) || 'unknown error'), 'error', 6000);
-        saveBtn.disabled = false; saveBtn.textContent = 'Save as new file';
+        saveBtn.disabled = false; saveBtn.classList.remove('is-loading');
       }
     }
     saveBtn.addEventListener('click', save);
@@ -431,10 +442,10 @@ const AiPhoto = (() => {
       if (running || (btn.dataset.checking === '1')) {
         btn.disabled = true; btn.classList.add('is-busy');
         const secs = running ? Math.round((Date.now() - running[1].started) / 1000) : 0;
-        btn.innerHTML = `<span class="mt-spinner"></span> ${running ? `Working… ${secs}s` : 'Checking…'}`;
+        btn.innerHTML = `<span class="spinner spinner-on-accent"></span>${running ? `Working… ${secs}s` : 'Checking…'}`;
       } else {
         btn.disabled = false; btn.classList.remove('is-busy');
-        btn.innerHTML = '<span class="icon">👔</span> Wear Suit &amp; Tie';
+        btn.innerHTML = Icons.svg('shirt', 16) + 'Wear suit &amp; tie';
       }
     }
     if (st) {
@@ -444,17 +455,48 @@ const AiPhoto = (() => {
     }
     const cmp = $('ai-compare');
     if (cmp) cmp.classList.toggle('hidden', !(currentPath && pairs.has(norm(currentPath))));
+    // Plan hint: shown when an account server is configured but the plan is not active.
+    const note = $('ai-plan-note');
+    if (note) {
+      let locked = false;
+      try { locked = !!(typeof Account !== 'undefined' && Account.state && Account.state.configured && !Account.isActive()); } catch (_) {}
+      note.classList.toggle('hidden', !locked);
+    }
     if (jobs.size && !ticker) ticker = setInterval(refreshButtons, 1000);
     if (!jobs.size && ticker) { clearInterval(ticker); ticker = null; }
   }
 
+  // Shows the output file name ("Saves as photo_suit.jpg"). No cost figures.
   async function refreshEstimate() {
-    const el = $('ai-cost-est');
+    const el = $('ai-out-name');
     if (!el || !currentPath) return;
     const path = currentPath;
     const r = await SFM.aiPhotoEstimate(path, getOpts()).catch(() => null);
-    if (path !== currentPath || !r || !r.ok) return;
-    el.textContent = `≈ $${Number(r.cost_est_usd).toFixed(2)} per photo (est.) → ${r.out_name}`;
+    if (path !== currentPath || !r || !r.ok || !r.out_name) { if (path === currentPath) el.innerHTML = ''; return; }
+    el.innerHTML = `${Icons.svg('file-image', 12)}<span>Saves as <strong>${PhotoTools.esc(r.out_name)}</strong></span>`;
+    el.title = 'The original photo is not changed';
+  }
+
+  // Swatches / segmented control mirror the hidden #ai-suit-color / #ai-quality selects.
+  function syncControls() {
+    const suit = $('ai-suit-color'), q = $('ai-quality');
+    document.querySelectorAll('#ai-suit-swatches .swatch').forEach(b => {
+      const on = suit && b.dataset.v === suit.value;
+      b.classList.toggle('active', on); b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    const nm = $('ai-suit-name');
+    if (nm && suit) nm.textContent = suit.options[suit.selectedIndex]?.text || '';
+    document.querySelectorAll('#ai-quality-seg .seg-btn').forEach(b => b.classList.toggle('active', !!q && b.dataset.v === q.value));
+  }
+  function wireMirror(groupId, selectId) {
+    const g = $(groupId), sel = $(selectId);
+    if (!g || !sel) return;
+    g.addEventListener('click', e => {
+      const b = e.target.closest('[data-v]'); if (!b) return;
+      sel.value = b.dataset.v;
+      sel.dispatchEvent(new Event('change'));
+      syncControls();
+    });
   }
 
   // Called by Details when an image is shown in the details pane.
@@ -468,14 +510,20 @@ const AiPhoto = (() => {
   function showNeedPlan(r) {
     const login = !!(r && r.need_login);
     const id = Dialogs.modal('ai-need-plan', {
-      title: '🔒 Subscription required',
-      width: '440px',
-      body: `<div style="font-size:13px;line-height:1.55;color:var(--text-secondary)">
-               AI photo editing (Wear Suit &amp; Tie) is part of the PDF Axe monthly subscription.
+      title: login ? 'Sign in to use AI photo edits' : 'Subscription required',
+      icon: 'lock',
+      subtitle: 'Wear suit & tie',
+      width: '460px',
+      body: `<p class="ai-dlg-text">AI photo editing is part of the PDF Axe monthly plan.
                ${login ? 'Sign in to your account, then subscribe from the Account page.'
-                       : 'Your account does not have an active subscription.'}</div>`,
+                       : 'Your account does not have an active subscription.'}</p>
+             <ul class="ai-dlg-list">
+               <li>${Icons.svg('check', 14)}AI photo edits such as Wear suit &amp; tie</li>
+               <li>${Icons.svg('check', 14)}Cloud storage and automatic sync</li>
+               <li>${Icons.svg('check', 14)}Cancel any time</li>
+             </ul>`,
       footer: `<button class="btn" id="anp-cancel-__ID__">Not now</button>
-               <button class="btn btn-primary" id="anp-go-__ID__">${login ? 'Sign in' : 'Subscribe'}</button>`,
+               <button class="btn btn-primary" id="anp-go-__ID__">${Icons.svg(login ? 'log-in' : 'credit-card', 16)}${login ? 'Sign in' : 'Subscribe'}</button>`,
     });
     const root = document.getElementById('mo-' + id);
     root.querySelectorAll('[id*="__ID__"]').forEach(el => { el.id = el.id.replace('__ID__', id); });
@@ -489,12 +537,14 @@ const AiPhoto = (() => {
 
   function showNeedKey(msg) {
     const id = Dialogs.modal('ai-need-key', {
-      title: '🔑 OpenAI API key needed',
-      width: '440px',
-      body: `<div style="font-size:13px;line-height:1.55;color:var(--text-secondary)">
-               ${PhotoTools.esc(msg || 'Add your OpenAI API key in Settings to use AI photo editing.')}</div>`,
+      title: 'OpenAI API key needed',
+      icon: 'key',
+      subtitle: 'AI photo edits',
+      width: '460px',
+      body: `<p class="ai-dlg-text">${PhotoTools.esc(msg || 'Add your OpenAI API key in Settings to use AI photo editing.')}</p>
+             <div class="field-hint">The key is stored on this computer only.</div>`,
       footer: `<button class="btn" id="ank-cancel-__ID__">Cancel</button>
-               <button class="btn btn-primary" id="ank-go-__ID__">Open Settings</button>`,
+               <button class="btn btn-primary" id="ank-go-__ID__">${Icons.svg('settings', 16)}Open Settings</button>`,
     });
     const root = document.getElementById('mo-' + id);
     root.querySelectorAll('[id*="__ID__"]').forEach(el => { el.id = el.id.replace('__ID__', id); });
@@ -532,8 +582,7 @@ const AiPhoto = (() => {
     });
     if (early.has(jid)) { const ev = early.get(jid); early.delete(jid); onResult(ev); return done; }
     refreshButtons();
-    const est = r.cost_est_usd != null ? ` (est. $${Number(r.cost_est_usd).toFixed(2)})` : '';
-    App.toast(`${label} started${est} — you can keep working`, 'info', 4000);
+    App.toast(`${label} started — you can keep working`, 'info', 4000);
     return done;
   }
 
@@ -577,17 +626,25 @@ const AiPhoto = (() => {
       .catch(() => [null, null]);
     if (!a || !a.ok || !b || !b.ok) { App.toast('Could not load images to compare', 'error'); return; }
     const id = Dialogs.modal('ai-compare', {
-      title: '⇆ Before / after — ' + PhotoTools.base(out),
-      width: '760px',
-      body: `<div class="cmp-wrap" id="cmp-wrap-__ID__">
-               <img src="${b.data_url}" alt="After" id="cmp-after-__ID__">
-               <div class="cmp-before" id="cmp-before-__ID__"><img src="${a.data_url}" alt="Before" id="cmp-bimg-__ID__"></div>
-               <div class="cmp-line" id="cmp-line-__ID__"></div>
-               <span class="cmp-tag" style="left:8px">Before</span>
-               <span class="cmp-tag" style="right:8px">After</span>
+      title: 'Before and after',
+      icon: 'compare',
+      subtitle: PhotoTools.base(out),
+      width: '780px',
+      body: `<div class="cmp-stage">
+               <div class="cmp-wrap" id="cmp-wrap-__ID__">
+                 <img src="${b.data_url}" alt="After" id="cmp-after-__ID__">
+                 <div class="cmp-before" id="cmp-before-__ID__"><img src="${a.data_url}" alt="Before" id="cmp-bimg-__ID__"></div>
+                 <div class="cmp-line" id="cmp-line-__ID__"><span class="cmp-knob">${Icons.svg('arrow-left-right', 14)}</span></div>
+                 <span class="cmp-tag cmp-tag-l">Before</span>
+                 <span class="cmp-tag cmp-tag-r">After</span>
+               </div>
              </div>
-             <input type="range" class="cmp-range" id="cmp-range-__ID__" min="0" max="100" value="50">`,
-      footer: `<button class="btn" id="cmp-open-__ID__">Open result</button>
+             <div class="cmp-controls">
+               <span class="text-xs text-muted">Before</span>
+               <input type="range" class="cmp-range" id="cmp-range-__ID__" min="0" max="100" value="50" aria-label="Before / after position">
+               <span class="text-xs text-muted">After</span>
+             </div>`,
+      footer: `<button class="btn btn-ghost footer-left" id="cmp-open-__ID__">${Icons.svg('external-link', 16)}Open result</button>
                <button class="btn btn-primary" id="cmp-close-__ID__">Close</button>`,
     });
     const root = document.getElementById('mo-' + id);
@@ -623,6 +680,9 @@ const AiPhoto = (() => {
       const el = $(k);
       if (el) el.addEventListener('change', () => { savePrefs(getOpts()); refreshEstimate(); });
     });
+    wireMirror('ai-suit-swatches', 'ai-suit-color');
+    wireMirror('ai-quality-seg', 'ai-quality');
+    syncControls();
     $('ai-compare')?.addEventListener('click', () => compare());
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
