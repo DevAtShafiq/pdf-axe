@@ -205,23 +205,27 @@ const Details = (() => {
       if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); clear(); }
       else       { App.toast('Failed: ' + r.error, 'error'); }
     });
-    wire('qa-convert-pdf', async () => {
+    // Conversion / compression (convert-tools.js)
+    wire('qa-convert-pdf', () => { if (_path) ConvertTools.quickImageToPdf(_path); });
+    wire('qa-convert-img', () => { if (_path) ConvertTools.openConvertImage([_path]); });
+    wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
+    wire('qa-compress',    () => {
       if (!_path) return;
-      App.setStatus('Converting to PDF…', true);
-      const r = await SFM.convertToPdf(_path);
-      App.setStatus('Ready');
-      if (r.ok) { App.toast('Converted: ' + String(r.out_path || '').split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
+      if (ConvertTools.isPdf(_path)) ConvertTools.openCompressPdf([_path]);
+      else ConvertTools.openCompressImages([_path]);
     });
   }
 
-  // "Convert to PDF" is image → PDF only.
-  const _PDF_CONVERTIBLE_EXTS = ['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tif','.tiff'];
+  // Image → PDF / format / compress for images; → images / compress for PDFs.
   function _showConvertAction(entry) {
-    const btn = $('qa-convert-pdf');
-    if (!btn) return;
-    const isImg = !entry.is_dir && _PDF_CONVERTIBLE_EXTS.includes((entry.ext||'').toLowerCase());
-    btn.classList.toggle('hidden', !isImg);
+    const file  = entry && !entry.is_dir;
+    const isImg = file && ConvertTools.isImage(entry.path);
+    const isPdf = file && ConvertTools.isPdf(entry.path);
+    const show = (id, on) => { const b = $(id); if (b) b.classList.toggle('hidden', !on); };
+    show('qa-convert-pdf', isImg);
+    show('qa-convert-img', isImg);
+    show('qa-pdf-images',  isPdf);
+    show('qa-compress',    isImg || isPdf);
   }
 
   // ── AI Photo section ──────────────────────────────────────────────────────

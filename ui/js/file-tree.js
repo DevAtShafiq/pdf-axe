@@ -216,6 +216,22 @@ const FileTree = (() => {
     if (_currentFolder) loadFolder(_currentFolder);
   }
 
+  // Reload the current folder and select `path` if it is listed there
+  // (used after a conversion/compression creates a new file or folder).
+  async function revealPath(path) {
+    if (!_currentFolder) return;
+    await loadFolder(_currentFolder);
+    const norm = s => String(s || '').replace(/\//g, '\\').toLowerCase();
+    const idx = _filtered.findIndex(e => norm(e.path) === norm(path));
+    if (idx < 0) return;
+    _selected.clear();
+    _selected.add(_filtered[idx].path);
+    _focusIdx = idx;
+    _renderCurrent();
+    _selectionChanged();
+    _scrollFocusedIntoView();
+  }
+
   // ── Search ────────────────────────────────────────────────────────────────
   function applySearch(query) {
     _searchQuery = query.toLowerCase();
@@ -937,7 +953,7 @@ const FileTree = (() => {
   init();
 
   return {
-    loadFolder, refresh, applySearch, setViewMode,
+    loadFolder, refresh, revealPath, applySearch, setViewMode,
     copySelection, cutSelection, pasteSelection,
     newFolder, deleteSelection,
     combineSelected, browseFolder,

@@ -937,40 +937,8 @@ const Dialogs = (() => {
     document.getElementById('uc-lower').addEventListener('click', () => buildPreview(s => s.toLowerCase()));
   }
 
-  // ── 10. Compress PDF ──────────────────────────────────────────────────────
-  function openCompressPdf(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Compress: <strong>${_esc(name)}</strong></p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Quality preset</label>
-        <select id="cmp-quality" class="input-text" style="margin-top:4px;width:100%">
-          <option value="screen">Screen (smallest)</option>
-          <option value="ebook" selected>eBook (balanced)</option>
-          <option value="printer">Printer (high quality)</option>
-          <option value="prepress">Prepress (maximum)</option>
-        </select>
-      </div>
-      <div>
-        <label class="detail-label">Output filename</label>
-        <input id="cmp-out" class="input-text" value="${_esc(name.replace(/\.pdf$/i,'_compressed.pdf'))}" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('compress', 'Compress PDF', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Compress', primary: true, onClick: async () => {
-        const quality = document.getElementById('cmp-quality')?.value || 'ebook';
-        const outName = document.getElementById('cmp-out')?.value.trim() || name;
-        const out     = path.replace(/[\\/][^\\/]+$/, '') + '\\' + outName;
-        closeModal();
-        App.setStatus('Compressing…', true);
-        const r = await SFM.call('compress_pdf_quality', path, quality, out);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast(`Compressed: ${outName}${r.reduction ? ' ('+r.reduction+'% saved)' : ''}`, 'success'); FileTree.refresh(); }
-        else       { App.toast('Compress failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
+  // ── 10. Compress PDF — implemented in convert-tools.js (single or batch) ──
+  function openCompressPdf(paths) { return ConvertTools.openCompressPdf(paths); }
 
   // ── 11. Settings ──────────────────────────────────────────────────────────
   async function openSettings() {
@@ -1214,50 +1182,8 @@ const Dialogs = (() => {
     });
   }
 
-  // ── 21. PDF to Images ─────────────────────────────────────────────────────
-  async function openPdfToImages(path) {
-    const name = path.split(/[\\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Convert each page of <strong>${_esc(name)}</strong> to an image file.</p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Format</label>
-        <select id="pi-fmt" class="input-text" style="margin-top:4px;width:100%">
-          <option value="png" selected>PNG (lossless)</option>
-          <option value="jpg">JPEG (smaller)</option>
-        </select>
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">DPI / Resolution</label>
-        <select id="pi-dpi" class="input-text" style="margin-top:4px;width:100%">
-          <option value="72">72 dpi (screen)</option>
-          <option value="150" selected>150 dpi (balanced)</option>
-          <option value="300">300 dpi (print quality)</option>
-        </select>
-      </div>
-      <div id="pi-status" style="font-size:12px;color:var(--accent);min-height:18px"></div>`;
-
-    _openModal('pdf-to-images', 'PDF → Images', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Convert', primary: true, onClick: async () => {
-        const fmt = document.getElementById('pi-fmt')?.value || 'png';
-        const dpi = +document.getElementById('pi-dpi')?.value || 150;
-        const statusEl = document.getElementById('pi-status');
-        if (statusEl) statusEl.textContent = 'Converting…';
-        App.setStatus('Converting PDF to images…', true);
-        const r = await SFM.pdfToImages(path, dpi, fmt);
-        App.setStatus('Ready');
-        if (r.ok) {
-          const n = (r.files || []).length;
-          if (statusEl) statusEl.textContent = '✅ ' + n + ' image(s) saved alongside PDF';
-          App.toast('Converted ' + n + ' page(s) to ' + fmt.toUpperCase(), 'success');
-          FileTree.refresh();
-        } else {
-          if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + r.error; }
-          App.toast('Conversion failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-  }
+  // ── 21. PDF to Images — implemented in convert-tools.js ──────────────────
+  function openPdfToImages(path) { return ConvertTools.openPdfToImages(path); }
 
   // ── 22. Split & Rename OCR Progress ──────────────────────────────────────
   function openSplitRenameOcrProgress(path) {
@@ -1311,100 +1237,8 @@ const Dialogs = (() => {
     SFM.splitAndRenameOcr(path);
   }
 
-  // ── 26b. Compress Image(s) ────────────────────────────────────────────────
-  function _fmtBytes(n) {
-    n = Number(n) || 0;
-    if (n < 1024) return n + ' B';
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-    return (n / 1024 / 1024).toFixed(2) + ' MB';
-  }
-
-  function openCompressImages(paths) {
-    paths = (Array.isArray(paths) ? paths : [paths]).filter(Boolean);
-    if (!paths.length) { App.toast('Select image(s) first', 'warning'); return; }
-    const label = paths.length === 1
-      ? '<strong>' + _esc(paths[0].split(/[\\/]/).pop()) + '</strong>'
-      : '<strong>' + paths.length + '</strong> images';
-    const body = `
-      <p class="text-muted" style="font-size:12px;margin-bottom:10px">Compress: ${label}<br>
-        Originals are kept; output is saved as <em>name_compressed.ext</em>.</p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Quality: <span id="ci-q-val">70</span></label>
-        <input id="ci-q" type="range" min="10" max="95" step="1" value="70" style="width:100%;margin-top:4px">
-      </div>
-      <div style="display:flex;gap:10px;margin-bottom:12px">
-        <div style="flex:1">
-          <label class="detail-label">Max size (longest edge)</label>
-          <select id="ci-edge" class="input-text" style="margin-top:4px;width:100%">
-            <option value="0">Original</option>
-            <option value="3000">3000 px</option>
-            <option value="2000">2000 px</option>
-            <option value="1600" selected>1600 px</option>
-            <option value="1200">1200 px</option>
-            <option value="1024">1024 px</option>
-          </select>
-        </div>
-        <div style="flex:1">
-          <label class="detail-label">Output format</label>
-          <select id="ci-fmt" class="input-text" style="margin-top:4px;width:100%">
-            <option value="" selected>Same as original</option>
-            <option value="jpg">JPG</option>
-            <option value="webp">WEBP</option>
-            <option value="png">PNG</option>
-          </select>
-        </div>
-      </div>
-      <div id="ci-status" style="font-size:12px;min-height:18px"></div>`;
-
-    let busy = false;
-    _openModal('compress-images', paths.length === 1 ? '🗜 Compress Image' : '🗜 Compress Images', body, [
-      { label: 'Close', onClick: closeModal },
-      { label: 'Compress', primary: true, onClick: async () => {
-        if (busy) return;
-        busy = true;
-        const q    = parseInt(document.getElementById('ci-q')?.value, 10) || 70;
-        const edge = parseInt(document.getElementById('ci-edge')?.value, 10) || 0;
-        const fmt  = document.getElementById('ci-fmt')?.value || '';
-        const st   = document.getElementById('ci-status');
-        if (st) st.textContent = 'Compressing ' + paths.length + ' image(s)…';
-        App.setStatus('Compressing image(s)…', true);
-        let r;
-        try { r = await SFM.compressImages(paths, q, edge, fmt); }
-        catch (e) { r = { ok: false, error: String(e) }; }
-        App.setStatus('Ready');
-        busy = false;
-        if (!r || !r.ok) {
-          if (st) st.textContent = '❌ ' + (r?.error || 'Failed');
-          App.toast('Compress failed: ' + (r?.error || ''), 'error');
-          return;
-        }
-        const okCount = r.results.length - (r.failed || 0);
-        const pct = r.reduction || 0;
-        const sizeLine = _fmtBytes(r.before) + ' → ' + _fmtBytes(r.after) +
-          ' (' + (pct >= 0 ? pct + '% saved' : Math.abs(pct) + '% larger') + ')';
-        let html = (okCount ? '✅ ' : '❌ ') + okCount + ' of ' + r.results.length + ' compressed: <strong>' + _esc(sizeLine) + '</strong>';
-        if (okCount === 1 && r.results.length === 1) {
-          html += '<br>Saved as <strong>' + _esc(r.results[0].out.split(/[\\/]/).pop()) + '</strong>';
-        }
-        const fails = r.results.filter(x => !x.ok);
-        if (fails.length) {
-          html += '<br>' + fails.map(f => '⚠ ' + _esc(f.path.split(/[\\/]/).pop()) + ': ' + _esc(f.error)).join('<br>');
-        }
-        if (st) st.innerHTML = html;
-        if (okCount) {
-          App.toast('Compressed ' + okCount + ' image(s): ' + sizeLine, 'success');
-          FileTree.refresh();
-        } else {
-          App.toast('Compress failed', 'error');
-        }
-      }},
-    ]);
-    const qEl = document.getElementById('ci-q');
-    qEl?.addEventListener('input', () => {
-      const v = document.getElementById('ci-q-val');
-      if (v) v.textContent = qEl.value;
-    });
-  }
+  // ── 26b. Compress Image(s) — implemented in convert-tools.js ─────────────
+  function openCompressImages(paths) { return ConvertTools.openCompressImages(paths); }
 
   // ── 27. OCR Rename Progress ───────────────────────────────────────────────
   function openOcrRenameProgress(paths) {
@@ -1721,5 +1555,6 @@ const Dialogs = (() => {
     openOcrRenameProgress,
     openQrOverlay,
     closeModal, closeAllModals,
+    openModal: _openModal,
   };
 })();

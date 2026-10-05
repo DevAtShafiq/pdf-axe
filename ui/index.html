@@ -6,6 +6,7 @@
 <title>Student File Manager</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="rename-templates.css">
+<link rel="stylesheet" href="convert-tools.css">
 </head>
 <body>
 
@@ -74,7 +75,10 @@
       <button class="toolbar-btn" id="btn-smart-split" title="Smart Split, Merge & Rename (GPT-4o)">
         <span class="icon">✂️</span> Smart Split
       </button>
-      <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDF or image(s)">
+      <button class="toolbar-btn" id="btn-convert" title="Convert: images → PDF, PDF → images">
+        <span class="icon">🔁</span> Convert
+      </button>
+      <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDF(s) or image(s)">
         <span class="icon">🗜</span> Compress
       </button>
     </div>
@@ -292,6 +296,9 @@
               <button class="qa-btn"         id="qa-opendir"><span class="icon">📁</span> Open Folder</button>
               <button class="qa-btn"         id="qa-copy-path"><span class="icon">📋</span> Copy Path</button>
               <button class="qa-btn hidden"  id="qa-convert-pdf" title="Convert this image to PDF"><span class="icon">📄</span> Convert to PDF</button>
+              <button class="qa-btn hidden"  id="qa-convert-img" title="Convert to JPG / PNG / WEBP / BMP / TIFF"><span class="icon">🔁</span> Convert Format…</button>
+              <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon">🖼</span> PDF → Images…</button>
+              <button class="qa-btn hidden"  id="qa-compress" title="Make a smaller copy"><span class="icon">🗜</span> Compress…</button>
               <button class="qa-btn danger"  id="qa-delete"><span class="icon">🗑</span> Move to Review</button>
             </div>
           </div>
@@ -387,6 +394,7 @@
 <script src="js/details.js"></script>
 <script src="js/context-menu.js"></script>
 <script src="js/dialogs.js"></script>
+<script src="js/convert-tools.js"></script>
 <script src="js/panels.js"></script>
 
 </body>

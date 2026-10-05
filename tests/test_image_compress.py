@@ -171,3 +171,61 @@ def test_convert_alpha_png_to_jpg(tmp_path):
 def test_bad_format(big_jpeg):
     assert not fo.compress_image(big_jpeg, fmt="gif")[0]
     assert not fo.convert_image(big_jpeg, "xyz")[0]
+
+
+# ── media_convert.compress_image (used by the bridge): target size, keep-original ──
+
+import media_convert as mc  # noqa: E402
+
+
+def test_target_size_met(big_jpeg):
+    target = 40 * 1024
+    r = mc.compress_image(big_jpeg, target_bytes=target)
+    assert r["target_met"] is True
+    assert r["after"] <= target
+    assert os.path.getsize(r["out"]) == r["after"]
+    assert 10 <= r["quality"] <= 95
+
+
+def test_target_size_shrinks_dimensions_when_needed(big_jpeg):
+    r = mc.compress_image(big_jpeg, target_bytes=6 * 1024)
+    assert r["after"] <= 6 * 1024 or r["target_met"] is False
+    with Image.open(r["out"]) as im:
+        assert max(im.size) < 800
+
+
+def test_target_size_png_saved_as_jpg(tmp_path):
+    p = tmp_path / "shot.png"
+    _noisy_rgb(400, 300).save(p)
+    r = mc.compress_image(str(p), target_bytes=30 * 1024)
+    assert r["out"].endswith("shot_compressed.jpg")
+    assert "JPG" in r["note"]
+
+
+def test_already_small_jpeg_keeps_original(tmp_path):
+    p = tmp_path / "small.jpg"
+    _noisy_rgb(200, 150).save(p, quality=30)
+    before = sorted(os.listdir(tmp_path))
+    r = mc.compress_image(str(p), quality=90)
+    assert r["kept_original"] and r["out"] == ""
+    assert sorted(os.listdir(tmp_path)) == before
+
+
+def test_mc_compress_never_overwrites(big_jpeg, tmp_path):
+    (tmp_path / "photo_compressed.jpg").write_bytes(b"x")
+    r = mc.compress_image(big_jpeg, quality=50)
+    assert os.path.basename(r["out"]) == "photo_compressed-2.jpg"
+    with pytest.raises(mc.ConvertError):
+        mc.compress_image(big_jpeg, out_path=big_jpeg)
+
+
+def test_bridge_compress_images_target_and_summary(big_jpeg, tmp_path):
+    import sfm_bridge
+    b = sfm_bridge.SFMBridge()
+    r = b.compress_images([big_jpeg, str(tmp_path / "missing.jpg")], 70, 0, "", 50)
+    assert r["ok"] and r["failed"] == 1
+    good = r["results"][0]
+    assert good["ok"] and good["after"] <= 50 * 1024 and good["target_met"]
+    assert r["saved"] == r["before"] - r["after"] > 0
+    one = b.compress_image(big_jpeg, 60, 400, "webp")
+    assert one["ok"] and one["out"].endswith(".webp") and one["size"] == [400, 300]

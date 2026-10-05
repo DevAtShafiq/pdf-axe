@@ -94,6 +94,8 @@ const ContextMenu = (() => {
     if (allPdf) {
       if (multi) {
         _item(menu, '\u{1F4CE}', 'Combine PDFs…', '', () => { hide(); Dialogs.openCombinePdf(paths, FileTree.getCurrentFolder()); });
+        _item(menu, '\u{1F5DC}️', 'Compress ' + entries.length + ' PDFs…', '', () => { hide(); Dialogs.openCompressPdf(entries.map(e => e.path)); });
+        _sep(menu);
       }
       if (isPdf) {
         _item(menu, '\u{2B0D}', 'Arrange Pages…', '', () => { hide(); Dialogs.openArrangePages(mainPath); });
@@ -139,65 +141,20 @@ const ContextMenu = (() => {
     }
 
     // Section: image compress / convert (single or multi-select)
-    const IMG_EXTS = ['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tif','.tiff'];
+    const IMG_EXTS = ConvertTools.IMAGE_EXTS;
     const allImg = entries.length > 0 && entries.every(e => !e.is_dir && IMG_EXTS.includes((e.ext||'').toLowerCase()));
     if (allImg) {
       const imgPaths = entries.map(e => e.path);
       _item(menu, '\u{1F5DC}️', imgPaths.length > 1 ? 'Compress Images…' : 'Compress Image…', '',
         () => { hide(); Dialogs.openCompressImages(imgPaths); });
-      [['jpg', 'JPG'], ['png', 'PNG'], ['webp', 'WEBP']].forEach(([fmt, lbl]) => {
-        _item(menu, '\u{1F501}', 'Convert Image to ' + lbl, '', async () => {
-          hide();
-          App.setStatus('Converting to ' + lbl + '…', true);
-          let ok = 0; const errs = []; let last = '';
-          for (const p of imgPaths) {
-            const r = await SFM.convertImage(p, fmt);
-            if (r.ok) { ok++; last = r.out; } else errs.push(p.split(/[\\/]/).pop() + ': ' + r.error);
-          }
-          App.setStatus('Ready');
-          if (ok) {
-            App.toast(ok === 1 && imgPaths.length === 1
-              ? 'Converted → ' + last.split(/[\\/]/).pop()
-              : 'Converted ' + ok + ' of ' + imgPaths.length + ' image(s) to ' + lbl, 'success');
-            FileTree.refresh();
-          }
-          if (errs.length) App.toast('Convert failed: ' + errs.join('; '), 'error');
-        });
-      });
-      // Image(s) → PDF: one PDF per image, saved beside the original
-      _item(menu, '\u{1F4C4}', 'Convert to PDF', '', async () => {
-        hide();
-        App.setStatus('Converting to PDF…', true);
-        let ok = 0; const errs = []; let last = '';
-        for (const p of imgPaths) {
-          const r = await SFM.convertToPdf(p);
-          if (r.ok) { ok++; last = r.out_path; } else errs.push(p.split(/[\\/]/).pop() + ': ' + r.error);
-        }
-        App.setStatus('Ready');
-        if (ok) {
-          App.toast(ok === 1 && imgPaths.length === 1
-            ? 'Converted → ' + last.split(/[\\/]/).pop()
-            : 'Converted ' + ok + ' of ' + imgPaths.length + ' image(s) to PDF', 'success');
-          FileTree.refresh();
-        }
-        if (errs.length) App.toast('Convert failed: ' + errs.join('; '), 'error');
-      });
+      _item(menu, '\u{1F501}', 'Convert Image Format…', '', () => { hide(); ConvertTools.openConvertImage(imgPaths); });
       if (imgPaths.length > 1) {
-        // Several images → one multi-page PDF (originals untouched, never overwrites)
-        _item(menu, '\u{1F4CE}', 'Combine Images into One PDF', '', async () => {
-          hide();
-          const dir  = imgPaths[0].replace(/[\\/][^\\/]+$/, '');
-          const stem = imgPaths[0].split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
-          let out = dir + '\\' + stem + '_combined.pdf';
-          for (let i = 2; (await SFM.pathExists(out)).exists; i++) {
-            out = dir + '\\' + stem + '_combined-' + i + '.pdf';
-          }
-          App.setStatus('Combining images into PDF…', true);
-          const r = await SFM.combineToPdf(imgPaths, out);
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('Combined ' + imgPaths.length + ' image(s) → ' + out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-          else       { App.toast('Combine failed: ' + r.error, 'error'); }
-        });
+        // Several images → one multi-page PDF (reorderable) or one PDF each
+        _item(menu, '\u{1F4CE}', 'Combine Images into One PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'combine' }); });
+        _item(menu, '\u{1F4C4}', 'Convert Each to PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'separate' }); });
+      } else {
+        _item(menu, '\u{1F4C4}', 'Convert to PDF', '', () => { hide(); ConvertTools.quickImageToPdf(imgPaths[0]); });
+        _item(menu, '\u{1F4C4}', 'Convert to PDF (options)…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths); });
       }
       _sep(menu);
     } else if (isImg) {
