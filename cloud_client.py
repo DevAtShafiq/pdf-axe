@@ -502,6 +502,11 @@ class SyncFolder:
             raise SyncError(f"The sync folder is missing: {self.local_dir}")
         state, meta = self._load_state()
         prefix = self.remote_root + "/"
+        if not self.max_upload:
+            try:   # skip too-large files up front instead of streaming them to a 413
+                self.max_upload = int(self.client.usage().get("max_upload") or 0)
+            except CloudError:
+                pass
         remote = {f["path"][len(prefix):]: f for f in self.client.list_files()
                   if f["path"].startswith(prefix)}
         local = self._scan_local()
