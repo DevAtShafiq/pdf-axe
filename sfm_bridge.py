@@ -40,6 +40,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import file_ops as _fo
+from pdf_tools_bridge import PdfToolsBridgeMixin
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,7 +114,7 @@ def _fmt_size(n: int) -> str:
 
 # ── bridge ────────────────────────────────────────────────────────────────────
 
-class SFMBridge:
+class SFMBridge(PdfToolsBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().
