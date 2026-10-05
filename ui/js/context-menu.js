@@ -91,38 +91,31 @@ const ContextMenu = (() => {
 
     // Section: PDF ops
     const allPdf = entries.length > 0 && entries.every(e => (e.ext||'').toLowerCase() === '.pdf');
+    // Mixed PDFs + images → merge (images become pages).
+    const mixedPdfImg = !allPdf && entries.length > 1
+      && entries.every(e => /^\.(pdf|jpe?g|png|bmp|gif|tiff?|webp)$/i.test(e.ext || ''))
+      && entries.some(e => (e.ext||'').toLowerCase() === '.pdf');
+    if (mixedPdfImg) {
+      _item(menu, '\u{1F4CE}', 'Merge into One PDF…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
+      _sep(menu);
+    }
     if (allPdf) {
       if (multi) {
-        _item(menu, '\u{1F4CE}', 'Combine PDFs…', '', () => { hide(); Dialogs.openCombinePdf(paths, FileTree.getCurrentFolder()); });
+        _item(menu, '\u{1F4CE}', 'Merge PDFs…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
         _item(menu, '\u{1F5DC}️', 'Compress ' + entries.length + ' PDFs…', '', () => { hide(); Dialogs.openCompressPdf(entries.map(e => e.path)); });
         _sep(menu);
       }
       if (isPdf) {
-        _item(menu, '\u{2B0D}', 'Arrange Pages…', '', () => { hide(); Dialogs.openArrangePages(mainPath); });
-        _item(menu, '✂️', 'Split PDF', '', async () => {
-          hide();
-          App.setStatus('Splitting…', true);
-          const r = await SFM.splitPdf(mainPath, mainPath.replace(/[\\\/][^\\\/]+$/, ''));
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('Split into ' + (r.files?.length||'?') + ' pages', 'success'); FileTree.refresh(); }
-          else       { App.toast('Split failed: ' + r.error, 'error'); }
-        });
-        _item(menu, '\u{1F4C4}', 'Extract Pages…',      '', () => { hide(); Dialogs.openExtractPages(mainPath); });
-        _item(menu, '\u{1F4C4}\u2192', 'Extract Current Page → New PDF', '', async () => {
-          hide();
-          const pr = await SFM.getPdfPageCount(mainPath);
-          if (!pr.ok) { App.toast('Cannot read PDF', 'error'); return; }
-          const page = prompt('Page number to extract (1 - ' + pr.count + '):', '1');
-          if (!page) return;
-          const pg = parseInt(page) - 1;
-          if (isNaN(pg) || pg < 0 || pg >= pr.count) { App.toast('Invalid page number', 'error'); return; }
-          const base = mainPath.replace(/(\.[^.]+)$/, '_p' + page + '$1');
-          App.setStatus('Extracting page…', true);
-          const r = await SFM.extractPdfPages(mainPath, String(page), base);
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('Extracted page ' + page + ' → ' + base.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-          else        { App.toast('Extract failed: ' + r.error, 'error'); }
-        });
+        _item(menu, '\u{2B0D}', 'Arrange Pages…', '', () => { hide(); PdfTools.openArrange([mainPath]); });
+        _item(menu, '✂️', 'Split PDF…', '', () => { hide(); PdfTools.openSplit(mainPath); });
+        _item(menu, '\u{1F4C4}', 'Extract Pages…', '', () => { hide(); PdfTools.openExtract(mainPath); });
+        // "Current page" = the page shown in the preview for this file.
+        const curPage = PdfTools.previewPageFor(mainPath);
+        if (curPage !== null) {
+          _item(menu, '\u{1F4C4}→', 'Extract Current Page (' + (curPage + 1) + ') → New PDF', '', () => {
+            hide(); PdfTools.extractPage(mainPath, curPage);
+          });
+        }
         _item(menu, '\u{1F520}', 'Smart Split & Rename…','', () => {
           hide(); Dialogs.openSmartSplitProgress(mainPath);
         });

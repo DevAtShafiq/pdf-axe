@@ -41,6 +41,7 @@ if _HERE not in sys.path:
 
 import file_ops as _fo
 import media_convert as _mc
+from pdf_tools_bridge import PdfToolsBridgeMixin
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -114,7 +115,7 @@ def _fmt_size(n: int) -> str:
 
 # ── bridge ────────────────────────────────────────────────────────────────────
 
-class SFMBridge:
+class SFMBridge(PdfToolsBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().
@@ -1060,12 +1061,21 @@ class SFMBridge:
                 if api_key:
                     os.environ.setdefault("OPENAI_API_KEY", api_key)
                 log_cb = self._log_cb("smart_rename_log")
-                _fo.pdf_smart_split_merge_rename(
+                import rename_templates as rt
+                lang = self._rename_lang()
+                # out_dir is required (old app: same folder as the source PDF);
+                # the old 'output_folder=' keyword raised TypeError every time.
+                res = _fo.pdf_smart_split_merge_rename(
                     path,
-                    output_folder=out_dir or None,
-                    log=log_cb,
+                    out_dir or os.path.dirname(os.path.abspath(path)),
+                    log_cb,
+                    fallback_prefix=os.path.splitext(os.path.basename(path))[0] or "page",
+                    template_pairs=rt.store().merged_pairs(lang),
                 )
-                self._emit("smart_rename_done", {"ok": True})
+                ok, files = (res if isinstance(res, tuple) else (bool(res), []))
+                if not ok:
+                    raise RuntimeError("Smart split failed — see the log for details.")
+                self._emit("smart_rename_done", {"ok": True, "files": list(files or [])})
             except Exception as exc:
                 self._emit("smart_rename_done", {"ok": False, "error": str(exc)})
         self._thread(_run)

@@ -280,14 +280,11 @@ const Preview = (() => {
       if (!_path) return;
       Dialogs.openArrangePages(_path, _pdfCount);
     });
-    wire('pdf-split', async () => {
-      if (!_path) return;
-      App.setStatus('Splitting…', true);
-      const outDir = _path.replace(/[\\/][^\\/]+$/, '');
-      const r = await SFM.splitPdf(_path, outDir);
-      App.setStatus('Ready');
-      if (r.ok) { App.toast(`Split into ${r.files?.length || '?'} pages`, 'success'); FileTree.refresh(); }
-      else       { App.toast('Split failed: ' + r.error, 'error'); }
+    wire('pdf-split', () => {
+      if (_path) PdfTools.openSplit(_path);
+    });
+    wire('pdf-extract', () => {
+      if (_path) PdfTools.openExtract(_path, { page: _pdfCurPage });
     });
     wire('pdf-compress', () => {
       if (!_path) return;

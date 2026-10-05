@@ -216,12 +216,12 @@ const FileTree = (() => {
     if (_currentFolder) loadFolder(_currentFolder);
   }
 
-  // Reload the current folder and select `path` if it is listed there
-  // (used after a conversion/compression creates a new file or folder).
-  async function revealPath(path) {
+  // Refresh, then select + reveal `path` when it is in the current folder
+  // (used after an operation creates a new file, e.g. a merged PDF).
+  async function refreshAndSelect(path) {
     if (!_currentFolder) return;
     await loadFolder(_currentFolder);
-    const norm = s => String(s || '').replace(/\//g, '\\').toLowerCase();
+    const norm = p => String(p || '').replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase();
     const idx = _filtered.findIndex(e => norm(e.path) === norm(path));
     if (idx < 0) return;
     _selected.clear();
@@ -231,6 +231,7 @@ const FileTree = (() => {
     _selectionChanged();
     _scrollFocusedIntoView();
   }
+  const revealPath = refreshAndSelect;
 
   // ── Search ────────────────────────────────────────────────────────────────
   function applySearch(query) {
@@ -729,10 +730,10 @@ const FileTree = (() => {
   // ── Combine PDFs ──────────────────────────────────────────────────────────
   // Old system's Ctrl+Enter: combine multiple PDFs, or arrange a single PDF.
   function combineSelected() {
-    const pdfs = Array.from(_selected).filter(p => p.toLowerCase().endsWith('.pdf'));
-    if (!pdfs.length) { App.toast('Select PDF files first (2+ to combine, 1 to arrange its pages)', 'warning'); return; }
-    if (pdfs.length === 1) { Dialogs.openArrangePages(pdfs[0]); return; }
-    Dialogs.openCombinePdf(pdfs, _currentFolder);
+    const files = Array.from(_selected).filter(p => /\.(pdf|jpe?g|png|bmp|gif|tiff?|webp)$/i.test(p));
+    if (!files.length) { App.toast('Select PDF or image files first (2+ to merge, 1 PDF to arrange its pages)', 'warning'); return; }
+    if (files.length === 1 && /\.pdf$/i.test(files[0])) { Dialogs.openArrangePages(files[0]); return; }
+    Dialogs.openCombinePdf(files, _currentFolder);
   }
 
   // ── Browse folder dialog ──────────────────────────────────────────────────
@@ -953,7 +954,7 @@ const FileTree = (() => {
   init();
 
   return {
-    loadFolder, refresh, revealPath, applySearch, setViewMode,
+    loadFolder, refresh, refreshAndSelect, revealPath, applySearch, setViewMode,
     copySelection, cutSelection, pasteSelection,
     newFolder, deleteSelection,
     combineSelected, browseFolder,

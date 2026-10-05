@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="rename-templates.css">
 <link rel="stylesheet" href="convert-tools.css">
+<link rel="stylesheet" href="pdf-tools.css">
 </head>
 <body>
 
@@ -220,7 +221,8 @@
           <div class="toolbar-sep"></div>
           <button class="toolbar-btn" id="pdf-del-page"   title="Delete current page">🗑</button>
           <button class="toolbar-btn" id="pdf-arrange"    title="Arrange / merge pages">⊞ Arrange</button>
-          <button class="toolbar-btn" id="pdf-split"      title="Split into pages">✂ Split</button>
+          <button class="toolbar-btn" id="pdf-split"      title="Split into several PDFs">✂ Split</button>
+          <button class="toolbar-btn" id="pdf-extract"    title="Extract this page (or a range) to a new PDF">⇱ Extract</button>
           <button class="toolbar-btn" id="pdf-compress"   title="Compress PDF">🗜 Compress</button>
         </div>
 
@@ -300,6 +302,18 @@
               <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon">🖼</span> PDF → Images…</button>
               <button class="qa-btn hidden"  id="qa-compress" title="Make a smaller copy"><span class="icon">🗜</span> Compress…</button>
               <button class="qa-btn danger"  id="qa-delete"><span class="icon">🗑</span> Move to Review</button>
+            </div>
+          </div>
+
+          <!-- PDF pages: merge / split / arrange / extract (js/pdf-tools.js) -->
+          <div class="detail-section hidden" id="pdf-tools-section">
+            <div class="detail-section-title">PDF Pages</div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <button class="qa-btn" id="qa-pdf-arrange"><span class="icon">⊞</span> Arrange Pages…</button>
+              <button class="qa-btn" id="qa-pdf-split"><span class="icon">✂</span> Split PDF…</button>
+              <button class="qa-btn" id="qa-pdf-extract"><span class="icon">⇱</span> Extract Pages…</button>
+              <button class="qa-btn" id="qa-pdf-merge"><span class="icon">📎</span> Merge with Other Files…</button>
+              <button class="qa-btn hidden" id="qa-pdf-merge-sel"><span class="icon">📎</span> Merge selected…</button>
             </div>
           </div>
 
@@ -395,6 +409,7 @@
 <script src="js/context-menu.js"></script>
 <script src="js/dialogs.js"></script>
 <script src="js/convert-tools.js"></script>
+<script src="js/pdf-tools.js"></script>
 <script src="js/panels.js"></script>
 
 </body>
