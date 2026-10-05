@@ -168,22 +168,18 @@ const ContextMenu = (() => {
 
     // Section: QR
     // QR from file (image / PDF) — primary path
-    const _qrExts = new Set(['.jpg','.jpeg','.png','.bmp','.webp','.gif',
+    const _qrExts = new Set(['.jpg','.jpeg','.jfif','.png','.bmp','.webp','.gif',
                               '.tiff','.tif','.pdf']);
-    const _qrExt  = (entry?.ext || '').toLowerCase();
-    if (!isDir && _qrExts.has(_qrExt)) {
-      _item(menu, '\u{1F4F7}', 'Scan QR from File', '', async () => {
+    const _qrPaths = entries.filter(e => !e.is_dir && _qrExts.has((e.ext || '').toLowerCase())).map(e => e.path);
+    if (!isDir && _qrPaths.length) {
+      _item(menu, '\u{1F4F7}', _qrPaths.length > 1 ? `Check QR Codes (${_qrPaths.length} files)` : 'Scan QR from File', '', () => {
         hide();
-        App.setStatus('Scanning QR…', true);
-        App.toast('Scanning for QR code…', 'info', 2000);
-        SFM.scanQrFromFile(mainPath);
+        QrScan.scanPaths(_qrPaths);
       });
+      _item(menu, '\u{1F4F7}', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
     } else {
       // Screen scan — open click-overlay
-      _item(menu, '\u{1F4F7}', 'Scan QR from Screen', '', () => {
-        hide();
-        Dialogs.openQrOverlay();
-      });
+      _item(menu, '\u{1F4F7}', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
     }
 
     // Section: copy path

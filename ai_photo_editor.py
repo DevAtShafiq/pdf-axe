@@ -30,8 +30,10 @@ from typing import Any, Callable
 
 import file_ops as fo
 
-_DEFAULT_AI_EDIT_USD_EST = 0.04
+_DEFAULT_AI_EDIT_USD_EST = 0.04   # legacy Tk hint only; the web UI uses estimate_cost_usd()
 _AI_EDIT_MODEL = "gpt-image-1"
+_REQUEST_TIMEOUT_S = 180.0        # one images.edit call; the SDK default is 10 minutes
+_MAX_SOURCE_PIXELS = 80_000_000   # refuse absurdly large inputs instead of eating RAM
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -45,57 +47,190 @@ _IDENTITY_PREFIX = (
 _ACTION_PROMPTS: dict[str, dict] = {
     "wear_suit": {
         "label": "Wear Suit & Tie",
+        # default prompt (legacy Tk frame); the web UI builds it via build_prompt()
         "prompt": (
-            "Replace the clothing on the person's body with a formal dark business suit and tie. "
+            _IDENTITY_PREFIX
+            + "Replace the clothing on the person's body with a formal dark business suit and tie. "
             "Keep the face, hair, and skin completely unchanged. "
             "Realistic fabric, natural lighting and shadows on the clothing."
         ),
         "mask_strategy": "body_only",   # protect face/head, edit body
         "background": "opaque",
         "quality": "high",
+        "suffix": "_suit",
     },
 }
+
+# Options shown in the UI for "Wear Suit & Tie" → prompt wording.
+SUIT_COLORS: dict[str, str] = {
+    "black": "black",
+    "navy": "dark navy blue",
+    "charcoal": "charcoal grey",
+    "grey": "medium grey",
+}
+QUALITIES = ("high", "medium")
+DEFAULT_OPTIONS = {"suit_color": "black", "tie": True, "quality": "high"}
+
+
+def normalize_options(opts: dict | None) -> dict:
+    """Clamp UI options to known values (unknown keys/values fall back to defaults)."""
+    o = dict(DEFAULT_OPTIONS)
+    opts = opts or {}
+    c = str(opts.get("suit_color") or "").strip().lower()
+    if c == "gray":
+        c = "grey"
+    if c in SUIT_COLORS:
+        o["suit_color"] = c
+    if "tie" in opts:
+        t = opts.get("tie")
+        o["tie"] = t if isinstance(t, bool) else str(t).strip().lower() not in ("0", "false", "no", "off", "")
+    q = str(opts.get("quality") or "").strip().lower()
+    if q in QUALITIES:
+        o["quality"] = q
+    return o
+
+
+def build_prompt(action: str, opts: dict | None = None) -> str:
+    """The images.edit prompt for *action* with the user's options applied."""
+    if action != "wear_suit":
+        return _ACTION_PROMPTS[action]["prompt"]
+    o = normalize_options(opts)
+    color = SUIT_COLORS[o["suit_color"]]
+    if o["tie"]:
+        neck = ("a crisp white dress shirt and a conservative solid-colour necktie "
+                "in a dark shade that matches the suit, neatly knotted at the collar")
+    else:
+        neck = "a crisp white dress shirt with the collar neatly open and NO necktie"
+    return (
+        _IDENTITY_PREFIX
+        + "Do not alter the hair, ears, neck skin, glasses, head position or head size. "
+        f"Dress the person in a well-fitted, formal {color} business suit (jacket with lapels) "
+        f"over {neck}. "
+        "Only the clothing below the neck changes. Keep the background, framing, lighting and "
+        "colour balance of the original photo; do not crop, zoom, rotate or reposition the person. "
+        "Photorealistic fabric with natural folds and shadows that match the original light. "
+        "No text, logos, badges, jewellery or accessories. Suitable for an official ID or passport photo."
+    )
+
+
+def output_suffix(action: str) -> str:
+    return _ACTION_PROMPTS.get(action, {}).get("suffix", "_ai")
+
+
+# ---------------------------------------------------------------------------
+# Cost: estimate before a run, and the session total of real runs
+# ---------------------------------------------------------------------------
+
+# gpt-image-1 output tokens per image (OpenAI pricing page) and $/token.
+_OUT_TOKENS = {
+    ("high", "1024x1024"): 4160, ("high", "1024x1536"): 6240, ("high", "1536x1024"): 6208,
+    ("medium", "1024x1024"): 1056, ("medium", "1024x1536"): 1584, ("medium", "1536x1024"): 1568,
+}
+_USD_TEXT_IN = 5.0 / 1_000_000
+_USD_IMAGE_IN = 10.0 / 1_000_000
+_USD_IMAGE_OUT = 40.0 / 1_000_000
+_EST_INPUT_USD = 0.04             # source image at high input fidelity + mask + prompt
+
+_COST_LOCK = threading.Lock()
+_SESSION_COST_USD = 0.0
+
+
+def edit_size_for(w: int, h: int) -> str:
+    """The images.edit output size closest to the photo's aspect ratio."""
+    r = (w / float(h)) if h else 1.0
+    if r < 0.83:
+        return "1024x1536"
+    if r > 1.2:
+        return "1536x1024"
+    return "1024x1024"
+
+
+def estimate_cost_usd(w: int = 0, h: int = 0, quality: str = "high") -> float:
+    """Rough USD for one Wear-Suit run (portrait assumed when the size is unknown)."""
+    size = edit_size_for(w, h) if (w and h) else "1024x1536"
+    q = quality if quality in QUALITIES else "high"
+    return round(_OUT_TOKENS[(q, size)] * _USD_IMAGE_OUT + _EST_INPUT_USD, 3)
+
+
+def _cost_from_usage(usage) -> float | None:
+    """Actual USD from an images.edit ``usage`` block (None when absent)."""
+    if usage is None:
+        return None
+
+    def g(o, k):
+        return o.get(k) if isinstance(o, dict) else getattr(o, k, None)
+    try:
+        out_t = int(g(usage, "output_tokens") or 0)
+        det = g(usage, "input_tokens_details")
+        if det is not None:
+            txt = int(g(det, "text_tokens") or 0)
+            img = int(g(det, "image_tokens") or 0)
+        else:
+            txt, img = 0, int(g(usage, "input_tokens") or 0)
+        if not (out_t or txt or img):
+            return None
+        return txt * _USD_TEXT_IN + img * _USD_IMAGE_IN + out_t * _USD_IMAGE_OUT
+    except Exception:
+        return None
+
+
+def _add_session_cost(usd: float) -> None:
+    global _SESSION_COST_USD
+    with _COST_LOCK:
+        _SESSION_COST_USD += max(0.0, float(usd or 0.0))
+
+
+def session_cost_usd() -> float:
+    with _COST_LOCK:
+        return _SESSION_COST_USD
+
+
+def reset_session_cost() -> None:
+    global _SESSION_COST_USD
+    with _COST_LOCK:
+        _SESSION_COST_USD = 0.0
 
 
 # ---------------------------------------------------------------------------
 # Mask generation
+#
+# OpenAI images.edit: FULLY TRANSPARENT mask pixels (alpha 0) mark the area to
+# EDIT; opaque pixels are kept. (The masks here used to be the other way round,
+# which asked the model to repaint the face and keep the clothes.)
 # ---------------------------------------------------------------------------
 
+_FACE_KEEP_END = 0.48      # top 48 % of the photo: opaque = protected (face/head)
+_BODY_EDIT_START = 0.62    # from 62 % down: transparent = clothing may be edited
+
+
 def _make_mask_full(w: int, h: int) -> "Image":
-    """All-white mask — entire image is editable."""
+    """Fully transparent mask — the entire image is editable."""
     from PIL import Image
-    return Image.new("RGBA", (w, h), (255, 255, 255, 255))
+    return Image.new("RGBA", (w, h), (0, 0, 0, 0))
 
 
 def _make_mask_body_only(w: int, h: int) -> "Image":
     """
-    Protect the face/head (top ~50% transparent = locked).
-    Allow editing the body/clothing area (bottom ~50% white = editable).
-    The transition is gradual to avoid a harsh seam.
+    Protect the face/head (top part opaque = kept) and let the model repaint
+    the body/clothing (bottom part transparent = edited), with a soft ramp in
+    between to avoid a seam at the collar.
     """
     from PIL import Image
-    import struct, zlib
-
-    mask = Image.new("RGBA", (w, h), (0, 0, 0, 0))  # start all transparent (protected)
-    pixels = mask.load()
-
-    # Face protection zone: top 0% → 45% of height = fully transparent (locked)
-    # Transition zone: 45% → 60% = gradient from transparent to white
-    # Editable zone: 60% → 100% = fully white (editable)
-    face_end = int(h * 0.45)
-    blend_end = int(h * 0.60)
-
+    keep_end = int(h * _FACE_KEEP_END)
+    edit_start = max(keep_end + 1, int(h * _BODY_EDIT_START))
+    col = Image.new("L", (1, h), 255)
+    px = col.load()
     for y in range(h):
-        if y <= face_end:
-            alpha = 0          # fully transparent = protected
-        elif y >= blend_end:
-            alpha = 255        # fully white = editable
+        if y <= keep_end:
+            a = 255
+        elif y >= edit_start:
+            a = 0
         else:
-            t = (y - face_end) / max(1, blend_end - face_end)
-            alpha = int(t * 255)
-        for x in range(w):
-            pixels[x, y] = (255, 255, 255, alpha)
-
+            a = int(round(255 * (1.0 - (y - keep_end) / float(edit_start - keep_end))))
+        px[0, y] = a
+    alpha = col.resize((w, h), Image.Resampling.NEAREST)
+    mask = Image.new("RGBA", (w, h), (0, 0, 0, 255))
+    mask.putalpha(alpha)
     return mask
 
 
@@ -234,21 +369,27 @@ def _openai_client():
         return None
 
 
-def _unique_ai_sidecar_path(original_path: str) -> str:
+def _unique_ai_sidecar_path(original_path: str, suffix: str = "_ai") -> str:
+    """``<stem><suffix><ext>`` next to *original_path*; ``-2``, ``-3`` ... when taken."""
     original_path = os.path.abspath(os.path.normpath(original_path))
     d, base = os.path.dirname(original_path), os.path.basename(original_path)
     stem, ext = os.path.splitext(base)
     if not ext:
         ext = ".png"
-    n = 0
+    n = 1
     while True:
-        suffix = "_ai" if n == 0 else f"_ai_{n + 1}"
-        cand = os.path.join(d, f"{stem}{suffix}{ext}")
+        tag = suffix if n == 1 else f"{suffix}-{n}"
+        cand = os.path.join(d, f"{stem}{tag}{ext}")
         if not os.path.exists(cand):
             return cand
         n += 1
         if n > 5000:
-            return os.path.join(d, f"{stem}_ai_{uuid.uuid4().hex[:8]}{ext}")
+            return os.path.join(d, f"{stem}{suffix}_{uuid.uuid4().hex[:8]}{ext}")
+
+
+def ai_output_path(path: str, action: str) -> str:
+    """Where *action* on *path* will be saved, e.g. ``photo_suit.jpg``."""
+    return _unique_ai_sidecar_path(path, output_suffix(action))
 
 
 UPLOAD_MAX_EDGE = 1024
@@ -259,18 +400,66 @@ def ai_photo_actions() -> list[dict]:
     return [{"key": k, "label": v["label"]} for k, v in _ACTION_PROMPTS.items()]
 
 
+def ai_photo_options() -> dict:
+    """Choices for the UI (suit colours, qualities, defaults)."""
+    return {
+        "suit_colors": [{"key": k, "label": k.capitalize() if k != "navy" else "Navy"}
+                        for k in SUIT_COLORS],
+        "qualities": list(QUALITIES),
+        "defaults": dict(DEFAULT_OPTIONS),
+        "model": _AI_EDIT_MODEL,
+    }
+
+
+def _prepare_upload(path: str):
+    """Open (EXIF-upright), flatten and downscale *path* for upload.
+
+    Returns (rgb_image_full, upload_png_bytes, (up_w, up_h)).
+    """
+    Image = _pil_image()
+    from PIL import ImageOps
+    with Image.open(path) as src:
+        if src.width * src.height > _MAX_SOURCE_PIXELS:
+            raise ValueError(f"Image is too large ({src.width}×{src.height}); "
+                             "please resize it below 80 megapixels first")
+        try:
+            im = ImageOps.exif_transpose(src)
+        except Exception:
+            im = src.copy()
+        im.load()
+    if im.mode in ("RGBA", "LA", "P"):
+        rgba = im.convert("RGBA")
+        bg = Image.new("RGB", rgba.size, (255, 255, 255))
+        bg.paste(rgba, mask=rgba.split()[3])
+        im = bg
+    elif im.mode != "RGB":
+        im = im.convert("RGB")
+    full = im
+    w, h = im.size
+    edge = max(w, h)
+    if edge > UPLOAD_MAX_EDGE:
+        scale = UPLOAD_MAX_EDGE / float(edge)
+        im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))),
+                       Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, format="PNG", compress_level=6)
+    return full, buf.getvalue(), im.size
+
+
 def run_ai_edit(
     path: str,
     action: str,
     out_path: str = "",
     api_key: str = "",
+    options: dict | None = None,
 ) -> tuple[bool, str]:
     """Run an OpenAI image edit on *path* and save the result as a NEW file.
 
     Headless (no Tk). Returns ``(True, out_path)`` on success or
     ``(False, error_message)`` on failure. The original file is never
     modified; when *out_path* is empty (or already exists) a unique
-    ``<stem>_ai<ext>`` sidecar path is chosen next to the original.
+    ``<stem>_suit<ext>`` sidecar path is chosen next to the original.
+    *options*: {suit_color: black|navy|charcoal|grey, tie: bool, quality: high|medium}.
     """
     Image = _pil_image()
     if not Image:
@@ -283,6 +472,7 @@ def run_ai_edit(
     ext = os.path.splitext(path)[1].lower()
     if ext not in fo.IMAGE_EXT:
         return False, f"Not a supported image format: {ext}"
+    opts = normalize_options(options)
 
     # ── API key ──────────────────────────────────────────────────────────
     merge_dotenv_into_environ()
@@ -298,45 +488,35 @@ def run_ai_edit(
     if not OpenAI:
         return False, "OpenAI SDK not installed (pip install openai)."
 
-    # ── Output path (never the original) ─────────────────────────────────
+    # ── Output path (never the original, never an existing file) ─────────
+    suffix = output_suffix(action)
     if out_path:
         out_path = os.path.abspath(os.path.normpath(out_path))
         if os.path.normcase(out_path) == os.path.normcase(path) or os.path.exists(out_path):
-            out_path = _unique_ai_sidecar_path(out_path)
+            out_path = _unique_ai_sidecar_path(out_path, "")
     else:
-        out_path = _unique_ai_sidecar_path(path)
+        out_path = _unique_ai_sidecar_path(path, suffix)
 
     info = _ACTION_PROMPTS[action]
     try:
-        with Image.open(path) as src:
-            orig_size = src.size
-            im = src.convert("RGBA")
-        w, h = im.size
-        edge = max(w, h)
-        if edge > UPLOAD_MAX_EDGE:
-            scale = UPLOAD_MAX_EDGE / float(edge)
-            im = im.resize(
-                (max(1, int(w * scale)), max(1, int(h * scale))),
-                Image.Resampling.LANCZOS,
-            )
-        up_w, up_h = im.size
-        img_buf = io.BytesIO()
-        im.save(img_buf, format="PNG", compress_level=6)
+        full_img, upload_png, (up_w, up_h) = _prepare_upload(path)
+        orig_size = full_img.size
     except Exception as e:
         return False, f"Could not read or resize the image: {e}"
 
-    mask_buf: io.BytesIO | None = None
+    mask_bytes: bytes | None = None
     mask_img = _build_mask_for_action(action, up_w, up_h)
     if mask_img is not None:
         try:
-            mask_buf = io.BytesIO()
-            mask_img.save(mask_buf, format="PNG")
+            mbuf = io.BytesIO()
+            mask_img.save(mbuf, format="PNG")
+            mask_bytes = mbuf.getvalue()
         except Exception:
-            mask_buf = None
+            mask_bytes = None
 
     # ── API call ─────────────────────────────────────────────────────────
     try:
-        client_kw: dict = {"api_key": key}
+        client_kw: dict = {"api_key": key, "timeout": _REQUEST_TIMEOUT_S, "max_retries": 1}
         for env, kw in (
             ("OPENAI_PROJECT_ID", "project"),
             ("OPENAI_ORG_ID", "organization"),
@@ -348,20 +528,35 @@ def run_ai_edit(
         client = OpenAI(**client_kw)
         call_kwargs: dict = dict(
             model=_AI_EDIT_MODEL,
-            prompt=info["prompt"],
+            prompt=build_prompt(action, opts),
             n=1,
-            size="auto",
-            quality=info.get("quality", "high"),
+            size=edit_size_for(up_w, up_h),
+            quality=opts.get("quality") or info.get("quality", "high"),
             background=info.get("background", "opaque"),
         )
-        image_file = ("upload.png", img_buf.getvalue(), "image/png")
-        if mask_buf is not None:
-            mask_file = ("mask.png", mask_buf.getvalue(), "image/png")
-            result = client.images.edit(image=image_file, mask=mask_file, **call_kwargs)
-        else:
-            result = client.images.edit(image=image_file, **call_kwargs)
+        image_file = ("upload.png", upload_png, "image/png")
+        if mask_bytes is not None:
+            call_kwargs["mask"] = ("mask.png", mask_bytes, "image/png")
+
+        def _edit(fidelity: bool):
+            kw = dict(call_kwargs)
+            if fidelity:
+                # keeps faces much closer to the source (sent as a raw body field so
+                # older SDKs that lack the keyword still work)
+                kw["extra_body"] = {"input_fidelity": "high"}
+            return client.images.edit(image=image_file, **kw)
+
+        try:
+            result = _edit(True)
+        except Exception as e:
+            if "input_fidelity" not in str(e):
+                raise
+            result = _edit(False)   # endpoint without input_fidelity support (400, not billed)
     except Exception as e:
-        return False, f"OpenAI request failed: {e}"
+        return False, f"OpenAI request failed: {_short_error(e)}"
+
+    cost = _cost_from_usage(getattr(result, "usage", None))
+    _add_session_cost(cost if cost is not None else estimate_cost_usd(up_w, up_h, opts["quality"]))
 
     data = getattr(result, "data", None) if result is not None else None
     if not data:
@@ -388,19 +583,39 @@ def run_ai_edit(
             result_img = result_img.resize(orig_size, Image.Resampling.LANCZOS)
         out_ext = os.path.splitext(out_path)[1].lower()
         fmt = {
-            ".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".bmp": "BMP",
+            ".jpg": "JPEG", ".jpeg": "JPEG", ".jfif": "JPEG", ".png": "PNG", ".bmp": "BMP",
             ".webp": "WEBP", ".tif": "TIFF", ".tiff": "TIFF", ".gif": "GIF",
         }.get(out_ext)
         if fmt is None:
             out_path = os.path.splitext(out_path)[0] + ".png"
             if os.path.exists(out_path):
-                out_path = _unique_ai_sidecar_path(out_path)
+                out_path = _unique_ai_sidecar_path(out_path, "")
             fmt = "PNG"
         save_kw: dict = {"quality": 95} if fmt in ("JPEG", "WEBP") else {}
         result_img.save(out_path, format=fmt, **save_kw)
     except Exception as e:
         return False, f"Could not process API result image: {e}"
     return True, out_path
+
+
+def _short_error(e: Exception) -> str:
+    """Readable one-line message for common OpenAI failures."""
+    msg = str(e) or e.__class__.__name__
+    name = e.__class__.__name__
+    low = msg.lower()
+    if name in ("APITimeoutError",) or "timed out" in low:
+        return "the request timed out — please try again"
+    if name == "AuthenticationError" or "invalid_api_key" in low or "incorrect api key" in low:
+        return "the API key was rejected — check it in Settings"
+    if name == "RateLimitError" or "insufficient_quota" in low:
+        return "rate limit or quota reached on your OpenAI account"
+    if name == "APIConnectionError":
+        return "could not reach OpenAI — check your internet connection"
+    if "must be verified" in low or "organization must be verified" in low:
+        return "your OpenAI organisation must be verified to use gpt-image-1"
+    if "safety" in low or "moderation" in low:
+        return "OpenAI's safety system rejected this image"
+    return msg[:400]
 
 
 # ---------------------------------------------------------------------------

@@ -395,20 +395,8 @@ const App = (() => {
       if (pdfs.length) { ConvertTools.openPdfToImages(ConvertTools.isPdf(p) ? p : pdfs[0]); return; }
       toast('Select image(s) to make a PDF, or a PDF to save its pages as images', 'warning', 4500);
     });
-    wire('btn-qr',    () => {
-      // If an image/PDF is selected, scan it directly
-      const selPath = state.focusedPath || state.selectedPaths[0];
-      const selExt  = (selPath || '').split('.').pop().toLowerCase();
-      const fileExts = new Set(['jpg','jpeg','png','bmp','webp','gif','tiff','tif','pdf']);
-      if (selPath && fileExts.has(selExt)) {
-        setStatus('Scanning QR from file…', true);
-        toast('Scanning QR from selected file…', 'info', 2000);
-        SFM.scanQrFromFile(selPath);
-      } else {
-        // No image/PDF selected — open click-overlay (screenshot + click on QR)
-        Dialogs.openQrOverlay();
-      }
-    });
+    // Selected images/PDFs → QR results dialog (qr.js); nothing selected → screen scan
+    wire('btn-qr',    () => QrScan.scanSelection());
     wire('btn-more',  () => Dialogs.openMoreMenu());
     wire('btn-theme', () => {
       const html = document.documentElement;
