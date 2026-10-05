@@ -40,6 +40,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import file_ops as _fo
+import media_convert as _mc
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -749,45 +750,26 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
-    def compress_pdf(self, path: str, out_path: str) -> dict:
+    def compress_pdf(self, path: str, out_path: str = "", preset: str = "ebook") -> dict:
+        """Compress a PDF (see media_convert.compress_pdf). Never overwrites;
+        when the result would not be smaller no file is written and
+        kept_original is True."""
         try:
-            _check(_fo.pdf_compress(path, out_path), "PDF compress failed")
-            before = os.path.getsize(path)
-            after  = os.path.getsize(out_path)
-            saved  = before - after
-            return _ok(out_path=out_path, before_bytes=before,
-                       after_bytes=after, saved_bytes=saved,
-                       saved_str=_fmt_size(max(0, saved)))
+            r = _mc.compress_pdf(path, preset or "ebook", out_path or "")
+            return _ok(**r, out_path=r["out"], before_bytes=r["before"],
+                       after_bytes=r["after"], saved_bytes=r["saved"],
+                       saved_str=_fmt_size(r["saved"]),
+                       before_str=_fmt_size(r["before"]),
+                       after_str=_fmt_size(r["after"]))
         except Exception as exc:
-            return _err(str(exc))
+            _log.error("compress_pdf failed: %s", exc)
+            return _err(str(exc), path=path)
 
     def compress_pdf_quality(self, path: str, quality: str = "ebook",
                              out_path: str = "") -> dict:
-        """Compress PDF using Ghostscript quality preset."""
-        try:
-            if not out_path:
-                base, ext = os.path.splitext(path)
-                out_path = base + "_compressed" + ext
-            # Try Ghostscript first; fall back to pymupdf deflate
-            import subprocess, shutil
-            gs = shutil.which("gswin64c") or shutil.which("gswin32c") or shutil.which("gs")
-            if gs:
-                cmd = [gs, "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.5",
-                       f"-dPDFSETTINGS=/{quality}", "-dNOPAUSE", "-dQUIET", "-dBATCH",
-                       f"-sOutputFile={out_path}", path]
-                subprocess.run(cmd, check=True, timeout=120)
-            else:
-                # pymupdf fallback
-                import fitz
-                doc = fitz.open(path)
-                doc.save(out_path, garbage=4, deflate=True, clean=True)
-                doc.close()
-            before = os.path.getsize(path)
-            after  = os.path.getsize(out_path)
-            reduction = max(0, round((before - after) / before * 100)) if before else 0
-            return _ok(out=out_path, before_bytes=before, after_bytes=after, reduction=reduction)
-        except Exception as exc:
-            return _err(str(exc))
+        """Compress a PDF with a preset: screen / ebook / printer / lossless
+        (aliases low/medium/high/prepress accepted)."""
+        return self.compress_pdf(path, out_path, quality)
 
     def rotate_pdf_page(self, path: str, page: int, degrees: int) -> dict:
         try:
@@ -850,57 +832,131 @@ class SFMBridge:
         except Exception as exc:
             return _err(str(exc))
 
-    def pdf_to_images(self, path: str, dpi: int = 150, fmt: str = "png") -> dict:
-        # The old call didn't match file_ops.pdf_to_images(src, out_dir, log, dpi)
-        # at all (TypeError every time) and that helper has no jpg support or
-        # file list return, so render directly here.
+    def pdf_to_images(self, path: str, dpi: int = 150, fmt: str = "png",
+                      pages: str = "", quality: int = 90) -> dict:
+        """Render PDF pages (all, or a range like "1-3,5") into a new
+        <name>_images folder. Never overwrites."""
         try:
-            fitz = _fo.get_fitz()
-            Image = _fo.get_pillow()
-            if not fitz or not Image:
-                return _err("PyMuPDF and Pillow are required")
-            fmt = (fmt or "png").lower().lstrip(".")
-            if fmt == "jpeg":
-                fmt = "jpg"
-            doc = fitz.open(path)
-            base = os.path.splitext(path)[0]
-            files = []
-            for i, page in enumerate(doc):
-                pix = page.get_pixmap(dpi=int(dpi))
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                outp, n = f"{base}_p{i + 1}.{fmt}", 2
-                while os.path.exists(outp):
-                    outp = f"{base}_p{i + 1}-{n}.{fmt}"
-                    n += 1
-                img.save(outp, quality=92)
-                files.append(outp)
-            doc.close()
-            return _ok(files=files)
+            r = _mc.pdf_to_images(path, fmt or "png", int(dpi or 150),
+                                  pages or "", "", int(quality or 90))
+            return _ok(**r)
         except Exception as exc:
             _log.error("pdf_to_images error: %s", exc, exc_info=True)
+            return _err(str(exc))
+
+    def pdf_to_images_async(self, path: str, opts: dict = None, job: str = "") -> dict:
+        """Like pdf_to_images, in a thread. Emits media_progress / media_done
+        events tagged with ``job``."""
+        o = dict(opts or {})
+
+        def _run():
+            try:
+                r = _mc.pdf_to_images(
+                    path, o.get("fmt") or "png", int(o.get("dpi") or 150),
+                    o.get("pages") or "", "", int(o.get("quality") or 90),
+                    progress=self._media_progress(job))
+                self._emit("media_done", _ok(job=job, **r))
+            except Exception as exc:
+                _log.error("pdf_to_images_async error: %s", exc)
+                self._emit("media_done", _err(str(exc), job=job))
+        self._thread(_run)
+        return _ok(started=True, job=job)
+
+    def _media_progress(self, job: str):
+        last = [0.0]
+
+        def _cb(done: int, total: int, label: str = "") -> None:
+            now = time.time()
+            if done < total and now - last[0] < 0.15:   # throttle UI updates
+                return
+            last[0] = now
+            self._emit("media_progress", {"job": job, "done": done,
+                                          "total": total, "label": label})
+        return _cb
+
+    def media_capabilities(self) -> dict:
+        """Formats / presets the conversion + compression tools support."""
+        try:
+            return _ok(**_mc.capabilities())
+        except Exception as exc:
             return _err(str(exc))
 
     @staticmethod
     def _require_image(path: str) -> None:
         """Convert-to-PDF is image -> PDF only (Office conversion was removed)."""
         ext = os.path.splitext(path or "")[1].lower()
-        if ext not in _fo.IMAGE_EXT:
+        if ext not in _mc.IMAGE_EXT:
             raise RuntimeError(
                 f"Only images can be converted to PDF (got '{ext or 'no extension'}')")
 
-    def convert_to_pdf(self, path: str, out_path: str = "") -> dict:
-        """Convert one image to PDF (beside the original, or to out_path)."""
+    @staticmethod
+    def _img_pdf_opts(opts) -> dict:
+        o = dict(opts or {})
+        return {
+            "page_size":   o.get("page_size") or "fit",
+            "orientation": o.get("orientation") or "auto",
+            "margin_mm":   float(o.get("margin_mm") or 0),
+            "quality":     int(o.get("quality") or 85),
+        }
+
+    def convert_to_pdf(self, path: str, out_path: str = "", opts: dict = None) -> dict:
+        """Convert one image to PDF beside the original (<name>.pdf, or
+        <name>-2.pdf … when taken). Never overwrites."""
         try:
             self._require_image(path)
-            if out_path:
-                _check(_fo.image_to_pdf([path], out_path, _noop_log), "Convert failed")
-                result = out_path
-            else:
-                result = _check(_fo.convert_file_to_pdf_replace(path, _noop_log),
-                                "Convert failed")
-            return _ok(out_path=str(result or path))
+            r = _mc.images_to_pdf([path], out_path or "", **self._img_pdf_opts(opts))
+            return _ok(out_path=r["out"], **r)
         except Exception as exc:
             return _err(str(exc))
+
+    def images_to_pdf(self, paths: list, out_path: str = "", opts: dict = None) -> dict:
+        """Several images (in the given order, or by name with
+        opts.order="name") → one PDF. Never overwrites."""
+        try:
+            o = dict(opts or {})
+            r = _mc.images_to_pdf(list(paths or []), out_path or "",
+                                  order=o.get("order") or "selection",
+                                  **self._img_pdf_opts(o))
+            return _ok(out_path=r["out"], **r)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def images_to_pdf_async(self, paths: list, opts: dict = None, job: str = "") -> dict:
+        """Threaded image → PDF. opts.mode = "combine" (one PDF, default) or
+        "separate" (one PDF per image). Emits media_progress / media_done."""
+        o = dict(opts or {})
+        paths = list(paths or [])
+
+        def _run():
+            try:
+                prog = self._media_progress(job)
+                if o.get("mode") == "separate":
+                    if o.get("order") == "name":
+                        paths.sort(key=_mc._natural_key)
+                    results = []
+                    for i, p in enumerate(paths):
+                        prog(i, len(paths), os.path.basename(p))
+                        results.append(self.convert_to_pdf(p, "", o))
+                        results[-1]["path"] = p
+                    prog(len(paths), len(paths), "Done")
+                    good = [r for r in results if r.get("ok")]
+                    self._emit("media_done", {
+                        "ok": bool(good), "job": job, "mode": "separate",
+                        "results": results,
+                        "files": [r["out"] for r in good],
+                        "error": "" if good else (results[0].get("error") if results else "Nothing to convert"),
+                    })
+                else:
+                    r = _mc.images_to_pdf(paths, o.get("out_path") or "",
+                                          order=o.get("order") or "selection",
+                                          progress=prog, **self._img_pdf_opts(o))
+                    self._emit("media_done", _ok(job=job, mode="combine",
+                                                 out_path=r["out"], **r))
+            except Exception as exc:
+                _log.error("images_to_pdf_async error: %s", exc)
+                self._emit("media_done", _err(str(exc), job=job))
+        self._thread(_run)
+        return _ok(started=True, job=job)
 
     def combine_files_to_pdf(self, paths: list, out_path: str) -> dict:
         try:
@@ -920,40 +976,50 @@ class SFMBridge:
     # ── Image compression / format conversion ─────────────────────────────
 
     def compress_image(self, path: str, quality: int = 70, max_edge: int = 0,
-                       fmt: str = "", out_path: str = "") -> dict:
+                       fmt: str = "", out_path: str = "", target_kb: int = 0) -> dict:
+        """Compress one image to <name>_compressed.<ext>. target_kb > 0 finds
+        the best quality under that size. If plain re-encoding would not make
+        it smaller, nothing is written and kept_original is True."""
         try:
-            ok, res = _fo.compress_image(path, int(quality or 70), int(max_edge or 0),
-                                         fmt or "", out_path or "")
-            if not ok:
-                return _err(res)
+            res = _mc.compress_image(path, int(quality or 70), int(max_edge or 0),
+                                     fmt or "", out_path or "",
+                                     int(target_kb or 0) * 1024)
             before, after = res["before"], res["after"]
             pct = round((before - after) * 100.0 / before, 1) if before else 0.0
-            return _ok(out=res["out"], before=before, after=after,
-                       saved=before - after, reduction=pct)
+            return _ok(**res, saved=before - after, reduction=pct, path=path)
         except Exception as exc:
-            return _err(str(exc))
+            return _err(str(exc), path=path)
 
     def compress_images(self, paths: list, quality: int = 70, max_edge: int = 0,
-                        fmt: str = "") -> dict:
+                        fmt: str = "", target_kb: int = 0) -> dict:
         try:
             if isinstance(paths, str):
                 paths = [paths]
-            r = _fo.compress_images(list(paths or []), int(quality or 70),
-                                    int(max_edge or 0), fmt or "")
-            before = r["before"]
-            pct = round(r["saved"] * 100.0 / before, 1) if before else 0.0
-            failed = sum(1 for x in r["results"] if not x.get("ok"))
-            return _ok(results=r["results"], before=before, after=r["after"],
-                       saved=r["saved"], reduction=pct, failed=failed)
+            results, before, after = [], 0, 0
+            for p in list(paths or []):
+                r = self.compress_image(p, quality, max_edge, fmt, "", target_kb)
+                if r.get("ok"):
+                    before += r["before"]
+                    after += r["after"]
+                results.append(r)
+            saved = before - after
+            pct = round(saved * 100.0 / before, 1) if before else 0.0
+            failed = sum(1 for x in results if not x.get("ok"))
+            kept = sum(1 for x in results if x.get("kept_original"))
+            return _ok(results=results, before=before, after=after,
+                       saved=saved, reduction=pct, failed=failed, kept=kept)
         except Exception as exc:
             return _err(str(exc))
 
-    def convert_image(self, path: str, fmt: str, out_path: str = "") -> dict:
+    def convert_image(self, path: str, fmt: str, out_path: str = "",
+                      quality: int = 92) -> dict:
+        """Convert an image to jpg/png/webp/bmp/tiff beside the original
+        (never overwrites; transparency → white for JPG/BMP)."""
         try:
-            ok, result = _fo.convert_image(path, fmt, out_path or "")
-            return _ok(out=result) if ok else _err(result)
+            r = _mc.convert_image(path, fmt, int(quality or 92), out_path or "")
+            return _ok(**r, path=path)
         except Exception as exc:
-            return _err(str(exc))
+            return _err(str(exc), path=path)
 
     def ocr_rename_with_progress(self, paths: list, api_key: str = "") -> dict:
         """Same as ocr_rename but emits ocr_rename_log + ocr_rename_done events."""
@@ -1020,10 +1086,10 @@ class SFMBridge:
         self._thread(_run)
         return _ok(started=True)
 
-    def compress_pdf_async(self, path: str, out_path: str) -> dict:
+    def compress_pdf_async(self, path: str, out_path: str = "", preset: str = "ebook") -> dict:
         def _run():
             try:
-                r = self.compress_pdf(path, out_path)
+                r = self.compress_pdf(path, out_path, preset)
                 self._emit("compress_done", r)
             except Exception as exc:
                 self._emit("compress_done", _err(str(exc)))
@@ -1034,15 +1100,12 @@ class SFMBridge:
         def _run():
             results = []
             for p in paths:
-                try:
-                    self._require_image(p)
-                    out = _check(_fo.convert_file_to_pdf_replace(p, _noop_log),
-                                 "Convert failed")
-                    results.append({"path": p, "ok": True, "out": str(out)})
-                except Exception as exc:
-                    results.append({"path": p, "ok": False, "error": str(exc)})
+                r = self.convert_to_pdf(p)
+                results.append({"path": p, "ok": r["ok"], "out": r.get("out_path", ""),
+                                "error": r.get("error", "")})
                 self._emit("convert_pdf_progress", {"results": results})
-            self._emit("convert_pdf_done", {"ok": True, "results": results})
+            self._emit("convert_pdf_done", {"ok": any(x["ok"] for x in results),
+                                            "results": results})
         self._thread(_run)
         return _ok(started=True)
 

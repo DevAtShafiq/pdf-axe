@@ -1,0 +1,696 @@
+"""
+media_convert.py — image <-> PDF conversion and PDF / image compression.
+
+Pure functions (no UI, no pywebview) used by sfm_bridge.SFMBridge:
+
+    images_to_pdf(paths, out_path, page_size, orientation, margin_mm, quality, order)
+    pdf_to_images(path, fmt, dpi, pages, out_dir, quality)
+    convert_image(path, fmt, quality, out_path)
+    compress_pdf(path, preset, out_path)
+    compress_image(path, quality, max_edge, fmt, out_path, target_bytes)
+
+Rules shared by every function here:
+  * The source file is never modified.
+  * An existing file is never overwritten: output names get "-2", "-3"... .
+  * Results are built in memory and only written when they are worth keeping
+    (a "compressed" file that came out bigger is never written), so nothing
+    has to be cleaned up afterwards.
+  * Failures raise ConvertError with a message meant for the user.
+
+Optional HEIC/HEIF support: used automatically when the ``pillow_heif``
+plugin is installed, otherwise HEIC files give a clear error.
+"""
+from __future__ import annotations
+
+import io
+import os
+import re
+from typing import Callable, Iterable
+
+import file_ops as _fo
+
+ProgressCb = Callable[[int, int, str], None]   # (done, total, label)
+
+
+class ConvertError(RuntimeError):
+    """User-facing conversion / compression failure."""
+
+
+# ── formats ──────────────────────────────────────────────────────────────────
+
+HEIC_EXT = {".heic", ".heif"}
+IMAGE_EXT = set(_fo.IMAGE_EXT) | HEIC_EXT
+
+# key -> (Pillow format, extension)
+IMG_FORMATS = {
+    "jpg": ("JPEG", ".jpg"), "jpeg": ("JPEG", ".jpg"),
+    "png": ("PNG", ".png"),
+    "webp": ("WEBP", ".webp"),
+    "bmp": ("BMP", ".bmp"),
+    "tif": ("TIFF", ".tiff"), "tiff": ("TIFF", ".tiff"),
+}
+PDF_IMAGE_FORMATS = ("png", "jpg", "webp")
+PDF_DPI_CHOICES = (72, 96, 150, 200, 300)
+
+# Points (1/72 in).  "fit" = page takes the image's own size.
+PAGE_SIZES = {
+    "fit": None,
+    "a4": (595.28, 841.89),
+    "letter": (612.0, 792.0),
+    "legal": (612.0, 1008.0),
+}
+
+# PDF compression presets.  dpi_threshold/dpi_target drive image
+# downsampling (images above the threshold are resampled to the target);
+# quality is the JPEG quality used when images are recompressed.
+PDF_PRESETS = {
+    "screen":   {"label": "Smallest (screen, 72 dpi)",  "dpi_threshold": 100, "dpi_target": 72,  "quality": 40},
+    "ebook":    {"label": "Balanced (ebook, 150 dpi)",  "dpi_threshold": 170, "dpi_target": 150, "quality": 60},
+    "printer":  {"label": "High quality (print, 300 dpi)", "dpi_threshold": 330, "dpi_target": 300, "quality": 80},
+    "lossless": {"label": "Lossless (clean-up only)",   "dpi_threshold": 0,   "dpi_target": 0,   "quality": 0},
+}
+_PRESET_ALIASES = {
+    "low": "screen", "small": "screen", "smallest": "screen",
+    "medium": "ebook", "balanced": "ebook", "default": "ebook",
+    "high": "printer", "print": "printer",
+    "prepress": "lossless", "max": "lossless", "maximum": "lossless",
+}
+
+
+def capabilities() -> dict:
+    """What this machine can do (reported to the UI)."""
+    return {
+        "heic": heic_available(),
+        "pdf": _fo.get_fitz() is not None,
+        "pillow": _fo.get_pillow() is not None,
+        "image_exts": sorted(IMAGE_EXT),
+        "pdf_presets": {k: v["label"] for k, v in PDF_PRESETS.items()},
+        "page_sizes": list(PAGE_SIZES),
+    }
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _pil():
+    Image = _fo.get_pillow()
+    if not Image:
+        raise ConvertError("Pillow is not installed")
+    return Image
+
+
+def _fitz():
+    fitz = _fo.get_fitz()
+    if not fitz:
+        raise ConvertError("PyMuPDF is not installed")
+    return fitz
+
+
+_heic_state: bool | None = None
+
+
+def heic_available() -> bool:
+    """Register the pillow_heif opener once; True when HEIC can be read."""
+    global _heic_state
+    if _heic_state is None:
+        try:
+            import pillow_heif  # type: ignore
+            pillow_heif.register_heif_opener()
+            _heic_state = True
+        except Exception:
+            _heic_state = False
+    return _heic_state
+
+
+def _ext(path: str) -> str:
+    return os.path.splitext(path or "")[1].lower()
+
+
+def is_image(path: str) -> bool:
+    return _ext(path) in IMAGE_EXT
+
+
+def unique_path(path: str) -> str:
+    """``path`` if free, else ``stem-2.ext``, ``stem-3.ext``..."""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    n = 2
+    while True:
+        cand = f"{base}-{n}{ext}"
+        if not os.path.exists(cand):
+            return cand
+        n += 1
+
+
+def unique_dir(path: str) -> str:
+    """``path`` if free, else ``path-2``, ``path-3``..."""
+    if not os.path.exists(path):
+        return path
+    n = 2
+    while os.path.exists(f"{path}-{n}"):
+        n += 1
+    return f"{path}-{n}"
+
+
+def _write_new(path: str, data: bytes) -> str:
+    """Write ``data`` to a path that does not exist yet (exclusive create)."""
+    path = unique_path(os.path.abspath(path))
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    while True:
+        try:
+            with open(path, "xb") as f:
+                f.write(data)
+            return path
+        except FileExistsError:          # lost a race — pick the next name
+            path = unique_path(path)
+
+
+def _natural_key(path: str):
+    name = os.path.basename(path).lower()
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", name)]
+
+
+def fmt_size(n: int) -> str:
+    n = float(n or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} GB"
+
+
+def _open_image(path: str):
+    """Open an image with a clear message for missing files / HEIC."""
+    Image = _pil()
+    if not os.path.isfile(path):
+        raise ConvertError(f"File not found: {os.path.basename(path)}")
+    ext = _ext(path)
+    if ext in HEIC_EXT and not heic_available():
+        raise ConvertError(
+            "HEIC/HEIF photos need the 'pillow-heif' plugin, which is not installed. "
+            "Convert the photo to JPG on the phone/PC first, or install pillow-heif.")
+    try:
+        return Image.open(path)
+    except Exception as exc:
+        raise ConvertError(f"Cannot read image {os.path.basename(path)}: {exc}") from exc
+
+
+def _flatten(img, bg=(255, 255, 255)):
+    """Any mode -> RGB (or L for plain grayscale), transparency composited on white."""
+    Image = _pil()
+    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        canvas = Image.new("RGB", rgba.size, bg)
+        canvas.paste(rgba, mask=rgba.split()[-1])
+        return canvas
+    if img.mode in ("RGB", "L"):
+        return img
+    if img.mode in ("1", "I;16", "I;16B", "I;16L", "I"):
+        return img.convert("L")
+    return img.convert("RGB")
+
+
+def _iter_frames(path: str):
+    """Yield (frame, dpi) for every frame/page of an image, EXIF-rotated."""
+    from PIL import ImageOps, ImageSequence
+    im = _open_image(path)
+    try:
+        dpi = im.info.get("dpi")
+        n = getattr(im, "n_frames", 1) or 1
+        frames = ImageSequence.Iterator(im) if n > 1 else [im]
+        for fr in frames:
+            out = ImageOps.exif_transpose(fr) if n == 1 else fr.copy()
+            out.load()
+            yield out, dpi
+    finally:
+        im.close()
+
+
+def _load_oriented(path: str):
+    """First frame, EXIF orientation applied. Returns (image, dpi)."""
+    from PIL import ImageOps
+    im = _open_image(path)
+    try:
+        dpi = im.info.get("dpi")
+        out = ImageOps.exif_transpose(im)
+        out.load()
+        if out is im:
+            out = im.copy()
+        return out, dpi
+    finally:
+        im.close()
+
+
+def _encode(img, pil_fmt: str, quality: int, dpi=None) -> bytes:
+    buf = io.BytesIO()
+    _fo._save_image_as(img, buf, pil_fmt, int(quality), dpi)
+    return buf.getvalue()
+
+
+def _sane_dpi(dpi) -> float:
+    try:
+        v = float(dpi[0] if isinstance(dpi, (tuple, list)) else dpi)
+        if 50 <= v <= 1200:
+            return v
+    except Exception:
+        pass
+    return 96.0
+
+
+# ── image(s) -> PDF ──────────────────────────────────────────────────────────
+
+def _frame_stream(img, quality: int, src_path: str, single_frame_untouched: bool):
+    """Bytes to embed in the PDF for one frame."""
+    # "Original" quality: embed an untouched JPEG as-is (no re-encode).
+    if (quality >= 100 and single_frame_untouched
+            and _ext(src_path) in (".jpg", ".jpeg", ".jfif")
+            and img.mode in ("RGB", "L")):
+        with open(src_path, "rb") as f:
+            return f.read()
+    flat = _flatten(img)
+    buf = io.BytesIO()
+    if quality >= 100:
+        flat.save(buf, format="PNG", optimize=False)
+    else:
+        flat.save(buf, format="JPEG", quality=max(10, min(95, int(quality))),
+                  optimize=True)
+    return buf.getvalue()
+
+
+def images_to_pdf(paths: Iterable[str], out_path: str = "", page_size: str = "fit",
+                  orientation: str = "auto", margin_mm: float = 0,
+                  quality: int = 85, order: str = "selection",
+                  progress: ProgressCb | None = None) -> dict:
+    """Combine images (all frames of multi-page TIFF/GIF) into one PDF.
+
+    page_size   : "fit" (page = image size), "a4", "letter", "legal".
+    orientation : "auto" (follows each image), "portrait", "landscape".
+    margin_mm   : white border around each image.
+    quality     : JPEG quality 10-95; 100 = original/lossless (no recompression).
+    order       : "selection" keeps the given order, "name" sorts naturally.
+    Returns {"out", "pages", "images", "skipped": [{"path","error"}], "size"}.
+    """
+    fitz = _fitz()
+    _pil()
+    paths = [p for p in (paths or []) if p]
+    if not paths:
+        raise ConvertError("No images selected")
+    if order == "name":
+        paths = sorted(paths, key=_natural_key)
+    key = (page_size or "fit").lower()
+    if key not in PAGE_SIZES:
+        raise ConvertError(f"Unknown page size: {page_size}")
+    margin = max(0.0, min(float(margin_mm or 0), 50.0)) * 72.0 / 25.4
+    quality = int(quality or 85)
+
+    if not out_path:
+        first = paths[0]
+        stem = os.path.splitext(os.path.basename(first))[0]
+        name = stem + (".pdf" if len(paths) == 1 else "_combined.pdf")
+        out_path = os.path.join(os.path.dirname(first), name)
+
+    doc = fitz.open()
+    skipped, used = [], 0
+    total = len(paths)
+    try:
+        for i, p in enumerate(paths):
+            if progress:
+                progress(i, total, os.path.basename(p))
+            if not is_image(p):
+                skipped.append({"path": p, "error": "Not an image"})
+                continue
+            try:
+                frames = list(_iter_frames(p))
+            except ConvertError as exc:
+                skipped.append({"path": p, "error": str(exc)})
+                continue
+            except Exception as exc:
+                skipped.append({"path": p, "error": f"Cannot read image: {exc}"})
+                continue
+            untouched = len(frames) == 1 and _exif_orientation(p) in (0, 1)
+            for img, dpi in frames:
+                w_px, h_px = img.size
+                if key == "fit":
+                    scale = 72.0 / _sane_dpi(dpi)
+                    pw, ph = w_px * scale + 2 * margin, h_px * scale + 2 * margin
+                else:
+                    pw, ph = PAGE_SIZES[key]
+                    landscape = (orientation == "landscape"
+                                 or (orientation == "auto" and w_px > h_px))
+                    if landscape:
+                        pw, ph = ph, pw
+                page = doc.new_page(width=pw, height=ph)
+                box_w, box_h = pw - 2 * margin, ph - 2 * margin
+                s = min(box_w / w_px, box_h / h_px)
+                iw, ih = w_px * s, h_px * s
+                x0, y0 = (pw - iw) / 2, (ph - ih) / 2
+                rect = fitz.Rect(x0, y0, x0 + iw, y0 + ih)
+                page.insert_image(rect, stream=_frame_stream(img, quality, p, untouched))
+            used += 1
+        if progress:
+            progress(total, total, "Saving PDF")
+        if used == 0:
+            reasons = "; ".join(f"{os.path.basename(s['path'])}: {s['error']}" for s in skipped[:3])
+            raise ConvertError("No image could be converted" + (f" — {reasons}" if reasons else ""))
+        data = doc.tobytes(garbage=3, deflate=True)
+        pages = doc.page_count
+    finally:
+        doc.close()
+    final = _write_new(out_path, data)
+    return {"out": final, "pages": pages, "images": used,
+            "skipped": skipped, "size": len(data)}
+
+
+def _exif_orientation(path: str) -> int:
+    try:
+        im = _open_image(path)
+        try:
+            return int(im.getexif().get(0x0112, 0) or 0)
+        finally:
+            im.close()
+    except Exception:
+        return 0
+
+
+def image_to_pdf_each(paths: Iterable[str], **opts) -> list:
+    """One PDF per image (beside each image). Returns per-file result dicts."""
+    out = []
+    for p in paths or []:
+        try:
+            stem = os.path.splitext(p)[0]
+            r = images_to_pdf([p], out_path=stem + ".pdf", **opts)
+            out.append({"path": p, "ok": True, **r})
+        except Exception as exc:
+            out.append({"path": p, "ok": False, "error": str(exc)})
+    return out
+
+
+# ── PDF -> images ────────────────────────────────────────────────────────────
+
+def parse_pages(spec: str, page_count: int) -> list[int]:
+    """'1-3,5' -> [0,1,2,4] (0-based). Empty / 'all' -> every page."""
+    spec = (spec or "").strip().lower()
+    if not spec or spec == "all":
+        return list(range(page_count))
+    ok, res = _fo.parse_pdf_page_range_input(spec, page_count)
+    if not ok:
+        raise ConvertError(str(res))
+    return list(res)
+
+
+def pdf_to_images(path: str, fmt: str = "png", dpi: int = 150, pages: str = "",
+                  out_dir: str = "", quality: int = 90,
+                  progress: ProgressCb | None = None) -> dict:
+    """Render PDF pages to image files in a new ``<name>_images`` folder.
+
+    Returns {"out_dir", "files", "pages"}.
+    """
+    fitz = _fitz()
+    Image = _pil()
+    if not os.path.isfile(path):
+        raise ConvertError(f"File not found: {os.path.basename(path)}")
+    key = (fmt or "png").lower().lstrip(".")
+    if key == "jpeg":
+        key = "jpg"
+    if key not in PDF_IMAGE_FORMATS:
+        raise ConvertError(f"Unsupported image format: {fmt}")
+    pil_fmt, ext = IMG_FORMATS[key]
+    dpi = int(dpi or 150)
+    if not 36 <= dpi <= 600:
+        raise ConvertError("DPI must be between 36 and 600")
+    try:
+        doc = fitz.open(path)
+    except Exception as exc:
+        raise ConvertError(f"Cannot open PDF: {exc}") from exc
+    try:
+        if doc.needs_pass:
+            raise ConvertError("This PDF is password-protected")
+        wanted = parse_pages(pages, doc.page_count)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        if not out_dir:
+            out_dir = unique_dir(os.path.join(os.path.dirname(os.path.abspath(path)),
+                                              stem + "_images"))
+        os.makedirs(out_dir, exist_ok=True)
+        width = max(2, len(str(doc.page_count)))
+        files = []
+        total = len(wanted)
+        for i, pno in enumerate(wanted):
+            if progress:
+                progress(i, total, f"Page {pno + 1}")
+            pix = doc[pno].get_pixmap(dpi=dpi, alpha=False)
+            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            data = _encode(img, pil_fmt, quality if pil_fmt != "PNG" else 95, (dpi, dpi))
+            name = f"{stem}_p{pno + 1:0{width}d}{ext}"
+            files.append(_write_new(os.path.join(out_dir, name), data))
+        if progress:
+            progress(total, total, "Done")
+        return {"out_dir": out_dir, "files": files, "pages": total}
+    finally:
+        doc.close()
+
+
+# ── image format conversion ──────────────────────────────────────────────────
+
+def convert_image(path: str, fmt: str, quality: int = 92, out_path: str = "") -> dict:
+    """Convert an image to jpg/png/webp/bmp/tiff beside the original.
+
+    Transparency is flattened onto white for formats without alpha.
+    Returns {"out", "before", "after"}.
+    """
+    key = (fmt or "").lower().lstrip(".")
+    if key not in IMG_FORMATS:
+        raise ConvertError(f"Unsupported format: {fmt}")
+    pil_fmt, ext = IMG_FORMATS[key]
+    img, dpi = _load_oriented(path)
+    if out_path:
+        if os.path.abspath(out_path) == os.path.abspath(path):
+            raise ConvertError("Refusing to overwrite the original image")
+    else:
+        out_path = os.path.splitext(path)[0] + ext
+    q = max(10, min(95, int(quality or 92)))
+    data = _encode(img, pil_fmt, q, dpi)
+    final = _write_new(out_path, data)
+    return {"out": final, "before": os.path.getsize(path), "after": len(data)}
+
+
+# ── image compression ────────────────────────────────────────────────────────
+
+def _fit_to_target(img, pil_fmt: str, target: int, dpi):
+    """Find the best (largest) encoding of ``img`` that fits in ``target`` bytes.
+
+    Binary-searches the quality (95 -> 10); if even quality 10 is too big the
+    image is scaled down by 15% steps.  Returns (bytes, quality, size, met).
+    """
+    Image = _pil()
+    cur = img
+    smallest = None
+    for _ in range(12):
+        lo, hi, best = 10, 95, None
+        while lo <= hi:
+            q = (lo + hi) // 2
+            data = _encode(cur, pil_fmt, q, dpi)
+            if len(data) <= target:
+                best = (data, q)
+                lo = q + 1
+            else:
+                hi = q - 1
+                if smallest is None or len(data) < len(smallest[0]):
+                    smallest = (data, q, cur.size)
+        if best:
+            return best[0], best[1], cur.size, True
+        if min(cur.size) <= 160:
+            break
+        w, h = cur.size
+        cur = cur.resize((max(1, int(w * 0.85)), max(1, int(h * 0.85))), Image.LANCZOS)
+    data, q, size = smallest
+    return data, q, size, False
+
+
+def _pick_output(path: str, fmt: str, target: bool):
+    """Return (pil_fmt, ext, note) for compress_image."""
+    src_ext = _ext(path)
+    src_key = src_ext.lstrip(".")
+    key = (fmt or "").lower().lstrip(".")
+    note = ""
+    if key:
+        if key not in ("jpg", "jpeg", "webp", "png"):
+            raise ConvertError(f"Unsupported output format: {fmt}")
+        pil_fmt, ext = IMG_FORMATS[key]
+        if src_key in ("jpg", "jpeg") and pil_fmt == "JPEG":
+            ext = src_ext
+    elif src_key in ("jpg", "jpeg", "png", "webp"):
+        pil_fmt, ext = IMG_FORMATS[src_key][0], src_ext
+    else:
+        pil_fmt, ext = "JPEG", ".jpg"   # BMP/TIFF/GIF/HEIC compress best as JPEG
+    if target and pil_fmt == "PNG":
+        pil_fmt, ext = "JPEG", ".jpg"
+        note = "PNG has no quality setting, so a target size saves as JPG"
+    return pil_fmt, ext, note
+
+
+def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "",
+                   out_path: str = "", target_bytes: int = 0) -> dict:
+    """Re-encode an image smaller; the original is never touched.
+
+    target_bytes > 0 searches for the best quality that fits under that size
+    (shrinking the image if needed) and ignores ``quality``.
+    When nothing changes but the encoding and the result is not smaller,
+    no file is written and ``kept_original`` is True.
+    Returns {"out", "before", "after", "quality", "size", "kept_original",
+             "target_met", "note"}.
+    """
+    Image = _pil()
+    if not os.path.isfile(path):
+        raise ConvertError(f"File not found: {os.path.basename(path)}")
+    target = max(0, int(target_bytes or 0))
+    quality = max(1, min(95, int(quality or 70)))
+    max_edge = max(0, int(max_edge or 0))
+    pil_fmt, ext, note = _pick_output(path, fmt, bool(target))
+    before = os.path.getsize(path)
+
+    if out_path and os.path.abspath(out_path) == os.path.abspath(path):
+        raise ConvertError("Refusing to overwrite the original image")
+
+    img, dpi = _load_oriented(path)
+    orig_size = img.size
+    if max_edge and max(img.size) > max_edge:
+        img.thumbnail((max_edge, max_edge), Image.LANCZOS)
+
+    target_met = None
+    if target:
+        data, quality, _, target_met = _fit_to_target(img, pil_fmt, target, dpi)
+        if not target_met:
+            msg = f"Could not get under {fmt_size(target)}; saved the smallest version"
+            note = f"{note}. {msg}" if note else msg
+    else:
+        data = _encode(img, pil_fmt, quality, dpi)
+
+    same_kind = ext.lower() == _ext(path) or (
+        pil_fmt == "JPEG" and _ext(path) in (".jpg", ".jpeg"))
+    resized = img.size != orig_size
+    if not target and same_kind and not resized and len(data) >= before:
+        return {"out": "", "before": before, "after": before, "quality": quality,
+                "size": list(orig_size), "kept_original": True, "target_met": None,
+                "note": "Already well compressed — the original was kept"}
+
+    if not out_path:
+        out_path = os.path.splitext(path)[0] + "_compressed" + ext
+    final = _write_new(out_path, data)
+    with Image.open(io.BytesIO(data)) as chk:
+        size = list(chk.size)
+    return {"out": final, "before": before, "after": len(data), "quality": quality,
+            "size": size, "kept_original": False, "target_met": target_met,
+            "note": note}
+
+
+# ── PDF compression ──────────────────────────────────────────────────────────
+
+def resolve_preset(preset: str) -> str:
+    key = (preset or "ebook").lower().strip()
+    key = _PRESET_ALIASES.get(key, key)
+    if key not in PDF_PRESETS:
+        raise ConvertError(f"Unknown compression preset: {preset}")
+    return key
+
+
+def _rewrite_images_fallback(doc, threshold: int, target: int, quality: int) -> None:
+    """Manual image downsampling for PyMuPDF versions without rewrite_images."""
+    fitz = _fitz()
+    Image = _pil()
+    done = set()
+    for page in doc:
+        for info in page.get_images(full=True):
+            xref, smask = info[0], info[1]
+            if xref in done or smask:
+                continue
+            done.add(xref)
+            try:
+                rects = page.get_image_rects(xref)
+                if not rects:
+                    continue
+                pix = fitz.Pixmap(doc, xref)
+                if pix.n - pix.alpha >= 4:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                rw = max(r.width for r in rects) / 72.0
+                if rw <= 0:
+                    continue
+                eff_dpi = pix.width / rw
+                mode = "L" if pix.n - pix.alpha == 1 else "RGB"
+                if pix.alpha:
+                    pix = fitz.Pixmap(pix, 0)
+                img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+                if eff_dpi > threshold:
+                    s = target / eff_dpi
+                    img = img.resize((max(1, int(img.width * s)), max(1, int(img.height * s))),
+                                     Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=quality, optimize=True)
+                page.replace_image(xref, stream=buf.getvalue())
+            except Exception:
+                continue
+
+
+def compress_pdf(path: str, preset: str = "ebook", out_path: str = "") -> dict:
+    """Shrink a PDF with PyMuPDF: downsample + recompress images, subset fonts,
+    drop unused objects and deflate streams.  Text stays text.
+
+    The result is written to ``<name>_compressed.pdf`` only when it is at
+    least 1% smaller than the original; otherwise ``kept_original`` is True
+    and no file is written.
+    Returns {"out", "before", "after", "saved", "reduction", "kept_original",
+    "preset", "note"}.
+    """
+    fitz = _fitz()
+    key = resolve_preset(preset)
+    cfg = PDF_PRESETS[key]
+    if not os.path.isfile(path):
+        raise ConvertError(f"File not found: {os.path.basename(path)}")
+    before = os.path.getsize(path)
+    try:
+        doc = fitz.open(path)
+    except Exception as exc:
+        raise ConvertError(f"Cannot open PDF: {exc}") from exc
+    try:
+        if doc.needs_pass:
+            raise ConvertError("This PDF is password-protected")
+        if not doc.is_pdf:
+            raise ConvertError("Not a PDF file")
+        if cfg["quality"]:
+            if hasattr(doc, "rewrite_images"):
+                doc.rewrite_images(dpi_threshold=cfg["dpi_threshold"],
+                                   dpi_target=cfg["dpi_target"],
+                                   quality=cfg["quality"], bitonal=False)
+            else:
+                _rewrite_images_fallback(doc, cfg["dpi_threshold"],
+                                         cfg["dpi_target"], cfg["quality"])
+        try:
+            doc.subset_fonts()
+        except Exception:
+            pass
+        save_kw = dict(garbage=4, deflate=True, deflate_images=True,
+                       deflate_fonts=True, clean=True)
+        try:
+            data = doc.tobytes(use_objstms=1, **save_kw)
+        except TypeError:
+            data = doc.tobytes(**save_kw)
+    finally:
+        doc.close()
+
+    after = len(data)
+    if after >= before * 0.99:
+        reason = ("The compressed copy came out larger"
+                  if after >= before else "Less than 1% smaller")
+        return {"out": "", "before": before, "after": before, "saved": 0,
+                "reduction": 0.0, "kept_original": True, "preset": key,
+                "note": reason + " — the original was kept (no new file)"}
+    if not out_path:
+        out_path = os.path.splitext(path)[0] + "_compressed.pdf"
+    if os.path.abspath(out_path) == os.path.abspath(path):
+        raise ConvertError("Refusing to overwrite the original PDF")
+    final = _write_new(out_path, data)
+    saved = before - after
+    return {"out": final, "before": before, "after": after, "saved": saved,
+            "reduction": round(saved * 100.0 / before, 1) if before else 0.0,
+            "kept_original": False, "preset": key, "note": ""}

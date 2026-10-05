@@ -46,6 +46,7 @@ datas = [
     ("student_folder_maker.py","."),   # lazily imported for rename templates
     ("excel_grid.py",          "."),   # imported by student_folder_maker
     ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
+    ("media_convert.py",       "."),   # image<->PDF conversion + PDF/image compression
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -62,6 +63,7 @@ hiddenimports = [
     "sfm_bridge",
     "main_webview",
     "cloud_client",
+    "media_convert",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
