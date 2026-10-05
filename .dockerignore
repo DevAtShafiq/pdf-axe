@@ -1,0 +1,8 @@
+# Docker build context is the repo root (see server/Dockerfile); only the
+# server package is needed, so keep everything else out of the context.
+*
+!server/
+server/.env
+server/data/
+server/tests/
+**/__pycache__

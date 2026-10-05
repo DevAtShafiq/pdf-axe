@@ -3,6 +3,9 @@
 # StudentFolderMaker v2 — PyWebView build (onedir)
 # Entry point : main_webview.py  (PyWebView + SFMBridge)
 # UI assets   : ui/ folder (HTML / CSS / JS) — bundled via glob below
+#               (includes ui/js/account.js for the sign-in / subscription screen)
+# Cloud       : cloud_client.py talks to the account server in server/
+#               (the server itself is deployed separately — see server/README.md)
 #
 # Run once to test without building:
 #   python main_webview.py
@@ -44,6 +47,7 @@ datas = [
     ("qr_screen_capture.py",   "."),
     ("student_folder_maker.py","."),   # lazily imported for rename templates
     ("excel_grid.py",          "."),   # imported by student_folder_maker
+    ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -61,6 +65,7 @@ hiddenimports = [
     "student_folder_maker",
     "sfm_bridge",
     "main_webview",
+    "cloud_client",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
@@ -87,7 +92,10 @@ hiddenimports = [
     # ── ZIP / network ────────────────────────────────────────────────────────
     "zipfile",
     "urllib.request",
+    "urllib.parse",
+    "urllib.error",
     "http.client",
+    "mimetypes",
     "ssl",
     # ── Screen / QR ─────────────────────────────────────────────────────────
     "mss",
