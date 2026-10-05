@@ -1,0 +1,132 @@
+"""
+billing.py — Monthly subscription billing.
+
+The server talks to the payment gateway only through BillingProvider, so a
+different gateway (Paddle, PayPal, Toss…) can be added as another subclass
+without touching the API routes.
+
+StripeProvider uses Stripe Checkout (subscription mode) for sign-up, the
+Stripe customer portal for cancel / card changes, and webhooks to keep the
+local subscription status in sync.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .config import Settings
+
+# Subscription states that unlock paid features
+ACTIVE_STATUSES = {"active", "trialing"}
+
+
+@dataclass
+class SubscriptionUpdate:
+    """A normalised subscription change parsed from a webhook."""
+    customer_id: str
+    subscription_id: str
+    status: str
+    current_period_end: float
+    user_id: int | None = None  # set when the event carries our own user id
+
+
+class BillingError(Exception):
+    pass
+
+
+class BillingProvider:
+    name = "none"
+
+    def create_checkout(self, user_id: int, email: str, customer_id: str | None) -> tuple[str, str]:
+        """Return (checkout_url, customer_id)."""
+        raise BillingError("Billing is not configured on this server")
+
+    def create_portal(self, customer_id: str) -> str:
+        raise BillingError("Billing is not configured on this server")
+
+    def parse_webhook(self, payload: bytes, signature: str) -> SubscriptionUpdate | None:
+        raise BillingError("Billing is not configured on this server")
+
+
+class StripeProvider(BillingProvider):
+    name = "stripe"
+
+    def __init__(self, settings: Settings):
+        import stripe  # imported lazily so the server runs without it when billing is off
+        self._stripe = stripe
+        self._s = settings
+        stripe.api_key = settings.stripe_secret_key
+
+    def create_checkout(self, user_id, email, customer_id):
+        stripe = self._stripe
+        if not customer_id:
+            cust = stripe.Customer.create(email=email, metadata={"user_id": str(user_id)})
+            customer_id = cust["id"]
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            customer=customer_id,
+            client_reference_id=str(user_id),
+            line_items=[{"price": self._s.stripe_price_id, "quantity": 1}],
+            subscription_data={"metadata": {"user_id": str(user_id)}},
+            success_url=f"{self._s.public_url}/billing/success",
+            cancel_url=f"{self._s.public_url}/billing/cancel",
+        )
+        return session["url"], customer_id
+
+    def create_portal(self, customer_id):
+        portal = self._stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=f"{self._s.public_url}/billing/success",
+        )
+        return portal["url"]
+
+    def parse_webhook(self, payload, signature):
+        stripe = self._stripe
+        if not self._s.stripe_webhook_secret:
+            raise BillingError("STRIPE_WEBHOOK_SECRET is not set")
+        try:
+            event = stripe.Webhook.construct_event(payload, signature, self._s.stripe_webhook_secret)
+        except Exception as exc:  # bad signature or malformed payload
+            raise BillingError(f"Invalid webhook: {exc}") from exc
+
+        etype = event["type"]
+        obj = _plain(event["data"]["object"])
+        if etype == "checkout.session.completed":
+            sub_id = obj.get("subscription")
+            if not sub_id:
+                return None
+            sub = _plain(stripe.Subscription.retrieve(sub_id))
+            return _from_subscription(sub, obj.get("client_reference_id"))
+        if etype in ("customer.subscription.created",
+                     "customer.subscription.updated",
+                     "customer.subscription.deleted"):
+            return _from_subscription(obj, None)
+        return None
+
+
+def _plain(obj) -> dict:
+    """Newer stripe-python objects are not dicts; convert them to plain dicts."""
+    return obj.to_dict() if hasattr(obj, "to_dict") else dict(obj)
+
+
+def _from_subscription(sub, ref_user_id) -> SubscriptionUpdate:
+    meta = sub.get("metadata") or {}
+    uid = ref_user_id or meta.get("user_id")
+    # current_period_end moved onto subscription items in newer API versions
+    period_end = sub.get("current_period_end")
+    if not period_end:
+        items = (sub.get("items") or {}).get("data") or []
+        if items:
+            period_end = items[0].get("current_period_end")
+    return SubscriptionUpdate(
+        customer_id=sub.get("customer") or "",
+        subscription_id=sub.get("id") or "",
+        status=sub.get("status") or "none",
+        current_period_end=float(period_end or 0),
+        user_id=int(uid) if uid and str(uid).isdigit() else None,
+    )
+
+
+def make_provider(settings: Settings) -> BillingProvider:
+    if settings.billing_configured:
+        return StripeProvider(settings)
+    return BillingProvider()

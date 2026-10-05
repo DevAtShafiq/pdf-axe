@@ -1393,3 +1393,184 @@ body.resizing-v { cursor: row-resize; }
 .thumb-icon .file-icon-img {
   image-rendering: auto;  /* let browser smooth-scale when large */
 }
+
+/* ============================================================
+   ACCOUNT / CLOUD — sign-in overlay, Account + Cloud panels,
+   status-bar chip (ui/js/account.js)
+   ============================================================ */
+
+/* ── Sign-in overlay ─────────────────────────────────────── */
+.acct-overlay {
+  position: fixed; inset: 0;
+  z-index: 9500;               /* above dialogs, below toasts */
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-app);
+  overflow: auto;
+  padding: 24px;
+}
+.acct-card {
+  width: 380px; max-width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 28px 28px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+  color: var(--text-primary);
+}
+.acct-brand {
+  width: 44px; height: 44px; border-radius: 12px;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 700;
+  align-self: center;
+}
+.acct-title { font-size: 18px; font-weight: 600; text-align: center; margin: 4px 0 0; }
+.acct-sub   { font-size: 12px; color: var(--text-muted); text-align: center; margin: 0 0 6px; }
+.acct-tabs {
+  display: flex; gap: 4px; padding: 3px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.acct-tab {
+  flex: 1; padding: 6px 8px;
+  background: transparent; border: none; border-radius: var(--radius-sm);
+  color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer;
+}
+.acct-tab:hover  { background: var(--bg-hover); color: var(--text-primary); }
+.acct-tab.active { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm); font-weight: 600; }
+.acct-form { display: flex; flex-direction: column; gap: 6px; }
+.acct-form .detail-label { margin-top: 4px; }
+.acct-submit { margin-top: 10px; padding: 8px; justify-content: center; }
+.acct-error {
+  color: var(--red); background: var(--red-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px; font-size: 12px; margin-top: 4px;
+}
+.acct-offline {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; color: var(--yellow);
+  background: var(--yellow-subtle); border-radius: var(--radius-sm); padding: 4px 8px;
+}
+.acct-server { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.acct-server summary { cursor: pointer; user-select: none; padding: 4px 0; }
+.acct-server[open] summary { margin-bottom: 6px; }
+.acct-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.acct-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.acct-row .input-text { flex: 1; min-width: 0; }
+
+/* ── Panels ──────────────────────────────────────────────── */
+.acct-panel { flex: 1; overflow: auto; }
+.acct-panel-inner {
+  width: 100%; max-width: 720px;
+  padding: 32px 40px;
+  display: flex; flex-direction: column; gap: 14px;
+  color: var(--text-primary);
+}
+.cloud-panel-inner { max-width: 1000px; }
+.acct-h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.acct-muted { font-size: 12px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+.acct-steps { font-size: 12px; color: var(--text-secondary); margin: 0 0 0 18px; line-height: 1.7; }
+.acct-steps code, .acct-muted code {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--bg-surface-2); padding: 1px 5px; border-radius: var(--radius-sm);
+}
+.acct-section {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.acct-card-flat {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 6px 16px;
+}
+.acct-kv {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  padding: 9px 0; font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.acct-kv:last-child { border-bottom: none; }
+.acct-kv > span:first-child { color: var(--text-muted); }
+.acct-badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600;
+}
+.acct-badge.on  { background: var(--green-subtle);  color: var(--green); }
+.acct-badge.off { background: var(--yellow-subtle); color: var(--yellow); }
+.acct-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── Cloud panel ─────────────────────────────────────────── */
+.cloud-head { display: flex; align-items: center; gap: 12px; }
+.cloud-live-wrap {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 400; color: var(--text-muted); margin-left: 8px;
+}
+.cloud-live {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-disabled);
+}
+.cloud-live.on { background: var(--green); box-shadow: 0 0 0 3px var(--green-subtle); animation: pulse 2s infinite; }
+.cloud-usage-bar {
+  height: 8px; border-radius: 999px; overflow: hidden;
+  background: var(--bg-surface-2); border: 1px solid var(--border);
+}
+.cloud-usage-fill { height: 100%; background: var(--accent); transition: width var(--transition-slow); }
+.cloud-usage-fill.full { background: var(--red); }
+.cloud-toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cloud-remote { width: 180px !important; flex: 0 0 auto; }
+.cloud-seg {
+  display: inline-flex; padding: 2px; gap: 2px;
+  background: var(--bg-surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.cloud-seg-btn {
+  padding: 4px 12px; border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer;
+}
+.cloud-seg-btn.active { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.cloud-list {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--bg-surface); overflow: hidden;
+}
+.cloud-rows { max-height: 44vh; overflow: auto; }
+.cloud-row {
+  display: grid; grid-template-columns: 22px 1fr 80px 170px; gap: 10px; align-items: center;
+  padding: 6px 12px; font-size: 12.5px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.cloud-row:last-child { border-bottom: none; }
+.cloud-row:hover { background: var(--bg-hover); }
+.cloud-row.sel   { background: var(--bg-selected); }
+.cloud-row-head {
+  cursor: default; font-size: 11px; color: var(--text-muted); font-weight: 600;
+  background: var(--bg-surface-2);
+}
+.cloud-row-head:hover { background: var(--bg-surface-2); }
+.cloud-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-size, .cloud-date { color: var(--text-muted); white-space: nowrap; }
+.cloud-size { text-align: right; }
+.cloud-empty { padding: 28px 16px; text-align: center; font-size: 12px; color: var(--text-muted); }
+.cloud-empty.acct-error { margin: 12px; }
+.cloud-cta {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  padding: 40px 24px;
+  background: var(--bg-surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
+}
+.cloud-cta h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.cloud-cta p { margin: 0; font-size: 12.5px; max-width: 440px; }
+.cloud-cta-icon { font-size: 34px; }
+.cloud-sync-log {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  background: var(--bg-app); border-radius: var(--radius); padding: 8px 10px;
+  max-height: 140px; overflow: auto; white-space: pre-wrap; margin: 4px 0 0;
+}
+
+/* ── Status-bar account chip ─────────────────────────────── */
+.acct-chip { cursor: pointer; border-radius: var(--radius-sm); padding: 0 6px; }
+.acct-chip:hover { background: var(--bg-hover); color: var(--text-primary); }
+.acct-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
+.acct-chip-dot.on   { background: var(--green); }
+.acct-chip-dot.warn { background: var(--yellow); }
+.acct-chip-dot.off  { background: var(--text-disabled); }

@@ -31,9 +31,11 @@ const App = (() => {
     state.currentPanel = name;
     document.querySelectorAll('.panel-view').forEach(el => {
       el.style.display = 'none';
+      el.classList.add('hidden');
     });
     const target = document.getElementById(`panel-${name}`);
-    if (target) target.style.display = 'flex';
+    // .hidden is display:none !important, so it must come off as well
+    if (target) { target.classList.remove('hidden'); target.style.display = 'flex'; }
 
     document.querySelectorAll('.sidebar-btn[data-panel]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.panel === name);
@@ -405,7 +407,14 @@ const App = (() => {
     });
     wire('btn-compress-pdf', () => {
       const p = state.focusedPath || state.selectedPaths[0];
-      if (!p) { toast('Select a PDF first', 'warning'); return; }
+      if (!p) { toast('Select a PDF or image first', 'warning'); return; }
+      // Images selected → image compression; otherwise the original PDF flow.
+      const isImgPath = s => /\.(jpe?g|png|bmp|webp|gif|tiff?)$/i.test(s || '');
+      const sel = (state.selectedPaths || []).filter(isImgPath);
+      if (isImgPath(p)) {
+        Dialogs.openCompressImages(sel.length ? sel : [p]);
+        return;
+      }
       Dialogs.openCompressPdf(p);
     });
     wire('btn-zip',   () => FileTree.zipSelection());

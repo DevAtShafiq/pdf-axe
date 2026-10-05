@@ -41,6 +41,14 @@
 
     <div class="sidebar-bottom">
       <div class="sidebar-divider"></div>
+      <button class="sidebar-btn" data-panel="cloud" title="">
+        ☁️
+        <span class="tooltip-label">Cloud</span>
+      </button>
+      <button class="sidebar-btn" data-panel="account" title="">
+        👤
+        <span class="tooltip-label">Account</span>
+      </button>
       <button class="sidebar-btn" data-panel="settings" title="">
         ⚙️
         <span class="tooltip-label">Settings</span>
@@ -81,7 +89,7 @@
       <button class="toolbar-btn" id="btn-smart-split" title="Smart Split, Merge & Rename (GPT-4o)">
         <span class="icon">✂️</span> Smart Split
       </button>
-      <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDF">
+      <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDF or image(s)">
         <span class="icon">🗜</span> Compress
       </button>
     </div>
@@ -326,10 +334,13 @@
           <div class="detail-section hidden" id="ai-photo-section">
             <div class="detail-section-title">AI Photo Edit</div>
             <div style="display:flex;flex-direction:column;gap:4px">
-              <button class="qa-btn" id="ai-remove-bg"><span class="icon">✂️</span> Remove Background</button>
-              <button class="qa-btn" id="ai-enhance"><span class="icon">✨</span> Enhance Photo</button>
-              <button class="qa-btn" id="ai-upscale"><span class="icon">🔍</span> Upscale</button>
-              <button class="qa-btn" id="ai-to-bw"><span class="icon">🖤</span> Black &amp; White</button>
+              <button class="qa-btn primary" id="ai-wear-suit" data-ai-action="wear_suit"><span class="icon">👔</span> Wear Suit &amp; Tie</button>
+              <button class="qa-btn" id="ai-white-bg" data-ai-action="white_background"><span class="icon">⬜</span> White Background</button>
+              <button class="qa-btn" id="ai-passport" data-ai-action="passport_mode"><span class="icon">🛂</span> Passport Photo</button>
+              <button class="qa-btn" id="ai-pro-enhance" data-ai-action="professional_enhance"><span class="icon">✨</span> Professional Enhance</button>
+              <button class="qa-btn" id="ai-remove-grain" data-ai-action="remove_grain"><span class="icon">🧽</span> Remove Grain</button>
+              <button class="qa-btn" id="ai-crop"><span class="icon">✂️</span> Crop…</button>
+              <div id="ai-photo-status" style="font-size:11px;color:var(--text-muted);min-height:14px"></div>
             </div>
           </div>
 
@@ -431,6 +442,16 @@
       <button class="btn btn-primary" id="open-settings-dialog" style="min-width:180px">Open Settings…</button>
     </div>
 
+    <!-- ─── PANEL: Account (rendered by account.js) ── -->
+    <div id="panel-account" class="panel-view acct-panel" style="display:none">
+      <div class="acct-panel-inner" id="acct-panel-body"></div>
+    </div>
+
+    <!-- ─── PANEL: Cloud (rendered by account.js) ──── -->
+    <div id="panel-cloud" class="panel-view acct-panel" style="display:none">
+      <div class="acct-panel-inner cloud-panel-inner" id="cloud-panel-body"></div>
+    </div>
+
   </main><!-- /workspace -->
 
   <!-- ═══════════════════════════════════════════════
@@ -454,6 +475,10 @@
     <div class="status-item" id="status-watch" style="display:none">
       <span class="dot busy"></span>
       <span id="status-watch-text">Watch: 0 active</span>
+    </div>
+    <div class="status-item acct-chip" id="acct-chip" style="display:none" title="Account">
+      <span class="acct-chip-dot" id="acct-chip-dot"></span>
+      <span id="acct-chip-text"></span>
     </div>
     <div class="status-sep" id="status-sep-cost"></div>
     <div class="status-item">
@@ -483,6 +508,7 @@
      ═══════════════════════════════════════════════ -->
 <script src="js/bridge.js"></script>
 <script src="js/app.js"></script>
+<script src="js/account.js"></script>
 <script src="js/file-tree.js"></script>
 <script src="js/preview.js"></script>
 <script src="js/details.js"></script>

@@ -9,3 +9,9 @@ _sfm_temp/
 
 # Over GitHub's 100 MB file limit
 _to_review/abrodia office use software.zip
+
+# Account server runtime data
+server/data/
+server/.env
+.pytest_cache/
+.claude/worktrees/
