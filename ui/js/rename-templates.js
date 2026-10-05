@@ -47,6 +47,15 @@ const RenameTemplates = (() => {
     return true;
   }
 
+  // Escape `text` and wrap the parts that match any word of `q` in <mark class="hl">.
+  function _hl(text, q) {
+    const words = String(q || '').trim().split(/\s+/).filter(w => w.length > 0)
+      .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (!words.length) return _esc(text);
+    const re = new RegExp('(' + words.join('|') + ')', 'ig');
+    return String(text).split(re).map((part, i) => i % 2 ? `<mark class="hl">${_esc(part)}</mark>` : _esc(part)).join('');
+  }
+
   function _langInfo(code) { return _languages.find(l => l.code === (code || _lang)) || {}; }
 
   function _langSelectHtml(id) {
@@ -97,24 +106,38 @@ const RenameTemplates = (() => {
       const L = _langInfo();
       const st = saveText();
       const canSave = typed && st && st !== (entry()?.name || '');
-      let h = `<div class="rt-head">${_langSelectHtml('rt-lang-inline')}
-                 <button type="button" class="rt-manage" title="Edit document name templates">Templates…</button></div>`;
+      const q = query();
+      let h = `<div class="rt-head">
+                 <span class="rt-head-icon">${Icons.svg('globe', 14)}</span>${_langSelectHtml('rt-lang-inline')}
+                 <button type="button" class="btn btn-sm btn-ghost rt-manage" title="Edit document name templates">${Icons.svg('templates', 14)}Manage…</button></div>
+               <div class="rt-section">${typed && q ? 'Matching templates' : 'Document name templates'}</div>`;
       if (!items.length) {
-        h += `<div class="rt-empty">No matching template${typed ? '' : 's'}</div>`;
+        h += `<div class="rt-empty">${Icons.svg('search', 14)}No matching template${typed ? '' : 's'}</div>`;
       }
       items.forEach((s, i) => {
         h += `<div class="rt-item ac-item" data-i="${i}" title="${_esc(s.name)}">
-                <div class="rt-label">${_esc(s.label || s.stem)}${s.builtin ? '' : ' <span class="rt-tag">custom</span>'}</div>
-                <div class="rt-target">→ ${_esc(s.name)}</div>
+                <span class="rt-item-icon">${Icons.svg('file-text', 16)}</span>
+                <div class="rt-item-text">
+                  <div class="rt-label">${_hl(s.label || s.stem, q)}${s.builtin ? '' : ' <span class="badge badge-blue rt-tag">Custom</span>'}</div>
+                  <div class="rt-target">${Icons.svg('arrow-right', 11)}${_esc(s.name)}</div>
+                </div>
+                <span class="kbd rt-enter">Enter</span>
               </div>`;
       });
       if (canSave) {
         h += `<div class="rt-item rt-save ac-item" data-i="${items.length}"
                    title="Rename and save as a ${_esc(L.label || '')} template (Ctrl+Enter)">
-                <div class="rt-label">+ Save “${_esc(st)}” as template</div>
-                <div class="rt-target">Ctrl+Enter</div>
+                <span class="rt-item-icon">${Icons.svg('plus', 16)}</span>
+                <div class="rt-item-text"><div class="rt-label">Save “${_esc(st)}” as a template</div>
+                  <div class="rt-target">Renames the file and adds it to your ${_esc(L.label || '')} list</div></div>
+                <span class="rt-keys"><span class="kbd">Ctrl</span><span class="kbd">Enter</span></span>
               </div>`;
       }
+      h += `<div class="kbd-hints rt-hints">
+              <span><span class="kbd">↑</span><span class="kbd">↓</span>select</span>
+              <span><span class="kbd">Enter</span>apply</span>
+              <span><span class="kbd">Ctrl</span><span class="kbd">Enter</span>save as template</span>
+              <span><span class="kbd">Esc</span>close</span></div>`;
       dd.innerHTML = h;
       dd.classList.remove('hidden');
       open = true;
@@ -247,35 +270,47 @@ const RenameTemplates = (() => {
     ov.style.zIndex = 9400;
     ov.innerHTML = `
       <div class="modal rt-manager" role="dialog" aria-labelledby="rt-title">
-        <div class="modal-header">
-          <h2 class="modal-title" id="rt-title">Document name templates</h2>
-          <button class="modal-close" aria-label="Close">&#x2715;</button>
-        </div>
+        ${Dialogs.header('Document name templates', { icon: 'templates', subtitle: 'Names suggested when you rename a file', titleId: 'rt-title' })}
         <div class="modal-body">
-          <div class="rt-row">
-            <label class="detail-label" for="rt-lang">Language</label>
+          <div class="rt-top">
+            <label class="field-label" for="rt-lang">Template language</label>
             ${_langSelectHtml('rt-lang')}
-            <input id="rt-search" class="input-text" placeholder="Search templates…" autocomplete="off" spellcheck="false">
+            <div class="rt-hint field-hint" id="rt-hint"></div>
           </div>
-          <div class="rt-hint text-muted" id="rt-hint"></div>
-          <div id="rt-list" class="rt-list" tabindex="0"></div>
-          <div class="rt-fields">
-            <div class="rt-fields-title detail-label" id="rt-fields-title">New entry</div>
-            <label class="detail-label" for="rt-en">English</label>
-            <input id="rt-en" class="input-text" autocomplete="off" spellcheck="false" placeholder="e.g. Passport">
-            <label class="detail-label rt-local" for="rt-local" id="rt-local-label">Korean</label>
-            <input id="rt-local" class="input-text rt-local" autocomplete="off" spellcheck="false">
+          <div class="rt-panes">
+            <div class="rt-left">
+              <div class="input-group">
+                <span class="input-icon">${Icons.svg('search', 14)}</span>
+                <input id="rt-search" class="input-text" placeholder="Search templates…" autocomplete="off" spellcheck="false">
+              </div>
+              <div id="rt-list" class="rt-list" tabindex="0"></div>
+              <div class="rt-count" id="rt-count"></div>
+            </div>
+            <div class="rt-right">
+              <div class="rt-fields">
+                <div class="rt-fields-title" id="rt-fields-title">New template</div>
+                <div class="field-hint" id="rt-fields-hint"></div>
+                <div class="field">
+                  <label class="field-label" for="rt-en">English</label>
+                  <input id="rt-en" class="input-text" autocomplete="off" spellcheck="false" placeholder="e.g. Passport">
+                </div>
+                <div class="field rt-local">
+                  <label class="field-label" for="rt-local" id="rt-local-label">Korean</label>
+                  <input id="rt-local" class="input-text" autocomplete="off" spellcheck="false">
+                </div>
+              </div>
+              <div class="rt-actions">
+                <button class="btn btn-sm" id="rt-add">${Icons.svg('plus', 14)}Add as new</button>
+                <button class="btn btn-sm" id="rt-apply" disabled>${Icons.svg('check', 14)}Apply changes</button>
+                <button class="btn btn-sm btn-danger" id="rt-remove" disabled>${Icons.svg('trash', 14)}Remove</button>
+              </div>
+              <div class="rt-file" id="rt-file"></div>
+            </div>
           </div>
-          <div class="rt-actions">
-            <button class="btn" id="rt-add">Add</button>
-            <button class="btn" id="rt-apply" disabled>Apply to selected row</button>
-            <button class="btn btn-danger" id="rt-remove" disabled>Remove</button>
-          </div>
-          <div class="rt-file text-muted" id="rt-file"></div>
         </div>
         <div class="modal-footer">
           <button class="btn" id="rt-close">Close</button>
-          <button class="btn btn-primary" id="rt-save">Save to file</button>
+          <button class="btn btn-primary" id="rt-save">${Icons.svg('download', 16)}Save to file</button>
         </div>
       </div>`;
     document.body.appendChild(ov);
@@ -308,7 +343,7 @@ const RenameTemplates = (() => {
       $('rt-hint').textContent = bil
         ? `Files are named ${L().local_name}-English (e.g. 여권-passport.pdf). Built-in rows are kept; edits are saved to your file.`
         : 'International mode: files are named in English only (e.g. Passport.pdf). Names from the other language lists are included.';
-      $('rt-file').textContent = file ? 'File: ' + file : '';
+      $('rt-file').innerHTML = file ? `${Icons.svg('file', 12)}<span title="${_esc(file)}">${_esc(file)}</span>` : '';
       fillFields(null);
       renderList();
     }
@@ -321,14 +356,19 @@ const RenameTemplates = (() => {
     function renderList() {
       const q = $('rt-search').value.trim().toLowerCase();
       const qs = q.replace(/[^0-9a-zÀ-￿]/g, '');
+      let shown = 0;
       const html = rows.map((r, i) => {
         const hay = (r.en + ' ' + r.local).toLowerCase();
         if (q && !hay.includes(q) && !hay.replace(/[^0-9a-zÀ-￿]/g, '').includes(qs)) return '';
-        const tag = r.source === 'custom' ? '' :
-                    (r.source === 'derived' ? ' <span class="rt-tag">from other list</span>' : ' <span class="rt-tag">built-in</span>');
-        return `<div class="rt-list-row ${i === sel ? 'active' : ''}" data-i="${i}">${_esc(label(r))}${tag}</div>`;
+        shown++;
+        const tag = r.source === 'custom' ? '<span class="badge badge-blue rt-tag">Custom</span>' :
+                    (r.source === 'derived' ? '<span class="badge badge-neutral rt-tag">Other list</span>' : '');
+        return `<div class="rt-list-row ${i === sel ? 'active' : ''}" data-i="${i}">
+                  <span class="rt-row-icon">${Icons.svg(r.builtin ? 'file-text' : 'pencil', 14)}</span>
+                  <span class="rt-row-label">${_hl(label(r), q)}</span>${tag}</div>`;
       }).join('');
-      $('rt-list').innerHTML = html || '<div class="rt-empty">No templates</div>';
+      $('rt-list').innerHTML = html || `<div class="empty-state empty-state-sm"><div class="empty-state-icon">${Icons.svg('search', 20)}</div><div class="empty-state-text">No templates match “${_esc(q)}”.</div></div>`;
+      $('rt-count').textContent = q ? `${shown} of ${rows.length} templates` : `${rows.length} templates · ${rows.filter(r => !r.builtin).length} custom`;
       $('rt-list').querySelectorAll('.rt-list-row').forEach(el => {
         el.addEventListener('click', () => select(+el.dataset.i));
         el.addEventListener('dblclick', () => { select(+el.dataset.i); $('rt-en').focus(); });
@@ -342,7 +382,10 @@ const RenameTemplates = (() => {
     function fillFields(r) {
       $('rt-en').value    = r ? r.en : '';
       $('rt-local').value = r ? r.local : '';
-      $('rt-fields-title').textContent = r ? (r.builtin ? 'Selected row (built-in — Apply saves an edited copy)' : 'Selected row (custom)') : 'New entry';
+      $('rt-fields-title').textContent = r ? (r.builtin ? 'Built-in template' : 'Custom template') : 'New template';
+      $('rt-fields-hint').textContent = r
+        ? (r.builtin ? 'Built-in templates stay as they are; Apply changes saves an edited copy as a custom template.' : 'Edit the names and choose Apply changes, or remove it.')
+        : 'Type a name and choose Add as new. Select a row on the left to edit it.';
     }
 
     function select(i) {
