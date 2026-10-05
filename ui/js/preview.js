@@ -275,7 +275,7 @@ const Preview = (() => {
     });
     wire('pdf-del-page', async () => {
       if (!_path) return;
-      if (!confirm(`Delete page ${_pdfCurPage + 1}?`)) return;
+      if (!(await Dialogs.confirm({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${_pdfCurPage + 1} of ${_pdfCount} from this PDF?`, detail: 'This changes the PDF file itself.' }))) return;
       await SFM.deletePage(_path, _pdfCurPage);
       _pdfCount--;
       _pdfCurPage = Math.min(_pdfCurPage, _pdfCount - 1);

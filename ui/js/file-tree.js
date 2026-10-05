@@ -651,21 +651,46 @@ const FileTree = (() => {
 
   // ── New Folder ────────────────────────────────────────────────────────────
   async function newFolder() {
-    const name = prompt('Folder name:');
+    if (!_currentFolder) { App.toast('Open a folder first', 'warning'); return; }
+    const taken = new Set(_entries.map(e => String(e.name).toLowerCase()));
+    let suggestion = 'New folder';
+    for (let n = 2; taken.has(suggestion.toLowerCase()); n++) suggestion = `New folder (${n})`;
+    const name = await Dialogs.ask({
+      title: 'New folder',
+      subtitle: _currentFolder,
+      icon: 'folder-plus',
+      label: 'Folder name',
+      value: suggestion,
+      okLabel: 'Create folder',
+      okIcon: 'folder-plus',
+      validate: v => {
+        if (!v) return 'Enter a folder name.';
+        if (/[\\/:*?"<>|]/.test(v)) return 'A folder name can’t contain any of these characters: \\ / : * ? " < > |';
+        if (/[. ]$/.test(v)) return 'A folder name can’t end with a dot or a space.';
+        if (taken.has(v.toLowerCase())) return 'A file or folder with this name already exists here.';
+        return '';
+      },
+    });
     if (!name) return;
     const r = await SFM.createFolder(_currentFolder, name);
-    if (r.ok) { App.toast(`Created: ${name}`, 'success'); refresh(); }
-    else       { App.toast('Failed: ' + r.error, 'error'); }
+    if (r.ok) {
+      App.toast(`Created folder “${name}”`, 'success');
+      await refreshAndSelect(r.path || (_currentFolder.replace(/[\\/]+$/, '') + '\\' + name));
+    } else { App.toast('Couldn’t create the folder: ' + r.error, 'error'); }
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
   async function deleteSelection() {
     const paths = Array.from(_selected);
     if (!paths.length) return;
-    const confirm = window.confirm
-      ? window.confirm(`Move ${paths.length} item(s) to _to_review/?`)
-      : true;
-    if (!confirm) return;
+    const one = paths.length === 1 ? paths[0].split(/[\\/]/).pop() : '';
+    const ok = await Dialogs.confirm({
+      title: 'Move to review',
+      message: one ? `Move “${one}” to the _to_review folder?` : `Move ${paths.length} items to the _to_review folder?`,
+      detail: 'Nothing is deleted — the items are moved into a _to_review folder next to them, where you can restore them.',
+      okLabel: 'Move to review', okIcon: 'archive', icon: 'archive', tone: 'warning',
+    });
+    if (!ok) return;
     const r = await SFM.softDelete(paths);
     if (r.ok) {
       const saved = paths.map(p => ({ path: p, moved: r.results?.find(x=>x.path===p)?.moved_to }));

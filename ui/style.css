@@ -1855,3 +1855,7 @@ mark.hl { background: transparent; color: var(--accent-text); font-weight: var(-
 @media (max-width: 560px) {
   .field-grid, .option-cards { grid-template-columns: 1fr; }
 }
+
+/* Dialogs.confirm / Dialogs.ask (in-app replacements for confirm()/prompt()) */
+.confirm-message { margin: 0; font-size: var(--fs-md); line-height: 1.5; color: var(--text-primary); }
+.confirm-detail  { margin: var(--space-2) 0 0; font-size: var(--fs-sm); line-height: 1.5; }

@@ -667,7 +667,7 @@ const Account = (() => {
     w('acct-signout', signOut);
     body.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
       const current = b.dataset.current === '1';
-      if (!confirm(current ? 'Sign out of this computer?' : 'Sign out that device? It will need to sign in again.')) return;
+      if (!(await Dialogs.confirm({ title: current ? 'Sign out' : 'Sign out device', icon: 'log-out', okLabel: 'Sign out', okIcon: 'log-out', message: current ? 'Sign out of this computer?' : 'Sign out that device? It will need to sign in again.' }))) return;
       const r = await SFM.accountRevokeDevice(Number(b.dataset.revoke));
       if (!r || !r.ok) { toast('Could not sign out the device: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
       toast(current ? 'Signed out' : 'Device signed out', 'success');
@@ -706,7 +706,7 @@ const Account = (() => {
   }
 
   async function signOut() {
-    if (!confirm('Sign out of this account on this computer?')) return;
+    if (!(await Dialogs.confirm({ title: 'Sign out', icon: 'log-out', okLabel: 'Sign out', okIcon: 'log-out', message: 'Sign out of this account on this computer?' }))) return;
     stopPlanPolling();
     await SFM.accountLogout();
     st.files = []; st.selected.clear(); st.usage = null; st.devices = null; st.cwd = '';
@@ -1036,7 +1036,7 @@ const Account = (() => {
       refreshSyncStatus();
     });
     w('cloud-sync-stop', async () => {
-      if (!confirm('Stop auto-sync? Files stay where they are on both sides.')) return;
+      if (!(await Dialogs.confirm({ title: 'Stop auto-sync', icon: 'pause', okLabel: 'Stop sync', message: 'Stop auto-sync?', detail: 'Files stay where they are on both sides.' }))) return;
       await SFM.cloudSyncStop();
       toast('Auto-sync stopped', 'info');
       refreshSyncStatus();
@@ -1112,7 +1112,7 @@ const Account = (() => {
     w('cloud-trash', async () => {
       if (!selIds.length && !selDirs.length) return;
       const n = selIds.length + selDirs.length;
-      if (selDirs.length && !confirm(`Move ${n} item${n > 1 ? 's' : ''} (including everything inside the selected folders) to the cloud trash? You can restore them from the Trash tab.`)) return;
+      if (selDirs.length && !(await Dialogs.confirm({ title: 'Move to cloud trash', icon: 'trash', tone: 'warning', okLabel: 'Move to trash', okIcon: 'trash', message: `Move ${n} item${n > 1 ? 's' : ''} (including everything inside the selected folders) to the cloud trash?`, detail: 'You can restore them from the Trash tab.' }))) return;
       let done = 0; const errs = [];
       if (selIds.length) {
         const r = await SFM.cloudTrash(selIds);

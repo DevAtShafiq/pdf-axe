@@ -372,8 +372,8 @@ const RenameTemplates = (() => {
     const $ = id => ov.querySelector('#' + id);
     const L = () => _langInfo();
 
-    function close() {
-      if (dirty && !confirm('Discard unsaved template changes?')) return;
+    async function close() {
+      if (dirty && !(await Dialogs.confirm({ title: 'Unsaved changes', icon: 'alert-triangle', tone: 'warning', okLabel: 'Discard changes', message: 'Discard your unsaved template changes?' }))) return;
       document.removeEventListener('keydown', onKey, true);
       ov.remove();
     }
@@ -509,7 +509,7 @@ const RenameTemplates = (() => {
     });
 
     $('rt-lang').addEventListener('change', async e => {
-      if (dirty && !confirm('Discard unsaved template changes?')) { e.target.value = _lang; return; }
+      if (dirty && !(await Dialogs.confirm({ title: 'Unsaved changes', icon: 'alert-triangle', tone: 'warning', okLabel: 'Discard changes', message: 'Discard your unsaved template changes?' }))) { e.target.value = _lang; return; }
       if (await setLang(e.target.value)) await load();
     });
 

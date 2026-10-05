@@ -66,6 +66,7 @@ const Dialogs = (() => {
         _stack.splice(idx, 1);
       }
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if (o.onClose) { const f = o.onClose; o.onClose = null; f(); }
     }
 
     overlay.querySelector('.modal-close').addEventListener('click', close);
@@ -85,6 +86,80 @@ const Dialogs = (() => {
     _stack.push({ overlay, onKeyDown });
     overlay._close = close;
     return overlay;
+  }
+
+  // ── In-app replacements for window.prompt / window.confirm ───────────────
+  // Small prompts can be opened from full-window editors (arrange, templates)
+  // that sit above the normal modal stack, so lift them to the very top.
+  function _raise(overlay) { overlay.classList.add('dlg-top'); overlay.style.zIndex = 10050; }
+
+  // ask({ title, label, value, placeholder, hint, icon, okLabel, okIcon,
+  //       selectStem, validate(v) → error string | '' }) → Promise<string|null>
+  function ask(opts) {
+    const o = opts || {};
+    return new Promise(resolve => {
+      let done = false;
+      const finish = v => { if (done) return; done = true; resolve(v); };
+      const id = 'ask-' + Date.now();
+      const body = `
+        <div class="field">
+          ${o.label ? `<label class="field-label" for="${id}-in">${_esc(o.label)}</label>` : ''}
+          <input id="${id}-in" class="input-text" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="${_esc(o.placeholder || '')}" value="${_esc(o.value || '')}">
+          <div class="field-error hidden" id="${id}-err"></div>
+          ${o.hint ? `<div class="field-hint">${_esc(o.hint)}</div>` : ''}
+        </div>`;
+      const submit = () => {
+        const v = input.value.trim();
+        const err = o.validate ? (o.validate(v) || '') : (v ? '' : 'Please enter a value.');
+        if (err) {
+          errEl.textContent = err; errEl.classList.remove('hidden');
+          input.classList.add('is-invalid'); input.focus(); return;
+        }
+        finish(v); overlay._close();
+      };
+      const overlay = _openModal(id, o.title || 'Enter a value', body, [
+        { label: 'Cancel', onClick: () => overlay._close() },
+        { label: o.okLabel || 'OK', primary: true, icon: o.okIcon, onClick: submit },
+      ], { icon: o.icon, subtitle: o.subtitle, size: 'sm', onClose: () => finish(null) });
+      _raise(overlay);
+      const input = overlay.querySelector(`#${id}-in`);
+      const errEl = overlay.querySelector(`#${id}-err`);
+      input.addEventListener('input', () => { errEl.classList.add('hidden'); input.classList.remove('is-invalid'); });
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); submit(); }
+      });
+      setTimeout(() => {
+        input.focus();
+        const v = input.value, dot = v.lastIndexOf('.');
+        if (o.selectStem && dot > 0) input.setSelectionRange(0, dot); else input.select();
+      }, 30);
+    });
+  }
+
+  // confirm({ title, message, detail, okLabel, okIcon, cancelLabel, danger,
+  //           icon }) → Promise<boolean>.  Also accepts confirm('message').
+  function confirmDialog(opts) {
+    const o = typeof opts === 'string' ? { message: opts } : (opts || {});
+    return new Promise(resolve => {
+      let done = false;
+      const finish = v => { if (done) return; done = true; resolve(v); };
+      const id = 'confirm-' + Date.now();
+      const body = `
+        <p class="confirm-message">${_esc(o.message || '')}</p>
+        ${o.detail ? `<p class="confirm-detail text-muted">${_esc(o.detail)}</p>` : ''}`;
+      const overlay = _openModal(id, o.title || 'Are you sure?', body, [
+        { label: o.cancelLabel || 'Cancel', onClick: () => overlay._close() },
+        { label: o.okLabel || 'OK', primary: !o.danger, danger: !!o.danger, icon: o.okIcon,
+          onClick: () => { finish(true); overlay._close(); } },
+      ], { icon: o.icon || (o.danger ? 'alert-triangle' : 'info'), tone: o.danger ? 'danger' : o.tone,
+           size: 'sm', onClose: () => finish(false) });
+      _raise(overlay);
+      const ok = overlay.querySelector('.modal-footer .btn:last-child');
+      const onEnter = e => { if (e.key === 'Enter' && document.body.contains(overlay)) { e.preventDefault(); ok.click(); } };
+      overlay.addEventListener('keydown', onEnter);
+      setTimeout(() => ok && ok.focus(), 30);
+    });
   }
 
   // closeModal()    → close the top-most modal
@@ -371,7 +446,7 @@ const Dialogs = (() => {
       });
       document.getElementById('fv-del-page').addEventListener('click', async () => {
         if (total <= 1) { App.toast('Cannot delete the only page', 'error'); return; }
-        if (!confirm('Delete page ' + (page + 1) + ' of ' + total + '?')) return;
+        if (!(await confirmDialog({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${page + 1} of ${total} from this PDF?`, detail: 'This changes the PDF file itself.' }))) return;
         const r = await SFM.deletePage(path, page);
         if (r.ok) {
           total--;
@@ -868,6 +943,7 @@ const Dialogs = (() => {
     openOcrRenameProgress,
     openQrOverlay,
     closeModal, closeAllModals,
+    ask, confirm: confirmDialog,
     openModal: _openModal,
     modal: _modal,   // _modal(name, {title, icon, subtitle, width, extraStyle, body, footer}) → id (for qr.js / photo-tools.js)
     header: _header, // header HTML for dialogs that build their own overlay (pdf-tools, rename-templates)

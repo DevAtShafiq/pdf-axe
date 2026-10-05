@@ -87,7 +87,7 @@ const ContextMenu = (() => {
     _item(menu, 'text-cursor', 'Rename',         'F2',  () => { hide(); setTimeout(() => FileTree.startRename(), 50); });
     _item(menu, 'archive', 'Move to Review', 'Del', async () => {
       hide();
-      if (!confirm('Move ' + paths.length + ' item(s) to _to_review/?')) return;
+      if (!(await Dialogs.confirm({ title: 'Move to review', icon: 'archive', tone: 'warning', okLabel: 'Move to review', okIcon: 'archive', message: paths.length === 1 ? `Move “${paths[0].split(/[\/]/).pop()}” to the _to_review folder?` : `Move ${paths.length} items to the _to_review folder?`, detail: 'Nothing is deleted — the items are moved into a _to_review folder next to them, where you can restore them.' }))) return;
       const r = await SFM.softDelete(paths);
       if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); }
       else       { App.toast('Failed: ' + r.error, 'error'); }

@@ -138,7 +138,7 @@ const Details = (() => {
     wire('qa-delete',  async () => {
       if (!_path) return;
       const n = _entry?.name || _path;
-      if (!confirm(`Move "${n}" to _to_review/?`)) return;
+      if (!(await Dialogs.confirm({ title: 'Move to review', icon: 'archive', tone: 'warning', okLabel: 'Move to review', okIcon: 'archive', message: `Move “${n}” to the _to_review folder?`, detail: 'Nothing is deleted — it is moved into a _to_review folder next to it, where you can restore it.' }))) return;
       const r = await SFM.softDelete([_path]);
       if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); clear(); }
       else       { App.toast('Failed: ' + r.error, 'error'); }

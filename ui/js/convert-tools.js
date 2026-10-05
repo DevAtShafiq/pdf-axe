@@ -390,7 +390,7 @@ const ConvertTools = (() => {
       };
       if ($('p2i-which')?.value === 'range' && !opts.pages) { App.toast('Enter a page range, e.g. 1-3,5', 'warning'); $('p2i-range')?.focus(); return; }
       _save('pdf2img', { fmt: opts.fmt, dpi: opts.dpi, quality: opts.quality });
-      if (opts.dpi >= 300 && pageCount > 50 && !confirm(`Render ${pageCount} pages at ${opts.dpi} dpi? This can take a while and use a lot of disk space.`)) return;
+      if (opts.dpi >= 300 && pageCount > 50 && !(await Dialogs.confirm({ title: 'Large export', icon: 'images', tone: 'warning', okLabel: 'Continue', message: `Render ${pageCount} pages at ${opts.dpi} dpi?`, detail: 'This can take a while and use a lot of disk space.' }))) return;
       const job = _newJob('p2i');
       running = true;
       _busy(overlay, ['Convert', 'Cancel'], true);

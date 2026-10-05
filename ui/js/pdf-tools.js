@@ -107,6 +107,8 @@ const PdfTools = (() => {
   }
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || !_mstack.length) return;
+    // A Dialogs.confirm/ask opened on top of our editor handles its own Escape.
+    if (document.querySelector('.modal-overlay.dlg-top')) return;
     e.stopPropagation(); e.preventDefault();
     _mstack[_mstack.length - 1].close();
   }, true);
@@ -813,8 +815,9 @@ const PdfTools = (() => {
       if (busy || !slots.length) return;
       const all = payload(slots.map((_, i) => i));
       if (overwriteChosen()) {
-        if (!confirm(`Overwrite “${baseOf(primary)}” with the arranged pages?\n\n` +
-                     `The current version will be kept as a backup copy in “_to_review” next to it.`)) return;
+        if (!(await Dialogs.confirm({ title: 'Overwrite original', icon: 'alert-triangle', tone: 'warning',
+              okLabel: 'Overwrite', message: `Overwrite “${baseOf(primary)}” with the arranged pages?`,
+              detail: 'The current version will be kept as a backup copy in “_to_review” next to it.' }))) return;
         const r = await runBuild(all, primary, true, 'Saving PDF…');
         if (!r) return;
         if (!r.ok) { finish(r); return; }
@@ -842,9 +845,9 @@ const PdfTools = (() => {
       const i = _mstack.indexOf(self); if (i >= 0) _mstack.splice(i, 1);
       ov.remove();
     }
-    function tryClose() {
+    async function tryClose() {
       if (busy) return;
-      if (dirty() && !confirm('Discard your page changes?')) return;
+      if (dirty() && !(await Dialogs.confirm({ title: 'Unsaved changes', icon: 'alert-triangle', tone: 'warning', okLabel: 'Discard changes', message: 'Discard your page changes?' }))) return;
       forceClose();
     }
 
