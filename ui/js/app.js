@@ -378,14 +378,22 @@ const App = (() => {
     wire('btn-compress-pdf', () => {
       const p = state.focusedPath || state.selectedPaths[0];
       if (!p) { toast('Select a PDF or image first', 'warning'); return; }
-      // Images selected → image compression; otherwise the original PDF flow.
-      const isImgPath = s => /\.(jpe?g|png|bmp|webp|gif|tiff?)$/i.test(s || '');
-      const sel = (state.selectedPaths || []).filter(isImgPath);
-      if (isImgPath(p)) {
-        Dialogs.openCompressImages(sel.length ? sel : [p]);
-        return;
-      }
-      Dialogs.openCompressPdf(p);
+      // Images selected → image compression; PDFs → PDF compression (batch).
+      const all  = (state.selectedPaths || []).length ? state.selectedPaths : [p];
+      const imgs = all.filter(ConvertTools.isImage);
+      const pdfs = all.filter(ConvertTools.isPdf);
+      if (ConvertTools.isImage(p) || (!pdfs.length && imgs.length)) { Dialogs.openCompressImages(imgs.length ? imgs : [p]); return; }
+      if (pdfs.length) { Dialogs.openCompressPdf(pdfs); return; }
+      toast('Compress works on PDFs and images', 'warning');
+    });
+    wire('btn-convert', () => {
+      const p = state.focusedPath || state.selectedPaths[0];
+      const all  = (state.selectedPaths || []).length ? state.selectedPaths : (p ? [p] : []);
+      const imgs = all.filter(ConvertTools.isImage);
+      const pdfs = all.filter(ConvertTools.isPdf);
+      if (imgs.length && (ConvertTools.isImage(p) || !pdfs.length)) { ConvertTools.openImagesToPdf(imgs); return; }
+      if (pdfs.length) { ConvertTools.openPdfToImages(ConvertTools.isPdf(p) ? p : pdfs[0]); return; }
+      toast('Select image(s) to make a PDF, or a PDF to save its pages as images', 'warning', 4500);
     });
     wire('btn-qr',    () => {
       // If an image/PDF is selected, scan it directly
