@@ -101,3 +101,50 @@
 @media (max-width: 680px) {
   .rt-panes, .rt-top { grid-template-columns: 1fr; }
 }
+
+/* ── Inline rename in the file list (file-tree.js) ─────────────────────── */
+.file-item .name.is-editing { overflow: visible; text-overflow: clip; display: flex; align-items: center; }
+.inline-rename {
+  width: 100%; min-width: 0;
+  height: 24px; margin: 0 0 0 -5px; padding: 0 4px;
+  font: inherit; font-size: var(--fs-base); font-weight: var(--fw-regular); line-height: 22px;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+[data-theme="light"] .inline-rename { background: var(--bg-surface); }
+.inline-rename::selection { background: var(--accent); color: var(--text-on-accent); }
+.thumb-tile .thumb-name.is-editing { overflow: visible; white-space: normal; }
+.inline-rename-thumb {
+  display: block; height: auto; margin: 0; padding: 2px 4px;
+  font-size: var(--fs-xs); line-height: var(--lh-tight); text-align: center;
+  resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.inline-rename-suggestions.rt-dropdown { z-index: 8000 !important; }
+
+/* Windows-style balloon tip (invalid characters, name clash, errors) */
+.inline-rename-tip {
+  position: fixed; z-index: 8100; display: none;
+  gap: var(--space-2); align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popup);
+  font-size: var(--fs-sm); color: var(--text-primary);
+  pointer-events: none;
+}
+.inline-rename-tip.show { display: flex; }
+.inline-rename-tip-icon { display: inline-flex; color: var(--yellow); flex-shrink: 0; margin-top: 1px; }
+.inline-rename-tip-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.inline-rename-tip-title { font-weight: var(--fw-medium); line-height: var(--lh-tight); }
+.inline-rename-tip-text { color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+
+/* Yes / No question (extension change, name clash) */
+.ir-ask { display: flex; flex-direction: column; gap: var(--space-2); }
+.ir-ask p { margin: 0; line-height: var(--lh); }
+.ir-ask-text { color: var(--text-primary); }
+.ir-ask-detail { color: var(--text-secondary); overflow-wrap: anywhere; }
