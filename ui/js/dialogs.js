@@ -854,7 +854,7 @@ const Dialogs = (() => {
   // Implemented in photo-tools.js (Cropper) and qr.js (QrScan); kept here so
   // existing callers of Dialogs.openCropImage / openQrOverlay keep working.
   function openCropImage(imagePath) { return Cropper.open(imagePath); }
-  function openQrOverlay() { return QrScan.openScreen(); }
+  function openQrOverlay() { return QrScan.pick(); }
 
   return {
     openCombinePdf, openFullView, openArrangePages,

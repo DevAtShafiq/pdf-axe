@@ -57,6 +57,12 @@ def _ui_url() -> str:
 
 
 def main() -> None:
+    # Helper-process mode: the QR button re-launches this EXE with --qr-pick to
+    # show the native "click a QR code" overlay (qr_pick.py). No webview here.
+    if "--qr-pick" in sys.argv[1:]:
+        import qr_pick
+        sys.exit(qr_pick.main())
+
     try:
         import webview  # type: ignore
     except ImportError:

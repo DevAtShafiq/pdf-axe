@@ -397,8 +397,8 @@ const App = (() => {
       if (pdfs.length) { ConvertTools.openPdfToImages(ConvertTools.isPdf(p) ? p : pdfs[0]); return; }
       toast('Select image(s) to make a PDF, or a PDF to save its pages as images', 'warning', 4500);
     });
-    // Selected images/PDFs → QR results dialog (qr.js); nothing selected → screen scan
-    wire('btn-qr',    () => QrScan.scanSelection());
+    // QR: native pick overlay — click a code anywhere on screen (qr.js / qr_pick.py)
+    wire('btn-qr',    () => QrScan.pick());
     wire('btn-more',  () => Dialogs.openMoreMenu());
     wire('btn-theme', () => {
       const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';

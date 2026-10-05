@@ -53,6 +53,7 @@ datas = [
     ("pdf_tools.py",         "."),
     ("pdf_tools_bridge.py",  "."),
     ("qr_scan.py",           "."),
+    ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
     ("image_crop.py",        "."),
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
@@ -77,6 +78,7 @@ hiddenimports = [
     "pdf_tools",
     "pdf_tools_bridge",
     "qr_scan",
+    "qr_pick",
     "image_crop",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",

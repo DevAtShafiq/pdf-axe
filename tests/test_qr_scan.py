@@ -209,21 +209,13 @@ def test_bridge_single_file_event(tmp_path, monkeypatch):
     assert ev == "qr_result" and payload["ok"] and payload["text"] == "HELLO-QR"
 
 
-@needs_decoder
-def test_bridge_screen_region_never_opens_browser(monkeypatch):
+def test_bridge_open_url_allow_list(monkeypatch):
+    # (screen picking is covered by tests/test_qr_pick.py)
     import webbrowser
     opened = []
     monkeypatch.setattr(webbrowser, "open_new_tab", lambda u: opened.append(u))
     b, _ = _bridge(monkeypatch)
-    shot = Image.new("RGB", (1600, 900), "white")
-    shot.paste(qr_image("https://screen.example.com/", 5), (700, 300))
-    b._last_screenshot = shot
-    r = b.decode_qr_at_point(780, 380)
-    assert r["ok"] and r["text"] == "https://screen.example.com/" and r["is_url"]
-    r = b.decode_qr_in_region(650, 250, 300, 300)
-    assert r["ok"] and r["results"][0]["bbox"][0] >= 700
-    assert b.decode_qr_in_region(0, 0, 200, 200)["ok"] is False
-    assert opened == []          # only qr_open_url (a user click) opens links
     assert b.qr_open_url("javascript:alert(1)")["ok"] is False
+    assert b.qr_open_url("file:///C:/x.txt")["ok"] is False
     assert b.qr_open_url("https://screen.example.com/")["ok"] is True
     assert opened == ["https://screen.example.com/"]

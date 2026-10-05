@@ -162,11 +162,8 @@ const SFM = (() => {
     splitAndRenameOcr:   (path)                    => call('split_and_rename_ocr', path),
     ocrRename:           (paths)                   => call('ocr_rename', paths),
     // QR / misc
-    scanQr:              ()                        => call('scan_qr_from_screen'),
+    qrPickStart:         ()                        => call('qr_pick_start'),
     scanQrFromFile:      (path)                    => call('scan_qr_from_file', path),
-    getScreenCapture:    ()                        => call('get_screen_capture'),
-    decodeQrAtPoint:     (cx, cy)                  => call('decode_qr_at_point', cx, cy),
-    decodeQrInRegion:    (x, y, w, h)              => call('decode_qr_in_region', x, y, w, h),
     scanQrFiles:         (paths, jobId='')         => call('scan_qr_files', paths, jobId),
     qrScanCancel:        (jobId)                   => call('qr_scan_cancel', jobId),
     qrOpenUrl:           (url)                     => call('qr_open_url', url),

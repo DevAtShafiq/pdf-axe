@@ -1142,53 +1142,46 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin):
     # QR
     # =========================================================================
 
-    # All decoding lives in qr_scan.py. Nothing here opens a browser on its
-    # own: links are opened only by qr_open_url(), i.e. after the user clicks.
+    # File decoding lives in qr_scan.py; the on-screen picker is qr_pick.py,
+    # run as a helper process (Tk must not run inside the pywebview process).
 
-    def _grab_screen(self):
-        """Minimise the window, screenshot the whole virtual desktop, restore."""
-        import mss
-        from PIL import Image as _Img
-        if self._window:
-            try:
-                self._window.minimize()
-            except Exception:
-                pass
-        try:
-            time.sleep(1.2)   # let the minimise animation finish
-            with mss.mss() as sct:
-                monitor = sct.monitors[0]  # full virtual desktop
-                shot = sct.grab(monitor)
-                return _Img.frombytes("RGB", (shot.width, shot.height), shot.rgb)
-        finally:
-            if self._window:
-                try:
-                    self._window.restore()
-                except Exception:
-                    pass
+    def qr_pick_start(self) -> dict:
+        """Show the native "click a QR code" overlay over the whole desktop.
 
-    def scan_qr_from_screen(self) -> dict:
-        """Screenshot the whole screen and decode every QR code on it.
-
-        Emits ``qr_result`` {ok, source:'screen', results:[...], url, text} or
-        {ok:false, error}. (The Dialogs QR overlay is the interactive path.)
+        Runs the qr_pick helper in the background and emits ``qr_pick_result``
+        {ok, text, url, is_url, opened, rect, mode, host, domain, ...} or
+        {ok:false, reason:'cancelled'|'not_found'|'unavailable'|'error', detail}.
+        http(s) links are opened in the default browser right away (as the old
+        app did); nothing else is ever opened.
         """
+        if not hasattr(self, "_qr_pick_lock"):
+            self._qr_pick_lock = threading.Lock()
+            self._qr_pick_busy = False
+        with self._qr_pick_lock:
+            if self._qr_pick_busy:
+                return _err("The QR picker is already open", busy=True)
+            self._qr_pick_busy = True
+
         def _run():
             try:
-                import qr_scan
-                img = self._grab_screen()
-                self._last_screenshot = img
-                results = qr_scan.scan_pil(img)
-                if results:
-                    first = results[0]["text"]
-                    self._emit("qr_result", {"ok": True, "source": "screen", "results": results,
-                                             "url": first, "text": first})
-                else:
-                    self._emit("qr_result", {"ok": False, "source": "screen",
-                                             "error": "No QR code found on screen"})
-            except Exception as exc:
-                self._emit("qr_result", {"ok": False, "error": str(exc)})
-        self._thread(_run)
+                import qr_pick
+                try:
+                    res = qr_pick.finalize(qr_pick.run_helper())
+                except Exception as exc:
+                    _log.exception("qr_pick failed")
+                    res = {"ok": False, "reason": "error", "detail": str(exc)}
+                with self._qr_pick_lock:
+                    self._qr_pick_busy = False
+                self._emit("qr_pick_result", res)
+            finally:
+                with self._qr_pick_lock:
+                    self._qr_pick_busy = False
+        try:
+            self._thread(_run)
+        except Exception as exc:
+            with self._qr_pick_lock:
+                self._qr_pick_busy = False
+            return _err(str(exc))
         return _ok(started=True)
 
     def scan_qr_from_file(self, path: str) -> dict:
@@ -1598,88 +1591,6 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin):
                 self._emit("ai_photo_result", dict(base, ok=False, error=str(exc)))
         self._thread(_run)
         return _ok(started=True, job_id=job_id, cost_est_usd=est, options=options)
-
-    # ── Screen capture / QR overlay ───────────────────────────────────────────
-
-    def get_screen_capture(self) -> dict:
-        """Minimize window, screenshot full screen, restore, emit a base64 data-URL.
-
-        The full-resolution screenshot is kept for decode_qr_at_point /
-        decode_qr_in_region (the JPEG sent to the UI is only for display).
-        """
-        def _run():
-            try:
-                import io
-                img = self._grab_screen()
-                self._last_screenshot = img
-                disp = img
-                if max(img.size) > 3840:
-                    r = 3840.0 / max(img.size)
-                    disp = img.resize((int(img.width * r), int(img.height * r)))
-                buf = io.BytesIO()
-                disp.save(buf, format="JPEG", quality=82)
-                data_url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-                self._emit("screen_capture_ready", {
-                    "ok": True,
-                    "data_url": data_url,
-                    "width": img.width,
-                    "height": img.height,
-                })
-            except Exception as exc:
-                self._emit("screen_capture_ready", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-    def decode_qr_at_point(self, cx: float, cy: float) -> dict:
-        """Decode QR codes around (cx, cy) of the last screenshot (growing crops).
-
-        Returns {ok, results:[...], text, is_url} — no browser is opened here.
-        """
-        try:
-            import qr_scan
-            img = getattr(self, "_last_screenshot", None)
-            if img is None:
-                return _err("No screenshot available — call get_screen_capture first")
-            icx, icy = int(cx), int(cy)
-            for half in (125, 175, 250, 350, 500):
-                x1, y1 = max(0, icx - half), max(0, icy - half)
-                x2, y2 = min(img.width, icx + half), min(img.height, icy + half)
-                if x2 - x1 < 10 or y2 - y1 < 10:
-                    continue
-                results = qr_scan.scan_pil(img.crop((x1, y1, x2, y2)), region_offset=(x1, y1))
-                if results:
-                    return self._qr_screen_ok(results)
-            return _err("No QR code found near that point — try dragging a box around it")
-        except Exception as exc:
-            return _err(str(exc))
-
-    def decode_qr_in_region(self, x: float = 0, y: float = 0, w: float = 0, h: float = 0) -> dict:
-        """Decode QR codes inside a rectangle of the last screenshot
-        (w or h <= 0 → the whole screenshot). Returns {ok, results, text, is_url}."""
-        try:
-            import qr_scan
-            img = getattr(self, "_last_screenshot", None)
-            if img is None:
-                return _err("No screenshot available — call get_screen_capture first")
-            if w and h and w > 0 and h > 0:
-                x1 = max(0, int(x)); y1 = max(0, int(y))
-                x2 = min(img.width, int(x + w)); y2 = min(img.height, int(y + h))
-                if x2 - x1 < 8 or y2 - y1 < 8:
-                    return _err("Selection is too small")
-                results = qr_scan.scan_pil(img.crop((x1, y1, x2, y2)), region_offset=(x1, y1))
-            else:
-                results = qr_scan.scan_pil(img)
-            if not results:
-                return _err("No QR code found in the selected area" if (w and h)
-                            else "No QR code found on screen")
-            return self._qr_screen_ok(results)
-        except Exception as exc:
-            return _err(str(exc))
-
-    @staticmethod
-    def _qr_screen_ok(results: list) -> dict:
-        first = results[0]
-        return _ok(results=results, text=first["text"], is_url=first.get("type") == "url")
 
     # =========================================================================
     # ACCOUNT / CLOUD — sign-in, monthly subscription and cloud storage live in
