@@ -46,6 +46,8 @@ datas = [
     ("student_folder_maker.py","."),   # lazily imported for rename templates
     ("excel_grid.py",          "."),   # imported by student_folder_maker
     ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
+    ("cloud_bridge.py",        "."),   # account / cloud methods of the JS bridge
+    ("secure_store.py",        "."),   # DPAPI protection of the stored session token
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -62,6 +64,8 @@ hiddenimports = [
     "sfm_bridge",
     "main_webview",
     "cloud_client",
+    "cloud_bridge",
+    "secure_store",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
