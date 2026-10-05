@@ -1275,8 +1275,10 @@ class SFMBridge:
 
     def save_settings(self, settings: dict) -> dict:
         try:
-            # theme and similar UI settings — store directly
-            allowed = {"theme", "last_folder", "zoom", "panel_layout"}
+            # UI settings from the Settings dialog / toolbar — store directly.
+            # (The API key is saved separately via set_api_key.)
+            allowed = {"theme", "output_folder", "ocr_lang",
+                       "last_folder", "zoom", "panel_layout"}
             to_save = {k: v for k, v in settings.items() if k in allowed}
             if to_save:
                 self._save_settings(to_save)

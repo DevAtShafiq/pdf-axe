@@ -967,12 +967,6 @@ const Dialogs = (() => {
           </div>
         </div>
         <div>
-          <label class="detail-label">Watch folder auto-rename</label>
-          <label style="display:flex;gap:8px;align-items:center;margin-top:4px;cursor:pointer">
-            <input type="checkbox" id="s-watchrename" ${s.watch_auto_rename ? 'checked' : ''}> Enable
-          </label>
-        </div>
-        <div>
           <label class="detail-label">OCR language</label>
           <select id="s-ocrlang" class="input-text" style="margin-top:4px;width:100%">
             ${['eng','kor','jpn','chi_sim','chi_tra','ara','fra','deu','spa','rus'].map(l =>
@@ -996,7 +990,6 @@ const Dialogs = (() => {
         if (newKey !== apiKey) await SFM.setApiKey(newKey);
         const ns = {
           output_folder:     document.getElementById('s-outfolder')?.value.trim() || '',
-          watch_auto_rename: document.getElementById('s-watchrename')?.checked || false,
           ocr_lang:          document.getElementById('s-ocrlang')?.value || 'eng',
           theme:             document.getElementById('s-theme')?.value || 'dark',
         };
