@@ -289,7 +289,7 @@ const App = (() => {
       if (ctrl && shift && key === 'N')  { e.preventDefault(); FileTree.newFolder(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
       if (key === 'F5')                  { e.preventDefault(); FileTree.refresh(); return; }
-      if (key === 'F2')                  { e.preventDefault(); Details.beginRename(); return; }
+      if (key === 'F2')                  { e.preventDefault(); FileTree.startRename(); return; }
       if (key === 'Delete')              { FileTree.deleteSelection(); return; }
       if (alt && key === 'ArrowLeft')    { e.preventDefault(); navBack(); return; }
       if (alt && key === 'ArrowRight')   { e.preventDefault(); navForward(); return; }
@@ -332,9 +332,7 @@ const App = (() => {
       if (r.ok) {
         const decoded = r.text || r.url || '';
         const pageInfo = r.page ? ` (page ${r.page})` : '';
-        // Put decoded text into rename bar so user can use it immediately
-        const ri = document.getElementById('rename-input');
-        if (ri && decoded) ri.value = decoded;
+        // (Use FileTree.startRename(path, decoded) to offer it as a file name.)
         // If it looks like a URL, offer to open it
         if (decoded.match(/^https?:\/\//i)) {
           toast(`QR decoded${pageInfo}: ${decoded.slice(0, 80)}`, 'success', 8000);

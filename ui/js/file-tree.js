@@ -5,7 +5,8 @@
  *   - Folder listing (list view + thumbnail view)
  *   - Multi-select (click, shift-click, ctrl-click, keyboard)
  *   - Lazy PDF thumbnail loading
- *   - Inline rename
+ *   - Inline rename (Explorer-style: F2 / slow second click / context menu,
+ *     template suggestions under the name, Tab / Shift+Tab = next / previous)
  *   - Drag-and-drop
  *   - Breadcrumb
  *   - Search filtering
@@ -27,7 +28,7 @@ const FileTree = (() => {
   let _thumbCache   = new Map();  // path → data-url
   let _thumbObserver = null;
   let _clipboard    = { mode: null, paths: [] }; // cut/copy
-  let _renameIdx    = -1;
+  let _edit         = null;  // active inline rename (see "Inline rename" below)
   let _searchQuery  = '';
   let _currentFolder = '';
 
@@ -95,9 +96,11 @@ const FileTree = (() => {
   // (used after an operation creates a new file, e.g. a merged PDF).
   async function refreshAndSelect(path) {
     if (!_currentFolder) return;
+    const box = _viewMode === 'list' ? listEl() : thumbEl();
+    const top = box ? box.scrollTop : 0;
     await loadFolder(_currentFolder);
-    const norm = p => String(p || '').replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase();
-    const idx = _filtered.findIndex(e => norm(e.path) === norm(path));
+    if (box) box.scrollTop = top;          // keep the scroll position
+    const idx = _filtered.findIndex(e => _samePath(e.path, path));
     if (idx < 0) return;
     _selected.clear();
     _selected.add(_filtered[idx].path);
@@ -107,6 +110,8 @@ const FileTree = (() => {
     _scrollFocusedIntoView();
   }
   const revealPath = refreshAndSelect;
+  const _normPath = p => String(p || '').replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase();
+  const _samePath = (a, b) => _normPath(a) === _normPath(b);
 
   // ── Search ────────────────────────────────────────────────────────────────
   function applySearch(query) {
@@ -130,6 +135,7 @@ const FileTree = (() => {
   function _renderCurrent() {
     if (_viewMode === 'list') _renderList();
     else                      _renderThumbs();
+    if (_edit) _mountEditor();
   }
 
   function _renderList() {
@@ -334,6 +340,19 @@ const FileTree = (() => {
   }
 
   function _handleRowClick(e, idx, entry) {
+    // Explorer "slow second click": a plain click on the name of the item that
+    // was already the only selection (for > 500 ms) starts renaming it, unless
+    // it turns into a double-click.
+    clearTimeout(_slowTimer);
+    const wasSole = _selected.size === 1 && _selected.has(entry.path) && _focusIdx === idx;
+    if (wasSole && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0 && e.detail === 1
+        && e.target && e.target.closest && e.target.closest('.name, .thumb-name')
+        && Date.now() - _soleSince > 500 && !_edit) {
+      _slowTimer = setTimeout(() => {
+        if (!_edit && _selected.size === 1 && _selected.has(entry.path)) startRename(entry.path);
+      }, 600);
+      return;   // selection is unchanged - no re-render needed
+    }
     if (e.ctrlKey || e.metaKey) {
       // toggle
       if (_selected.has(entry.path)) _selected.delete(entry.path);
@@ -358,6 +377,7 @@ const FileTree = (() => {
   // double-click a PDF or image opens FULL VIEW; other files just preview.
   const _FULLVIEW_EXTS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp', '.gif', '.jfif']);
   function _handleRowDblClick(e, entry) {
+    clearTimeout(_slowTimer);
     if (entry.is_dir) {
       App.navigate(entry.path);
       return;
@@ -379,6 +399,9 @@ const FileTree = (() => {
       _focusIdx = _filtered.findIndex(f => f.path === entry.path);
       _renderCurrent();
       _selectionChanged();
+    } else {
+      // Keep the right-clicked item focused (context-menu Rename acts on it).
+      _focusIdx = _filtered.findIndex(f => f.path === entry.path);
     }
     const selectedEntries = _filtered.filter(f => _selected.has(f.path));
     ContextMenu.show(e.clientX, e.clientY, selectedEntries);
@@ -386,6 +409,8 @@ const FileTree = (() => {
 
   function _selectionChanged() {
     const paths = Array.from(_selected);
+    const soleKey = paths.length === 1 ? paths[0] : '';
+    if (soleKey !== _soleKey) { _soleKey = soleKey; _soleSince = Date.now(); }
     App.state.selectedPaths = paths;
     App.state.focusedPath   = _focusIdx >= 0 ? (_filtered[_focusIdx]?.path || null) : null;
     App.setStatusSelection(paths.length, _filtered.length);
@@ -448,6 +473,7 @@ const FileTree = (() => {
 
   function _initKeyboardNav() {
     const handleKey = (e) => {
+      clearTimeout(_slowTimer);
       // Only active when file list has focus (or body, no focused input)
       const active = document.activeElement;
       const onList = active && (active.id === 'filelist-list' || active.id === 'filelist-thumb');
@@ -674,9 +700,411 @@ const FileTree = (() => {
     }
   }
 
+  // ── Inline rename (Windows Explorer style) ───────────────────────────────
+  //   F2 / context menu / slow second click on the selected name → the name
+  //   cell becomes a text box (stem pre-selected, extension not; folders: all)
+  //   with the template suggestions (RenameTemplates.attach) right under it.
+  //   Enter      commit (the highlighted template, else the typed name)
+  //   Tab        commit and rename the next item; Shift+Tab the previous one
+  //              (at either end of the list it just commits)
+  //   Esc        first closes the suggestion list, a second Esc cancels the
+  //              edit (with the list already closed, one Esc cancels)
+  //   Click elsewhere / focus leaves → commit the typed name (if changed)
+  //   Typed names: invalid characters are blocked with a balloon tip; an
+  //   extension change asks first; a name clash offers "x (2).pdf" (files) or
+  //   keeps editing (folders). Template picks auto-suffix on the bridge.
+  //   Every rename is undoable (Ctrl+Z). The list is not re-sorted until the
+  //   next refresh (like Explorer), so Tab walks the order you see.
+  const _BAD_CHARS   = /[\\/:*?"<>|]/;
+  const _STRIP_CHARS = /[\\/:*?"<>|\r\n\t]/g;
+  const _BAD_LIST    = '\\ / : * ? " < > |';
+  const _RESERVED    = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+  let _slowTimer  = null;
+  let _soleKey    = '';
+  let _soleSince  = 0;
+  let _rtDd       = null;   // shared suggestion dropdown element
+  let _tipEl      = null;   // balloon tip element
+  let _tipTimer   = null;
+  let _tipShownAt = 0;
+
+  const _extOfName = n => { const m = /(\.[^.\s\\/]*)$/.exec(n || ''); return m && m.index > 0 ? m[1] : ''; };
+  const _stemLen = (entry, text) => {
+    if (entry.is_dir) return text.length;
+    const dot = text.lastIndexOf('.');
+    return dot > 0 ? dot : text.length;
+  };
+
+  function isRenaming() { return !!_edit; }
+
+  // Public: start renaming `path` (default: the focused item). `initialText`
+  // pre-fills the box (e.g. a decoded QR value) instead of the current name.
+  function startRename(path, initialText) {
+    if (_edit && _edit.busy) return false;
+    if (_edit) _closeEditor(false);
+    clearTimeout(_slowTimer);
+    const idx = path ? _filtered.findIndex(e => _samePath(e.path, path)) : _focusIdx;
+    const entry = _filtered[idx];
+    if (!entry) { if (!path) App.toast('Select a file to rename', 'info', 1800); return false; }
+    // Explorer renames the focused item only, even with several selected.
+    const already = _selected.size === 1 && _selected.has(entry.path) && _focusIdx === idx;
+    _selected.clear(); _selected.add(entry.path);
+    _focusIdx = idx; _shiftAnchor = idx;
+    _edit = { path: entry.path, entry, idx, input: null, rt: null, busy: false,
+              initial: initialText != null ? String(initialText) : null };
+    _buildEditor();
+    _renderCurrent();                 // mounts the editor into the row
+    if (!already) _selectionChanged();
+    _scrollFocusedIntoView();
+    return true;
+  }
+
+  function _ensureDropdown() {
+    if (_rtDd && _rtDd.isConnected) return _rtDd;
+    _rtDd = document.createElement('div');
+    _rtDd.className = 'rename-suggestions inline-rename-suggestions hidden';
+    document.body.appendChild(_rtDd);
+    return _rtDd;
+  }
+
+  function _buildEditor() {
+    const ed = _edit;
+    const thumb = _viewMode !== 'list';
+    const input = document.createElement(thumb ? 'textarea' : 'input');
+    if (thumb) input.rows = 1; else input.type = 'text';
+    input.className = 'inline-rename' + (thumb ? ' inline-rename-thumb' : '');
+    input.spellcheck = false;
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('aria-label', 'New name');
+    input.value = ed.initial != null ? ed.initial.replace(_STRIP_CHARS, ' ').trim() : ed.entry.name;
+    ed.input = input;
+    ed.mountedOnce = false;
+
+    // Keep row/tile handlers (select, double-click open, context menu) away.
+    ['mousedown', 'click', 'dblclick', 'contextmenu'].forEach(t =>
+      input.addEventListener(t, ev => ev.stopPropagation()));
+
+    // Registered before RenameTemplates, so the text is clean before it filters.
+    input.addEventListener('input', () => {
+      const v = input.value;
+      if (/[\\/:*?"<>|\r\n\t]/.test(v)) {
+        const pos = input.selectionStart;
+        const before = v.slice(0, pos);
+        const removed = (before.match(_STRIP_CHARS) || []).length;
+        input.value = v.replace(_STRIP_CHARS, '');
+        try { input.setSelectionRange(pos - removed, pos - removed); } catch (_) {}
+        if (_BAD_CHARS.test(v)) _tip('A file name can’t contain any of the following characters:', _BAD_LIST);
+      } else if (Date.now() - _tipShownAt > 1500) {
+        _hideTip();
+      }
+      if (thumb) _autosize(input);
+    });
+
+    input.addEventListener('keydown', e => {
+      // Keys typed in the box never reach the list / global shortcuts: a commit
+      // can finish (and focus the list) before the event bubbles, and the
+      // list's Enter would then open the file.
+      e.stopPropagation();
+      if (e.key === 'Tab') {
+        e.preventDefault(); e.stopPropagation();
+        _commit({ advance: e.shiftKey ? -1 : 1 });
+      } else if (e.key === 'Enter' && thumb) {
+        e.preventDefault();   // textarea: never insert a newline
+      }
+    });
+
+    const onAway = () => setTimeout(() => {
+      if (_edit !== ed || ed.busy || !input.isConnected) return;
+      const a = document.activeElement;
+      if (a === input || (_rtDd && _rtDd.contains(a))) return;
+      if (!document.hasFocus()) return;          // switched windows: keep editing
+      _commit({ typedOnly: true, blur: true });
+    }, 0);
+    input.addEventListener('blur', onAway);
+    ed.onAway = onAway;
+    _ensureDropdown().addEventListener('focusout', onAway);
+
+    if (typeof RenameTemplates !== 'undefined') {
+      ed.rt = RenameTemplates.attach(input, _ensureDropdown(), {
+        place: 'below', inline: true,
+        bounds: () => { const p = document.getElementById('pane-filelist'); return p ? p.getBoundingClientRect() : null; },
+        getEntry: () => (_edit === ed ? ed.entry : null),
+        rename: action => _commit({ action }),
+        cancel: () => _cancelEdit(),
+      });
+      if (ed.initial != null) ed.rt.setTyped(true);
+    } else {
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); _commit({}); }
+        else if (e.key === 'Escape') { e.preventDefault(); _cancelEdit(); }
+      });
+    }
+  }
+
+  function _autosize(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight + 2, 96) + 'px';
+  }
+
+  // (Re)insert the editor into the row of the item being renamed — runs after
+  // every render, so a list refresh does not drop an edit in progress.
+  function _mountEditor() {
+    const ed = _edit;
+    const thumb = _viewMode !== 'list';
+    const box = thumb ? thumbEl() : listEl();
+    const idx = _filtered.findIndex(e => _samePath(e.path, ed.path));
+    const row = idx >= 0 && box ? box.querySelector(`[data-idx="${idx}"]`) : null;
+    const cell = row && row.querySelector(thumb ? '.thumb-name' : '.name');
+    if (!cell || thumb !== ed.input.classList.contains('inline-rename-thumb')) {
+      if (!ed.busy) _closeEditor(false);   // item gone or view switched
+      return;
+    }
+    ed.idx = idx;
+    const hadFocus = document.activeElement === ed.input;
+    const s0 = ed.input.selectionStart, s1 = ed.input.selectionEnd;
+    row.classList.add('renaming');
+    row.removeAttribute('title');
+    cell.textContent = '';
+    cell.removeAttribute('title');
+    cell.classList.add('is-editing');
+    cell.appendChild(ed.input);
+    if (thumb) _autosize(ed.input);
+    if (ed.busy) return;
+    if (!ed.mountedOnce) {
+      ed.mountedOnce = true;
+      ed.input.focus({ preventScroll: true });
+      const v = ed.input.value;
+      // Explorer: select the name without the extension (folders: everything);
+      // a pre-filled value (e.g. QR text) is selected whole.
+      ed.input.setSelectionRange(0, ed.initial != null ? v.length : _stemLen(ed.entry, v));
+    } else if (hadFocus || document.activeElement === document.body) {
+      ed.input.focus({ preventScroll: true });
+      try { ed.input.setSelectionRange(s0, s1); } catch (_) {}
+    }
+  }
+
+  // End the edit without renaming (Esc).
+  function _cancelEdit() {
+    if (!_edit || _edit.busy) return;
+    const hadFocus = document.activeElement === _edit.input;
+    _closeEditor(true);
+    if (hadFocus) _focusList();
+  }
+
+  function _closeEditor(render) {
+    const ed = _edit;
+    if (!ed) return;
+    _edit = null;
+    if (ed.rt) ed.rt.detach();
+    if (_rtDd) { _rtDd.classList.add('hidden'); _rtDd.removeEventListener('focusout', ed.onAway); }
+    _hideTip();
+    if (render) _renderCurrent();
+  }
+
+  function _focusList() {
+    const box = _viewMode === 'list' ? listEl() : thumbEl();
+    if (box) box.focus({ preventScroll: true });
+  }
+
+  // Commit the edit. action: {stem, save?} (template) | {typed} | undefined
+  // (= highlighted template, else the typed text). advance: ±1 = Tab/Shift+Tab.
+  async function _commit({ action, advance = 0, typedOnly = false, blur = false } = {}) {
+    const ed = _edit;
+    if (!ed || ed.busy) return;
+    if (!action) {
+      const s = !typedOnly && ed.rt ? ed.rt.selected() : null;
+      action = s ? { stem: s.stem } : { typed: ed.input.value };
+    }
+    const next = advance ? _filtered[ed.idx + advance] : null;
+    const nextPath = next ? next.path : null;
+    ed.busy = true;
+    if (ed.rt) ed.rt.hide();
+    let res;
+    try { res = await _applyRename(ed, action); }
+    catch (e) { res = 'stay'; _tip('Could not rename', String((e && e.message) || e)); }
+    finally { ed.busy = false; }
+
+    if (res === 'stay') {
+      if (_edit === ed && ed.input.isConnected) ed.input.focus({ preventScroll: true });
+      return;
+    }
+    if (_edit === ed) _closeEditor(true);
+    if (nextPath) startRename(nextPath);
+    else if (!blur) _focusList();
+  }
+
+  // → 'done' (renamed, or nothing to do) | 'stay' (keep editing)
+  async function _applyRename(ed, action) {
+    const entry = ed.entry;
+    const oldPath = entry.path, oldName = entry.name;
+    let r, suffixed = false;
+
+    if (action.stem != null) {
+      const stem = String(action.stem).trim();
+      if (!stem) return 'done';
+      r = await SFM.renameWithTemplate(oldPath, stem, !!action.save);
+      if (r && r.ok) {
+        const want = stem + (entry.is_dir ? '' : (entry.ext || _extOfName(oldName)));
+        const got = r.new_name || String(r.new_path || '').split(/[\\/]/).pop();
+        suffixed = !!got && got.toLowerCase() !== want.toLowerCase() && got !== oldName;
+      }
+    } else {
+      // Windows trims surrounding spaces and drops trailing dots; empty reverts.
+      let name = String(action.typed == null ? '' : action.typed).replace(/[\r\n\t]/g, '').trim().replace(/[. ]+$/, '');
+      if (!name || name === oldName) return 'done';
+      if (_BAD_CHARS.test(name)) { _tip('A file name can’t contain any of the following characters:', _BAD_LIST); return 'stay'; }
+      if (_RESERVED.test(name)) { _tip('The specified device name is invalid.', `“${name}” is reserved by Windows.`); return 'stay'; }
+      if (!entry.is_dir) {
+        const oe = _extOfName(oldName).toLowerCase(), ne = _extOfName(name).toLowerCase();
+        if (oe !== ne) {
+          const yes = await _ask({
+            title: 'Rename', icon: 'alert-triangle', tone: 'warning',
+            text: 'If you change a file name extension, the file might become unusable.',
+            detail: 'Are you sure you want to change it?',
+          });
+          if (!yes) return 'stay';
+        }
+      }
+      const clash = _entries.find(e => !_samePath(e.path, oldPath) && e.name.toLowerCase() === name.toLowerCase());
+      if (clash) {
+        if (entry.is_dir || clash.is_dir) {
+          _tip(`There is already a ${clash.is_dir ? 'folder' : 'file'} with the same name in this location.`, 'Type a different name.');
+          return 'stay';
+        }
+        const alt = _uniqueName(name, oldPath);
+        const yes = await _ask({
+          title: 'Rename file', icon: 'copy',
+          text: 'There is already a file with the same name in this location.',
+          detail: `Do you want to rename “${oldName}” to “${alt}”?`,
+        });
+        if (!yes) return 'stay';
+        name = alt;
+      }
+      r = await SFM.renameFile(oldPath, name);
+      if (r && r.ok) r.new_name = name;
+    }
+
+    if (!r || !r.ok) {
+      _tip('Could not rename', (r && r.error) || 'Unknown error');
+      return 'stay';
+    }
+    const newName = r.new_name || String(r.new_path || '').split(/[\\/]/).pop();
+    const newPath = r.new_path || oldPath.replace(/[^\\/]+$/, newName);
+    if (newName === oldName && _samePath(newPath, oldPath)) return 'done';
+
+    if (_edit === ed) _closeEditor(false);
+    _applyLocalRename(oldPath, newPath, newName);
+    App.pushUndo({
+      label: `Rename → ${newName}`,
+      undo: async () => {
+        const u = await SFM.renameFile(newPath, oldName);
+        if (!u || !u.ok) throw new Error((u && u.error) || 'rename failed');
+        await refreshAndSelect(u.new_path || oldPath);
+      },
+      redo: async () => {
+        const u = await SFM.renameFile(oldPath, newName);
+        if (!u || !u.ok) throw new Error((u && u.error) || 'rename failed');
+        await refreshAndSelect(u.new_path || newPath);
+      },
+    });
+    App.setStatus(`Renamed to ${newName}`);
+    if (action.save) {
+      App.toast(r.saved ? `Renamed to ${newName} · saved as template` : `Renamed to ${newName} (template not saved)`, r.saved ? 'success' : 'warning');
+    } else if (suffixed) {
+      App.toast(`Name was taken — renamed to ${newName}`, 'info', 2500);
+    }
+    return 'done';
+  }
+
+  // Update the renamed item in place (no re-sort until the next refresh) and
+  // keep it selected / focused.
+  function _applyLocalRename(oldPath, newPath, newName) {
+    const fix = e => {
+      if (!_samePath(e.path, oldPath)) return e;
+      const n = { ...e, name: newName, path: newPath };
+      if (!e.is_dir) n.ext = _extOfName(newName).toLowerCase();
+      return n;
+    };
+    const wasSame = _filtered === _entries;
+    _entries = _entries.map(fix);
+    _filtered = wasSame ? _entries : _filtered.map(fix);
+    if (_thumbCache.has(oldPath)) { _thumbCache.set(newPath, _thumbCache.get(oldPath)); _thumbCache.delete(oldPath); }
+    const wasSel = [..._selected].some(p => _samePath(p, oldPath));
+    _selected = new Set([..._selected].filter(p => !_samePath(p, oldPath)));
+    if (wasSel) _selected.add(newPath);
+    const i = _filtered.findIndex(e => _samePath(e.path, newPath));
+    if (i >= 0) _focusIdx = i;
+    _renderCurrent();
+    _selectionChanged();
+  }
+
+  // "name (2).ext", "name (3).ext" … not used by another item in this folder.
+  function _uniqueName(name, selfPath) {
+    const ext = _extOfName(name);
+    const stem = (ext ? name.slice(0, -ext.length) : name).replace(/ \(\d+\)$/, '');
+    const taken = new Set(_entries.filter(e => !_samePath(e.path, selfPath)).map(e => e.name.toLowerCase()));
+    for (let n = 2; n < 10000; n++) {
+      const cand = `${stem} (${n})${ext}`;
+      if (!taken.has(cand.toLowerCase())) return cand;
+    }
+    return name;
+  }
+
+  // Yes / No question in a design-system modal → Promise<boolean>.
+  // Enter = Yes (focused), Esc / × / backdrop / No = false.
+  function _ask({ title, text, detail, yes = 'Yes', no = 'No', icon = 'info', tone }) {
+    return new Promise(resolve => {
+      let done = false, mo = null, ov = null;
+      const finish = v => {
+        if (done) return;
+        done = true;
+        if (mo) mo.disconnect();
+        try { if (ov && ov.isConnected) ov._close(); } catch (_) {}
+        resolve(v);
+      };
+      const body = `<div class="ir-ask"><p class="ir-ask-text">${_esc(text)}</p>${detail ? `<p class="ir-ask-detail">${_esc(detail)}</p>` : ''}</div>`;
+      ov = Dialogs.openModal('inline-rename-ask', title, body, [
+        { label: no,  onClick: () => finish(false) },
+        { label: yes, primary: true, onClick: () => finish(true) },
+      ], { icon, tone, size: 'sm' });
+      mo = new MutationObserver(() => { if (!ov.isConnected) finish(false); });
+      mo.observe(document.body, { childList: true });
+      const y = ov.querySelector(`[data-modal-btn="${yes}"]`);
+      if (y) setTimeout(() => y.focus(), 0);
+    });
+  }
+
+  // Windows-style balloon tip under the rename box (above it while the
+  // suggestion list is open below).
+  function _tip(title, text) {
+    const ed = _edit;
+    if (!ed || !ed.input || !ed.input.isConnected) { App.toast(title + (text ? ' ' + text : ''), 'error', 4000); return; }
+    if (!_tipEl) {
+      _tipEl = document.createElement('div');
+      _tipEl.className = 'inline-rename-tip';
+      _tipEl.setAttribute('role', 'alert');
+      document.body.appendChild(_tipEl);
+    }
+    _tipEl.innerHTML = `<span class="inline-rename-tip-icon">${Icons.svg('alert-circle', 16)}</span>
+      <div class="inline-rename-tip-body"><div class="inline-rename-tip-title">${_esc(title)}</div>${text ? `<div class="inline-rename-tip-text">${_esc(text)}</div>` : ''}</div>`;
+    const r = ed.input.getBoundingClientRect();
+    const tw = Math.min(320, window.innerWidth - 16);
+    _tipEl.style.width = tw + 'px';
+    _tipEl.style.left = Math.max(8, Math.min(r.left, window.innerWidth - tw - 8)) + 'px';
+    _tipEl.classList.add('show');
+    const th = _tipEl.offsetHeight;
+    const ddOpen = _rtDd && !_rtDd.classList.contains('hidden');
+    const above = ddOpen ? (r.top - th - 8 >= 4) : (window.innerHeight - r.bottom < th + 12);
+    _tipEl.classList.toggle('above', above);
+    _tipEl.style.top = (above ? r.top - th - 8 : r.bottom + 8) + 'px';
+    clearTimeout(_tipTimer);
+    _tipTimer = setTimeout(_hideTip, 5000);
+    _tipShownAt = Date.now();
+  }
+  function _hideTip() { clearTimeout(_tipTimer); if (_tipEl) _tipEl.classList.remove('show'); }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function _esc(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
   function getSelected()     { return Array.from(_selected); }
@@ -881,5 +1309,6 @@ const FileTree = (() => {
     combineSelected, browseFolder,
     getSelected, getFocusedEntry, getCurrentFolder,
     expandAll, collapseAll,
+    startRename, isRenaming,
   };
 })();

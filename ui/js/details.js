@@ -1,8 +1,8 @@
 /**
  * details.js — Right-hand details pane
  *
- * Shows file metadata, rename bar with autocomplete,
- * quick actions, and AI photo section.
+ * Shows file metadata, quick actions, and the AI photo section.
+ * (Rename is inline in the file list — see FileTree.startRename.)
  */
 
 const Details = (() => {
@@ -22,7 +22,7 @@ const Details = (() => {
     _showPanel();
     _renderBadge(entry);
     _renderRows(entry);
-    _setRenameValue(entry.name);
+    $('quick-actions').classList.remove('hidden');
     _showConvertAction(entry);
     _showAiSection(entry);
     if (window.PdfTools) PdfTools.onDetails(entry);
@@ -31,8 +31,6 @@ const Details = (() => {
       const info = await SFM.getFileInfo(entry.path);
       if (info.ok && _path === entry.path) _enrichDetails(info);
     } catch(e) {}
-
-    if (_rt) _rt.reset();
   }
 
   // ── Public: multi-select summary ──────────────────────────────────────────
@@ -48,7 +46,6 @@ const Details = (() => {
     _addRow('Selected', entries.length + ' items');
     _addRow('Total size', _fmtSize(totalSize));
 
-    $('rename-wrap').classList.add('hidden');
     $('quick-actions').classList.add('hidden');
     $('ai-photo-section').classList.add('hidden');
     if (window.PdfTools) PdfTools.onDetails(null, entries);
@@ -123,72 +120,8 @@ const Details = (() => {
     if (info.sheets?.length) _addRow('Sheets', info.sheets.join(', '));
   }
 
-  // ── Rename bar ────────────────────────────────────────────────────────────
-  function _setRenameValue(name) {
-    const input = $('rename-input');
-    if (!input) return;
-    input.value = name;
-    $('rename-wrap').classList.remove('hidden');
-    $('quick-actions').classList.remove('hidden');
-  }
-
-  // Template suggestions dropdown (rename-templates.js) — attached in init().
-  let _rt = null;
-
-  function _initRenameBar() {
-    const input = $('rename-input');
-    const ac    = $('rename-autocomplete');
-    if (!input || !ac) return;
-    if (typeof RenameTemplates !== 'undefined') {
-      _rt = RenameTemplates.attach(input, ac, {
-        getEntry: () => _entry,
-        rename:   opts => _commitRename(opts),
-      });
-    } else {
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _commitRename(); } });
-    }
-    const btn = $('rename-btn');
-    if (btn) btn.addEventListener('click', () => _commitRename());
-  }
-
-  // opts: {}                → rename to the typed name as-is
-  //       { stem }          → rename to <stem><original ext>, auto " (2)" on clash
-  //       { stem, save }    → same, and save the name as a custom template
-  async function _commitRename(opts = {}) {
-    const input = $('rename-input');
-    if (!input || !_path) return;
-    const oldPath = _path, oldName = _entry?.name || '';
-    let r;
-    if (opts.stem != null) {
-      if (!String(opts.stem).trim()) return;
-      r = await SFM.renameWithTemplate(oldPath, opts.stem, !!opts.save);
-    } else {
-      const newName = (opts.typed ?? input.value).trim();
-      if (!newName || newName === oldName) return;
-      r = await SFM.renameFile(oldPath, newName);
-      if (r.ok) r.new_name = newName;
-    }
-    if (r.ok) {
-      const newName = r.new_name || (r.new_path || '').split(/[\\/]/).pop();
-      const newPath = r.new_path;
-      App.pushUndo({
-        label: `Rename → ${newName}`,
-        undo: async () => { await SFM.renameFile(newPath, oldName); FileTree.refresh(); },
-        redo: async () => { await SFM.renameFile(oldPath, newName); FileTree.refresh(); }
-      });
-      _path = newPath;
-      if (_entry) _entry = { ..._entry, name: newName, path: newPath };
-      input.value = newName;
-      if (_rt) _rt.reset();
-      App.toast(opts.save
-        ? (r.saved ? `Renamed to ${newName} · saved as template` : `Renamed to ${newName} (template not saved)`)
-        : `Renamed to ${newName}`, 'success');
-      FileTree.refresh();
-    } else {
-      App.toast('Rename failed: ' + r.error, 'error');
-      input.value = oldName;
-    }
-  }
+  // Renaming happens inline in the file list (FileTree.startRename: F2,
+  // slow second click, context menu, "Rename (F2)" quick action).
 
   // ── Quick actions ─────────────────────────────────────────────────────────
   function _initQuickActions() {
@@ -196,6 +129,7 @@ const Details = (() => {
 
     wire('qa-open',    () => { if (_path) SFM.openNative(_path); });
     wire('qa-opendir', () => { if (_path) SFM.openFolder(_path.replace(/[\\/][^\\/]+$/, '')); });
+    wire('qa-rename',  () => { if (_path) FileTree.startRename(_path); });
     wire('qa-copy-path', () => {
       if (!_path) return;
       navigator.clipboard.writeText(_path).catch(() => SFM.setClipboard(_path));
@@ -282,21 +216,16 @@ const Details = (() => {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
-    _initRenameBar();
     _initQuickActions();
     _initAiPhoto();
     clear();
   }
   init();
 
-  // ── Public: beginRename — F2 shortcut ────────────────────────────────────
-  function beginRename() {
-    const input = $('rename-input');
-    if (!input || !_path) return;
-    input.focus();
-    const name = input.value;
-    const dot  = name.lastIndexOf('.');
-    input.setSelectionRange(0, dot > 0 ? dot : name.length);
+  // ── Public: beginRename — compatibility shim (old details-pane rename box).
+  // Starts the inline rename in the file list; `text` pre-fills the box.
+  function beginRename(text) {
+    return FileTree.startRename(_path || undefined, text);
   }
 
   return { showFile, showMultiple, clear, beginRename, runAiPhoto };

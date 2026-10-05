@@ -8,7 +8,13 @@
  *        - ↑/↓ highlight, Enter picks (a strong top match is pre-selected), Esc closes, mouse click picks
  *        - Ctrl+Enter renames to the typed name AND saves it as a template
  *        - language dropdown (International / Korean …) persisted to settings
- *      opts: { getEntry(): entry|null, rename({stem?, typed?, save?}) }
+ *      opts: { getEntry(): entry|null, rename({stem?, typed?, save?}),
+ *              place?: 'beside' (default, right-aligned) | 'below' (left-aligned
+ *                      under the input, e.g. the inline file-list rename),
+ *              bounds?(): DOMRect   keep the dropdown inside this box (width/left),
+ *              cancel?()            Esc with the list already closed,
+ *              inline?: true        key-hint row mentions Tab / Esc for inline edits }
+ *      returns { reset, refresh, hide, selected(), isOpen(), setTyped(bool), detach() }
  *
  *  RenameTemplates.openManager()
  *      "Document name templates" manager (list, search, Add / Apply / Remove /
@@ -72,6 +78,7 @@ const RenameTemplates = (() => {
     let seq     = 0;         // request sequence (drop stale responses)
     let typed   = false;     // user changed the text since showing the file
     let open    = false;
+    let dead    = false;     // detach() called
 
     dd.classList.add('rt-dropdown');
 
@@ -86,6 +93,7 @@ const RenameTemplates = (() => {
     };
 
     async function refresh() {
+      if (dead) return;
       if (!entry()) { hide(); return; }
       await loadLang();
       const my = ++seq;
@@ -133,7 +141,14 @@ const RenameTemplates = (() => {
                 <span class="rt-keys"><span class="kbd">Ctrl</span><span class="kbd">Enter</span></span>
               </div>`;
       }
-      h += `<div class="kbd-hints rt-hints">
+      h += opts.inline
+        ? `<div class="kbd-hints rt-hints">
+              <span><span class="kbd">↑</span><span class="kbd">↓</span>select</span>
+              <span><span class="kbd">Enter</span>rename</span>
+              <span><span class="kbd">Tab</span>next file</span>
+              <span><span class="kbd">Ctrl</span><span class="kbd">Enter</span>save as template</span>
+              <span><span class="kbd">Esc</span>close · cancel</span></div>`
+        : `<div class="kbd-hints rt-hints">
               <span><span class="kbd">↑</span><span class="kbd">↓</span>select</span>
               <span><span class="kbd">Enter</span>apply</span>
               <span><span class="kbd">Ctrl</span><span class="kbd">Enter</span>save as template</span>
@@ -156,13 +171,25 @@ const RenameTemplates = (() => {
       });
     }
 
-    // The details pane is narrow and clips overflow, so float the list with
-    // fixed positioning: right-aligned to the input, wider than it if needed.
+    // Panes clip overflow, so float the list with fixed positioning.
+    //  'beside' (default): right-aligned to the input, wider than it if needed.
+    //  'below'           : left-aligned under the input, kept inside bounds()
+    //                      (the file-list pane); flips above near the bottom.
     function place() {
+      if (!input.isConnected) return;
       const r  = input.getBoundingClientRect();
       const vw = window.innerWidth, vh = window.innerHeight;
-      const w  = Math.min(Math.max(r.width, 300), vw - 16);
-      const left = Math.max(8, Math.min(r.right - w, vw - w - 8));
+      let w, left;
+      if (opts.place === 'below') {
+        const b = (opts.bounds && opts.bounds()) || { left: 8, right: vw - 8, width: vw - 16 };
+        const bl = Math.max(4, b.left + 4), br = Math.min(vw - 4, b.right - 4);
+        w = Math.max(220, Math.min(Math.max(r.width, 380), br - bl));
+        left = Math.max(bl, Math.min(r.left, br - w));
+        left = Math.max(4, Math.min(left, vw - w - 4));
+      } else {
+        w = Math.min(Math.max(r.width, 300), vw - 16);
+        left = Math.max(8, Math.min(r.right - w, vw - w - 8));
+      }
       const below = vh - r.bottom - 10, above = r.top - 10;
       dd.style.position = 'fixed';
       dd.style.left  = left + 'px';
@@ -176,8 +203,9 @@ const RenameTemplates = (() => {
         dd.style.maxHeight = Math.max(120, Math.min(340, above)) + 'px';
       }
     }
-    window.addEventListener('resize', () => { if (open) place(); });
-    document.addEventListener('scroll', () => { if (open) place(); }, true);
+    const _onMove = () => { if (open) place(); };
+    window.addEventListener('resize', _onMove);
+    document.addEventListener('scroll', _onMove, true);
 
     function rows() { return dd.querySelectorAll('.rt-item'); }
 
@@ -190,6 +218,11 @@ const RenameTemplates = (() => {
     function hide() {
       dd.classList.add('hidden');
       open = false; idx = -1; seq++;
+    }
+
+    // The highlighted template (what Enter would apply), or null.
+    function selected() {
+      return open && idx >= 0 && idx < items.length ? items[idx] : null;
     }
 
     async function pick(i) {
@@ -206,15 +239,17 @@ const RenameTemplates = (() => {
       await opts.rename({ stem: st, save: true });
     }
 
-    input.addEventListener('focus', () => { refresh(); });
-    input.addEventListener('input', () => { typed = true; refresh(); });
+    const _onFocus = () => { refresh(); };
+    const _onInput = () => { typed = true; refresh(); };
     const _hideIfAway = () => setTimeout(() => {
       if (document.activeElement !== input && !dd.contains(document.activeElement)) hide();
     }, 150);
+    input.addEventListener('focus', _onFocus);
+    input.addEventListener('input', _onInput);
     input.addEventListener('blur', _hideIfAway);
     dd.addEventListener('focusout', _hideIfAway);
 
-    input.addEventListener('keydown', async e => {
+    const _onKey = async e => {
       const n = rows().length;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -244,16 +279,35 @@ const RenameTemplates = (() => {
         await opts.rename({ typed: input.value.trim() });
       } else if (e.key === 'Escape') {
         e.stopPropagation();
+        e.preventDefault();
+        // First Esc closes the list; Esc with the list closed cancels the edit.
         if (open) { hide(); }
+        else if (opts.cancel) { opts.cancel(); }
         else { input.value = entry()?.name || ''; typed = false; }
       }
-    });
+    };
+    input.addEventListener('keydown', _onKey);
 
-    _listeners.add(() => { if (open) refresh(); });
+    const _onLang = () => { if (open) refresh(); };
+    _listeners.add(_onLang);
 
     return {
       reset() { typed = false; hide(); },
-      refresh, hide,
+      refresh, hide, selected,
+      isOpen: () => open,
+      setTyped(v) { typed = !!v; },
+      // Remove every listener (inline editors attach to a fresh input each time).
+      detach() {
+        dead = true; hide();
+        input.removeEventListener('focus', _onFocus);
+        input.removeEventListener('input', _onInput);
+        input.removeEventListener('blur', _hideIfAway);
+        input.removeEventListener('keydown', _onKey);
+        dd.removeEventListener('focusout', _hideIfAway);
+        window.removeEventListener('resize', _onMove);
+        document.removeEventListener('scroll', _onMove, true);
+        _listeners.delete(_onLang);
+      },
     };
   }
 
