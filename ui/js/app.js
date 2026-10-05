@@ -31,9 +31,11 @@ const App = (() => {
     state.currentPanel = name;
     document.querySelectorAll('.panel-view').forEach(el => {
       el.style.display = 'none';
+      el.classList.add('hidden');
     });
     const target = document.getElementById(`panel-${name}`);
-    if (target) target.style.display = 'flex';
+    // .hidden is display:none !important, so it must come off as well
+    if (target) { target.classList.remove('hidden'); target.style.display = 'flex'; }
 
     document.querySelectorAll('.sidebar-btn[data-panel]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.panel === name);

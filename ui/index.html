@@ -41,6 +41,14 @@
 
     <div class="sidebar-bottom">
       <div class="sidebar-divider"></div>
+      <button class="sidebar-btn" data-panel="cloud" title="">
+        ☁️
+        <span class="tooltip-label">Cloud</span>
+      </button>
+      <button class="sidebar-btn" data-panel="account" title="">
+        👤
+        <span class="tooltip-label">Account</span>
+      </button>
       <button class="sidebar-btn" data-panel="settings" title="">
         ⚙️
         <span class="tooltip-label">Settings</span>
@@ -434,6 +442,16 @@
       <button class="btn btn-primary" id="open-settings-dialog" style="min-width:180px">Open Settings…</button>
     </div>
 
+    <!-- ─── PANEL: Account (rendered by account.js) ── -->
+    <div id="panel-account" class="panel-view acct-panel" style="display:none">
+      <div class="acct-panel-inner" id="acct-panel-body"></div>
+    </div>
+
+    <!-- ─── PANEL: Cloud (rendered by account.js) ──── -->
+    <div id="panel-cloud" class="panel-view acct-panel" style="display:none">
+      <div class="acct-panel-inner cloud-panel-inner" id="cloud-panel-body"></div>
+    </div>
+
   </main><!-- /workspace -->
 
   <!-- ═══════════════════════════════════════════════
@@ -457,6 +475,10 @@
     <div class="status-item" id="status-watch" style="display:none">
       <span class="dot busy"></span>
       <span id="status-watch-text">Watch: 0 active</span>
+    </div>
+    <div class="status-item acct-chip" id="acct-chip" style="display:none" title="Account">
+      <span class="acct-chip-dot" id="acct-chip-dot"></span>
+      <span id="acct-chip-text"></span>
     </div>
     <div class="status-sep" id="status-sep-cost"></div>
     <div class="status-item">
@@ -486,6 +508,7 @@
      ═══════════════════════════════════════════════ -->
 <script src="js/bridge.js"></script>
 <script src="js/app.js"></script>
+<script src="js/account.js"></script>
 <script src="js/file-tree.js"></script>
 <script src="js/preview.js"></script>
 <script src="js/details.js"></script>

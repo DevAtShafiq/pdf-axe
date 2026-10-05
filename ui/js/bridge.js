@@ -198,5 +198,23 @@ const SFM = (() => {
     // AI photo
     runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
     aiPhotoActions:      ()                        => call('ai_photo_actions'),
+    // Account / subscription / cloud storage
+    accountGetState:     ()                        => call('account_get_state'),
+    accountSetServer:    (url)                     => call('account_set_server', url),
+    accountRegister:     (email, password)         => call('account_register', email, password),
+    accountLogin:        (email, password)         => call('account_login', email, password),
+    accountLogout:       ()                        => call('account_logout'),
+    billingOpenCheckout: ()                        => call('billing_open_checkout'),
+    billingOpenPortal:   ()                        => call('billing_open_portal'),
+    cloudList:           (trashed=false)           => call('cloud_list', trashed),
+    cloudUsage:          ()                        => call('cloud_usage'),
+    cloudPickFiles:      ()                        => call('cloud_pick_files'),
+    cloudUpload:         (paths, remoteDir='')     => call('cloud_upload', paths, remoteDir),
+    cloudDownload:       (ids, destDir)            => call('cloud_download', ids, destDir),
+    cloudTrash:          (ids)                     => call('cloud_trash', ids),
+    cloudRestore:        (ids)                     => call('cloud_restore', ids),
+    cloudSyncStart:      (folder)                  => call('cloud_sync_start', folder),
+    cloudSyncStop:       ()                        => call('cloud_sync_stop'),
+    cloudSyncStatus:     ()                        => call('cloud_sync_status'),
   };
 })();

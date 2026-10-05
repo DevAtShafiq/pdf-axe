@@ -14,3 +14,4 @@ _to_review/abrodia office use software.zip
 server/data/
 server/.env
 .pytest_cache/
+.claude/worktrees/
