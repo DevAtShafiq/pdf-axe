@@ -380,13 +380,9 @@ const App = (() => {
     wire('btn-compress-pdf', () => {
       const p = state.focusedPath || state.selectedPaths[0];
       if (!p) { toast('Select a PDF or image first', 'warning'); return; }
-      // Images selected → image compression; PDFs → PDF compression (batch).
-      const all  = (state.selectedPaths || []).length ? state.selectedPaths : [p];
-      const imgs = all.filter(ConvertTools.isImage);
-      const pdfs = all.filter(ConvertTools.isPdf);
-      if (ConvertTools.isImage(p) || (!pdfs.length && imgs.length)) { Dialogs.openCompressImages(imgs.length ? imgs : [p]); return; }
-      if (pdfs.length) { Dialogs.openCompressPdf(pdfs); return; }
-      toast('Compress works on PDFs and images', 'warning');
+      // One dialog for PDFs, images or a mix (target size or quality).
+      const all = (state.selectedPaths || []).length ? state.selectedPaths : [p];
+      ConvertTools.openCompress(all);
     });
     wire('btn-convert', () => {
       const p = state.focusedPath || state.selectedPaths[0];

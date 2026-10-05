@@ -6,8 +6,8 @@ Pure functions (no UI, no pywebview) used by sfm_bridge.SFMBridge:
     images_to_pdf(paths, out_path, page_size, orientation, margin_mm, quality, order)
     pdf_to_images(path, fmt, dpi, pages, out_dir, quality)
     convert_image(path, fmt, quality, out_path)
-    compress_pdf(path, preset, out_path)
-    compress_image(path, quality, max_edge, fmt, out_path, target_bytes)
+    compress_pdf(path, preset, out_path, target_kb, save_smallest, progress)
+    compress_image(path, quality, max_edge, fmt, out_path, target_bytes, save_smallest)
 
 Rules shared by every function here:
   * The source file is never modified.
@@ -526,20 +526,26 @@ def _pick_output(path: str, fmt: str, target: bool):
         pil_fmt, ext = "JPEG", ".jpg"   # BMP/TIFF/GIF/HEIC compress best as JPEG
     if target and pil_fmt == "PNG":
         pil_fmt, ext = "JPEG", ".jpg"
-        note = "PNG has no quality setting, so a target size saves as JPG"
+        note = "Saved as JPG to reach the target (PNG has no quality setting)"
     return pil_fmt, ext, note
 
 
 def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "",
-                   out_path: str = "", target_bytes: int = 0) -> dict:
+                   out_path: str = "", target_bytes: int = 0,
+                   save_smallest: bool = True) -> dict:
     """Re-encode an image smaller; the original is never touched.
 
     target_bytes > 0 searches for the best quality that fits under that size
     (shrinking the image if needed) and ignores ``quality``.
     When nothing changes but the encoding and the result is not smaller,
     no file is written and ``kept_original`` is True.
+    With a target: an original already under the target is kept as it is,
+    a result that is not smaller than the original is never written, and when
+    the target cannot be reached the smallest version is written only if
+    ``save_smallest`` (``can_save_smallest`` / ``smallest`` tell the caller).
     Returns {"out", "before", "after", "quality", "size", "kept_original",
-             "target_met", "note"}.
+             "target_met", "note", "target_bytes", "smallest",
+             "can_save_smallest", "format_changed"}.
     """
     Image = _pil()
     if not os.path.isfile(path):
@@ -558,22 +564,43 @@ def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "
     if max_edge and max(img.size) > max_edge:
         img.thumbnail((max_edge, max_edge), Image.LANCZOS)
 
+    same_kind = ext.lower() == _ext(path) or (
+        pil_fmt == "JPEG" and _ext(path) in (".jpg", ".jpeg"))
+    resized = img.size != orig_size
+    extra = {"target_bytes": target, "smallest": None, "can_save_smallest": False,
+             "format_changed": not same_kind}
+
+    def _kept(note_, met=None, after=before):
+        return {"out": "", "before": before, "after": after, "quality": quality,
+                "size": list(orig_size), "kept_original": True, "target_met": met,
+                "note": note_, **extra}
+
     target_met = None
     if target:
+        tlabel = fmt_short(target)
+        if before <= target and not resized and not fmt:
+            return _kept(f"Already under {tlabel} — the original was kept", True)
         data, quality, _, target_met = _fit_to_target(img, pil_fmt, target, dpi)
+        extra["smallest"] = len(data)
+        extra["can_save_smallest"] = len(data) < before
+        if len(data) >= before and not resized and not fmt:
+            # Never write a copy bigger than the original.
+            if before <= target:
+                return _kept(f"Already under {tlabel} — the original was kept", True)
+            return _kept(f"Could not reach {tlabel} — the original ({fmt_short(before)}) "
+                         "is already the smallest version", False)
         if not target_met:
-            msg = f"Could not get under {fmt_size(target)}; saved the smallest version"
+            msg = (f"Could not reach {tlabel} — smallest possible is "
+                   f"{fmt_short(len(data))}")
+            if not save_smallest:
+                return _kept(msg, False, len(data))
+            msg += " — saved the smallest version"
             note = f"{note}. {msg}" if note else msg
     else:
         data = _encode(img, pil_fmt, quality, dpi)
 
-    same_kind = ext.lower() == _ext(path) or (
-        pil_fmt == "JPEG" and _ext(path) in (".jpg", ".jpeg"))
-    resized = img.size != orig_size
     if not target and same_kind and not resized and len(data) >= before:
-        return {"out": "", "before": before, "after": before, "quality": quality,
-                "size": list(orig_size), "kept_original": True, "target_met": None,
-                "note": "Already well compressed — the original was kept"}
+        return _kept("Already well compressed — the original was kept")
 
     if not out_path:
         out_path = os.path.splitext(path)[0] + "_compressed" + ext
@@ -582,7 +609,7 @@ def compress_image(path: str, quality: int = 70, max_edge: int = 0, fmt: str = "
         size = list(chk.size)
     return {"out": final, "before": before, "after": len(data), "quality": quality,
             "size": size, "kept_original": False, "target_met": target_met,
-            "note": note}
+            "note": note, **extra}
 
 
 # ── PDF compression ──────────────────────────────────────────────────────────
@@ -632,22 +659,151 @@ def _rewrite_images_fallback(doc, threshold: int, target: int, quality: int) -> 
                 continue
 
 
-def compress_pdf(path: str, preset: str = "ebook", out_path: str = "") -> dict:
-    """Shrink a PDF with PyMuPDF: downsample + recompress images, subset fonts,
-    drop unused objects and deflate streams.  Text stays text.
+def fmt_short(n: int) -> str:
+    """Compact size for messages: "340 KB", "1.2 MB", "2 MB"."""
+    n = int(n or 0)
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{round(n / 1024)} KB"
+    mb = n / (1024 * 1024)
+    s = f"{mb:.1f}".rstrip("0").rstrip(".")
+    return f"{s} MB"
 
-    The result is written to ``<name>_compressed.pdf`` only when it is at
-    least 1% smaller than the original; otherwise ``kept_original`` is True
-    and no file is written.
-    Returns {"out", "before", "after", "saved", "reduction", "kept_original",
-    "preset", "note"}.
-    """
+
+# Settings tried when compressing to a target size, best quality first.
+# None = clean-up only (images untouched); (dpi, jpeg_quality) otherwise.
+# The named presets sit on this ladder: printer (300, 80), ebook (150, 60),
+# screen (72, 40).
+PDF_TARGET_LADDER = [
+    None,
+    (300, 85), (300, 80), (250, 80), (200, 80), (200, 70), (170, 70),
+    (150, 70), (150, 60), (135, 60), (120, 55), (110, 55), (96, 55),
+    (96, 45), (85, 45), (72, 40), (72, 35), (60, 35), (60, 30), (50, 30),
+]
+# Decoded images are kept between attempts while they fit in this budget.
+_DECODE_CACHE_PIXELS = 60_000_000
+
+# Most recent "target not reachable" results, kept in memory so that
+# "Save smallest anyway" does not have to run the search again.
+_PDF_PENDING: dict = {}
+_PDF_PENDING_MAX = 3
+
+
+def _pending_key(path: str, target: int):
+    st = os.stat(path)
+    return (os.path.abspath(path).lower(), st.st_mtime_ns, st.st_size, int(target))
+
+
+def _pdf_pass(src: bytes, threshold: int, target: int, quality: int) -> bytes:
+    """One compression pass over an in-memory PDF; returns the new bytes.
+    quality == 0 leaves images untouched (clean-up only)."""
     fitz = _fitz()
-    key = resolve_preset(preset)
-    cfg = PDF_PRESETS[key]
+    doc = fitz.open(stream=src, filetype="pdf")
+    try:
+        if quality:
+            if hasattr(doc, "rewrite_images"):
+                doc.rewrite_images(dpi_threshold=threshold, dpi_target=target,
+                                   quality=quality, bitonal=False)
+            else:
+                _rewrite_images_fallback(doc, threshold, target, quality)
+        try:
+            doc.subset_fonts()
+        except Exception:
+            pass
+        save_kw = dict(garbage=4, deflate=True, deflate_images=True,
+                       deflate_fonts=True, clean=True)
+        try:
+            return doc.tobytes(use_objstms=1, **save_kw)
+        except TypeError:
+            return doc.tobytes(**save_kw)
+    finally:
+        doc.close()
+
+
+def _decode_image(doc, xref):
+    """PDF image xref -> Pillow image (RGB or L), or None when not supported."""
+    fitz = _fitz()
+    Image = _pil()
+    pix = fitz.Pixmap(doc, xref)
+    if pix.n - pix.alpha >= 4:                 # CMYK etc.
+        pix = fitz.Pixmap(fitz.csRGB, pix)
+    if pix.alpha:
+        pix = fitz.Pixmap(pix, 0)
+    if pix.n not in (1, 3):
+        return None
+    mode = "L" if pix.n == 1 else "RGB"
+    return Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+
+
+def _pdf_pass_exact(src: bytes, dpi: int, quality: int, images: list,
+                    cache: dict) -> bytes:
+    """One target-size attempt: every raster image shown above ``dpi`` is
+    resampled to exactly ``dpi`` and re-encoded as JPEG ``quality``.  An image
+    is only replaced when its new stream is smaller than the old one, and
+    images with a transparency mask are left alone."""
+    fitz = _fitz()
+    Image = _pil()
+    doc = fitz.open(stream=src, filetype="pdf")
+    try:
+        for im in images:
+            xref = im["xref"]
+            try:
+                img = cache.get(xref)
+                if img is None:
+                    img = _decode_image(doc, xref)
+                    if img is None:
+                        continue
+                    if cache.get("_px", 0) + img.width * img.height <= _DECODE_CACHE_PIXELS:
+                        cache[xref] = img
+                        cache["_px"] = cache.get("_px", 0) + img.width * img.height
+                eff = img.width / im["width_in"]
+                out = img
+                if eff > dpi * 1.05:
+                    s = dpi / eff
+                    out = img.resize((max(1, round(img.width * s)),
+                                      max(1, round(img.height * s))), Image.LANCZOS)
+                buf = io.BytesIO()
+                out.save(buf, format="JPEG", quality=int(quality), optimize=True)
+                data = buf.getvalue()
+                if len(data) < im["raw_len"]:
+                    doc[im["pno"]].replace_image(xref, stream=data)
+            except Exception:
+                continue
+        try:
+            doc.subset_fonts()
+        except Exception:
+            pass
+        save_kw = dict(garbage=4, deflate=True, deflate_images=True,
+                       deflate_fonts=True, clean=True)
+        try:
+            return doc.tobytes(use_objstms=1, **save_kw)
+        except TypeError:
+            return doc.tobytes(**save_kw)
+    finally:
+        doc.close()
+
+
+def _ladder_pass(src: bytes, step, images: list, cache: dict) -> bytes:
+    if step is None or not images:
+        return _pdf_pass(src, 0, 0, 0)
+    return _pdf_pass_exact(src, step[0], step[1], images, cache)
+
+
+def _step_label(step) -> str:
+    return "Clean-up only" if step is None else f"{step[0]} dpi, quality {step[1]}"
+
+
+def _read_pdf(path: str):
+    """Validate a PDF and return (bytes, images).
+
+    ``images`` lists each raster image without a transparency mask once:
+    {"xref", "pno" (a page showing it), "width_in" (widest display width in
+    inches), "raw_len" (current stream size)}.  ``len(images)`` may be 0 for
+    text/vector-only PDFs."""
+    fitz = _fitz()
     if not os.path.isfile(path):
         raise ConvertError(f"File not found: {os.path.basename(path)}")
-    before = os.path.getsize(path)
     try:
         doc = fitz.open(path)
     except Exception as exc:
@@ -657,40 +813,181 @@ def compress_pdf(path: str, preset: str = "ebook", out_path: str = "") -> dict:
             raise ConvertError("This PDF is password-protected")
         if not doc.is_pdf:
             raise ConvertError("Not a PDF file")
-        if cfg["quality"]:
-            if hasattr(doc, "rewrite_images"):
-                doc.rewrite_images(dpi_threshold=cfg["dpi_threshold"],
-                                   dpi_target=cfg["dpi_target"],
-                                   quality=cfg["quality"], bitonal=False)
-            else:
-                _rewrite_images_fallback(doc, cfg["dpi_threshold"],
-                                         cfg["dpi_target"], cfg["quality"])
-        try:
-            doc.subset_fonts()
-        except Exception:
-            pass
-        save_kw = dict(garbage=4, deflate=True, deflate_images=True,
-                       deflate_fonts=True, clean=True)
-        try:
-            data = doc.tobytes(use_objstms=1, **save_kw)
-        except TypeError:
-            data = doc.tobytes(**save_kw)
+        images: dict = {}
+        for page in doc:
+            try:
+                infos = page.get_images(full=True)
+            except Exception:
+                continue
+            for info in infos:
+                xref, smask = info[0], info[1]
+                if smask:
+                    continue
+                try:
+                    rects = page.get_image_rects(xref)
+                    w = max((r.width for r in rects), default=0) / 72.0
+                    if w <= 0:
+                        continue
+                    cur = images.get(xref)
+                    if cur is None:
+                        images[xref] = {"xref": xref, "pno": page.number, "width_in": w,
+                                        "raw_len": len(doc.xref_stream_raw(xref) or b"")}
+                    elif w > cur["width_in"]:
+                        cur["width_in"] = w
+                except Exception:
+                    continue
     finally:
         doc.close()
+    with open(path, "rb") as f:
+        return f.read(), list(images.values())
 
-    after = len(data)
-    if after >= before * 0.99:
-        reason = ("The compressed copy came out larger"
-                  if after >= before else "Less than 1% smaller")
-        return {"out": "", "before": before, "after": before, "saved": 0,
-                "reduction": 0.0, "kept_original": True, "preset": key,
-                "note": reason + " — the original was kept (no new file)"}
-    if not out_path:
-        out_path = os.path.splitext(path)[0] + "_compressed.pdf"
-    if os.path.abspath(out_path) == os.path.abspath(path):
+
+def _search_target(src: bytes, target: int, images: list,
+                   progress: ProgressCb | None):
+    """Find the best-quality ladder step whose output fits in ``target`` bytes.
+
+    Tries clean-up only first, then the strongest step (if that does not fit
+    nothing will), then binary-searches the ladder in between.
+    Returns (data, step, met, attempts, smallest_data, smallest_step).
+    """
+    ladder = PDF_TARGET_LADDER if images else PDF_TARGET_LADDER[:1]
+    cache: dict = {}
+    n = len(ladder)
+    est_total = 1 if n == 1 else 2 + max(1, (n - 2).bit_length())
+    tried: dict[int, bytes] = {}
+
+    def attempt(i: int) -> bytes:
+        if i not in tried:
+            if progress:
+                progress(len(tried), est_total, f"Trying {_step_label(ladder[i])}…")
+            tried[i] = _ladder_pass(src, ladder[i], images, cache)
+            if progress:
+                progress(len(tried), max(est_total, len(tried)),
+                         f"{_step_label(ladder[i])} → {fmt_short(len(tried[i]))}")
+        return tried[i]
+
+    def fits(i: int) -> bool:
+        return len(attempt(i)) <= target
+
+    if not fits(0) and n > 1 and fits(n - 1):
+        lo, hi = 1, n - 2
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if fits(mid):
+                hi = mid - 1
+            else:
+                lo = mid + 1
+    good = sorted(i for i, d in tried.items() if len(d) <= target)
+    small_i = min(tried, key=lambda i: len(tried[i]))
+    if good:
+        i = good[0]
+        return tried[i], ladder[i], True, len(tried), tried[small_i], ladder[small_i]
+    return (tried[small_i], ladder[small_i], False, len(tried),
+            tried[small_i], ladder[small_i])
+
+
+def compress_pdf(path: str, preset: str = "ebook", out_path: str = "",
+                 target_kb: float | None = None, save_smallest: bool = False,
+                 progress: ProgressCb | None = None) -> dict:
+    """Shrink a PDF with PyMuPDF: downsample + recompress images, subset fonts,
+    drop unused objects and deflate streams.  Text stays text.
+
+    Without ``target_kb`` the named ``preset`` is used.  The result is written
+    to ``<name>_compressed.pdf`` only when it is at least 1% smaller than the
+    original; otherwise ``kept_original`` is True and no file is written.
+
+    With ``target_kb`` the best-quality setting whose result is at or under
+    the target is searched for (``preset`` is ignored).  When even the
+    strongest setting cannot reach it, nothing is written unless
+    ``save_smallest`` is True; ``target_met`` is False and ``smallest`` /
+    ``note`` say what is possible.  A file bigger than the original is never
+    written and the original is never overwritten.
+
+    Returns {"out", "before", "after", "saved", "reduction", "kept_original",
+    "preset", "note", "target_bytes", "target_met", "smallest",
+    "can_save_smallest", "settings", "attempts"}.
+    """
+    target = int(float(target_kb or 0) * 1024)
+    key = "target" if target > 0 else resolve_preset(preset)
+    if out_path and os.path.abspath(out_path) == os.path.abspath(path):
         raise ConvertError("Refusing to overwrite the original PDF")
-    final = _write_new(out_path, data)
-    saved = before - after
-    return {"out": final, "before": before, "after": after, "saved": saved,
-            "reduction": round(saved * 100.0 / before, 1) if before else 0.0,
-            "kept_original": False, "preset": key, "note": ""}
+    src, images = _read_pdf(path)
+    before = len(src)
+    base = {"before": before, "preset": key, "target_bytes": target,
+            "target_met": None, "smallest": None, "can_save_smallest": False,
+            "settings": "", "attempts": 0}
+
+    def kept(note, **kw):
+        r = {**base, "out": "", "after": before, "saved": 0, "reduction": 0.0,
+             "kept_original": True, "note": note}
+        r.update(kw)
+        return r
+
+    def written(data, note="", **kw):
+        nonlocal out_path
+        if not out_path:
+            out_path = os.path.splitext(path)[0] + "_compressed.pdf"
+        final = _write_new(out_path, data)
+        after = len(data)
+        saved = before - after
+        r = {**base, "out": final, "after": after, "saved": saved,
+             "reduction": round(saved * 100.0 / before, 1) if before else 0.0,
+             "kept_original": False, "note": note}
+        r.update(kw)
+        return r
+
+    # ── named preset ──
+    if not target:
+        cfg = PDF_PRESETS[key]
+        if progress:
+            progress(0, 1, cfg["label"])
+        data = _pdf_pass(src, cfg["dpi_threshold"], cfg["dpi_target"], cfg["quality"])
+        if progress:
+            progress(1, 1, "Done")
+        after = len(data)
+        if after >= before * 0.99:
+            reason = ("The compressed copy came out larger"
+                      if after >= before else "Less than 1% smaller")
+            return kept(reason + " — the original was kept (no new file)")
+        return written(data)
+
+    # ── target size ──
+    tlabel = fmt_short(target)
+    if before <= target:
+        return kept(f"Already under {tlabel} — the original was kept (no new file)",
+                    target_met=True)
+
+    pkey = _pending_key(path, target)
+    cached = _PDF_PENDING.get(pkey) if save_smallest else None
+    if cached:
+        data, step, met, attempts = cached["data"], cached["step"], False, 0
+        smallest, small_step = data, step
+    else:
+        data, step, met, attempts, smallest, small_step = _search_target(
+            src, target, images, progress)
+    base.update(attempts=attempts, smallest=len(smallest),
+                can_save_smallest=len(smallest) < before)
+
+    if met:
+        base["settings"] = _step_label(step)
+        _PDF_PENDING.pop(pkey, None)
+        return written(data, f"Under {tlabel} ({_step_label(step).lower()})",
+                       target_met=True)
+
+    why = ("text and vector content can't be compressed further" if not images
+           else "even with images at 50 dpi and the lowest quality")
+    msg = f"Could not reach {tlabel} — smallest possible is {fmt_short(len(smallest))} ({why})"
+    base["settings"] = _step_label(small_step)
+    if len(smallest) >= before:
+        _PDF_PENDING.pop(pkey, None)
+        return kept(msg + ". No smaller copy is possible, so the original was kept.",
+                    target_met=False)
+    if not save_smallest:
+        _PDF_PENDING[pkey] = {"data": smallest, "step": small_step}
+        while len(_PDF_PENDING) > _PDF_PENDING_MAX:
+            _PDF_PENDING.pop(next(iter(_PDF_PENDING)))
+        r = kept(msg, target_met=False)
+        r["after"] = len(smallest)          # what "Save smallest anyway" would give
+        return r
+    _PDF_PENDING.pop(pkey, None)
+    return written(smallest, msg + " — saved the smallest version", target_met=False)

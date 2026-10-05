@@ -100,14 +100,18 @@ const ContextMenu = (() => {
     const mixedPdfImg = !allPdf && entries.length > 1
       && entries.every(e => /^\.(pdf|jpe?g|png|bmp|gif|tiff?|webp)$/i.test(e.ext || ''))
       && entries.some(e => (e.ext||'').toLowerCase() === '.pdf');
+    // One Compress dialog for PDFs, images or a mix (target size or quality).
+    const cmpLabel = n => n > 1 ? 'Compress ' + n + ' files…' : 'Compress…';
+    const openCmp = () => { hide(); ConvertTools.openCompress(entries.map(e => e.path)); };
     if (mixedPdfImg) {
       _item(menu, 'merge', 'Merge into One PDF…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
+      _item(menu, 'compress', cmpLabel(entries.length), '', openCmp);
       _sep(menu);
     }
     if (allPdf) {
       if (multi) {
         _item(menu, 'merge', 'Merge PDFs…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
-        _item(menu, 'compress', 'Compress ' + entries.length + ' PDFs…', '', () => { hide(); Dialogs.openCompressPdf(entries.map(e => e.path)); });
+        _item(menu, 'compress', cmpLabel(entries.length), '', openCmp);
         _sep(menu);
       }
       if (isPdf) {
@@ -125,7 +129,7 @@ const ContextMenu = (() => {
           hide(); Dialogs.openSmartSplitProgress(mainPath);
         });
         _item(menu, 'scan-text', 'Rename by Doc Type (OCR)\u2026', '', () => { hide(); Dialogs.openOcrRenameProgress([mainPath]); });
-        _item(menu, 'compress', 'Compress PDF…',  '', () => { hide(); Dialogs.openCompressPdf(mainPath); });
+        if (!multi) _item(menu, 'compress', 'Compress…', '', () => { hide(); ConvertTools.openCompress([mainPath]); });
         _item(menu, 'images', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
         _item(menu, 'scan-text', 'Split & Rename by OCR…',   '', () => { hide(); Dialogs.openSplitRenameOcrProgress(mainPath); });
         _sep(menu);
@@ -143,8 +147,7 @@ const ContextMenu = (() => {
     const allImg = entries.length > 0 && entries.every(e => !e.is_dir && IMG_EXTS.includes((e.ext||'').toLowerCase()));
     if (allImg) {
       const imgPaths = entries.map(e => e.path);
-      _item(menu, 'compress', imgPaths.length > 1 ? 'Compress Images…' : 'Compress Image…', '',
-        () => { hide(); Dialogs.openCompressImages(imgPaths); });
+      _item(menu, 'compress', cmpLabel(imgPaths.length), '', () => { hide(); ConvertTools.openCompress(imgPaths); });
       _item(menu, 'convert', 'Convert Image Format…', '', () => { hide(); ConvertTools.openConvertImage(imgPaths); });
       if (imgPaths.length > 1) {
         // Several images → one multi-page PDF (reorderable) or one PDF each

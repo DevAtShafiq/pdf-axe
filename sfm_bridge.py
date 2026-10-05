@@ -744,13 +744,23 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin):
         except Exception as exc:
             return _err(str(exc))
 
-    def compress_pdf(self, path: str, out_path: str = "", preset: str = "ebook") -> dict:
+    def compress_pdf(self, path: str, out_path: str = "", preset: str = "ebook",
+                     target_kb: float = 0, save_smallest: bool = False,
+                     _progress=None) -> dict:
         """Compress a PDF (see media_convert.compress_pdf). Never overwrites;
         when the result would not be smaller no file is written and
-        kept_original is True."""
+        kept_original is True.
+
+        target_kb > 0 searches for the best quality at or under that size
+        (preset is ignored). If the target cannot be reached nothing is
+        written (target_met False, ``smallest`` = best possible size) unless
+        save_smallest is True."""
         try:
-            r = _mc.compress_pdf(path, preset or "ebook", out_path or "")
-            return _ok(**r, out_path=r["out"], before_bytes=r["before"],
+            r = _mc.compress_pdf(path, preset or "ebook", out_path or "",
+                                 target_kb=float(target_kb or 0),
+                                 save_smallest=bool(save_smallest),
+                                 progress=_progress)
+            return _ok(**r, path=path, out_path=r["out"], before_bytes=r["before"],
                        after_bytes=r["after"], saved_bytes=r["saved"],
                        saved_str=_fmt_size(r["saved"]),
                        before_str=_fmt_size(r["before"]),
@@ -760,10 +770,22 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin):
             return _err(str(exc), path=path)
 
     def compress_pdf_quality(self, path: str, quality: str = "ebook",
-                             out_path: str = "") -> dict:
+                             out_path: str = "", target_kb: float = 0,
+                             save_smallest: bool = False) -> dict:
         """Compress a PDF with a preset: screen / ebook / printer / lossless
-        (aliases low/medium/high/prepress accepted)."""
-        return self.compress_pdf(path, out_path, quality)
+        (aliases low/medium/high/prepress accepted), or to a target size."""
+        return self.compress_pdf(path, out_path, quality, target_kb, save_smallest)
+
+    def file_sizes(self, paths: list) -> dict:
+        """{path: size in bytes} for existing files (missing ones are left out)."""
+        sizes = {}
+        for p in list(paths or []):
+            try:
+                if os.path.isfile(p):
+                    sizes[p] = os.path.getsize(p)
+            except OSError:
+                pass
+        return _ok(sizes=sizes)
 
     def rotate_pdf_page(self, path: str, page: int, degrees: int) -> dict:
         try:
@@ -983,14 +1005,18 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin):
     # ── Image compression / format conversion ─────────────────────────────
 
     def compress_image(self, path: str, quality: int = 70, max_edge: int = 0,
-                       fmt: str = "", out_path: str = "", target_kb: int = 0) -> dict:
+                       fmt: str = "", out_path: str = "", target_kb: float = 0,
+                       save_smallest: bool = True) -> dict:
         """Compress one image to <name>_compressed.<ext>. target_kb > 0 finds
         the best quality under that size. If plain re-encoding would not make
-        it smaller, nothing is written and kept_original is True."""
+        it smaller, nothing is written and kept_original is True. With a
+        target that cannot be reached, save_smallest=False writes nothing
+        (target_met False, ``smallest`` = best possible size)."""
         try:
             res = _mc.compress_image(path, int(quality or 70), int(max_edge or 0),
                                      fmt or "", out_path or "",
-                                     int(target_kb or 0) * 1024)
+                                     int(float(target_kb or 0) * 1024),
+                                     bool(save_smallest))
             before, after = res["before"], res["after"]
             pct = round((before - after) * 100.0 / before, 1) if before else 0.0
             return _ok(**res, saved=before - after, reduction=pct, path=path)
@@ -1115,15 +1141,26 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin):
         self._thread(_run)
         return _ok(started=True)
 
-    def compress_pdf_async(self, path: str, out_path: str = "", preset: str = "ebook") -> dict:
+    def compress_pdf_async(self, path: str, out_path: str = "", preset: str = "ebook",
+                           target_kb: float = 0, job: str = "",
+                           save_smallest: bool = False) -> dict:
+        """Threaded compress_pdf. Without ``job`` the result is emitted as
+        compress_done (legacy). With ``job`` every target-size attempt is
+        emitted as media_progress and the result as media_done, both tagged
+        with ``job``."""
         def _run():
+            event = "media_done" if job else "compress_done"
             try:
-                r = self.compress_pdf(path, out_path, preset)
-                self._emit("compress_done", r)
+                prog = self._media_progress(job) if job else None
+                r = self.compress_pdf(path, out_path, preset, target_kb,
+                                      save_smallest, _progress=prog)
+                if job:
+                    r["job"] = job
+                self._emit(event, r)
             except Exception as exc:
-                self._emit("compress_done", _err(str(exc)))
+                self._emit(event, _err(str(exc), job=job) if job else _err(str(exc)))
         self._thread(_run)
-        return _ok(started=True)
+        return _ok(started=True, job=job)
 
     def convert_to_pdf_async(self, paths: list) -> dict:
         def _run():
