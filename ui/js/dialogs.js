@@ -887,39 +887,9 @@ const Dialogs = (() => {
   }
 
   // ── 8. Document Name Templates ────────────────────────────────────────────
-  async function openTemplates() {
-    const r = await SFM.getRenameTemplates();
-    const templates = r.ok ? (r.templates || []) : [];
-    const listHtml  = templates.map((t, i) =>
-      `<div class="template-row" data-idx="${i}">
-        <span class="template-name">${_esc(t.name || t)}</span>
-        <span class="template-pattern text-muted">${_esc(t.pattern || '')}</span>
-      </div>`
-    ).join('') || '<p class="text-muted">No templates saved yet.</p>';
-
-    const body = `
-      <div id="template-list" style="max-height:200px;overflow:auto;margin-bottom:12px">${listHtml}</div>
-      <div>
-        <label class="detail-label">New template name</label>
-        <input id="tmpl-name" class="input-text" placeholder="e.g. Passport_John Doe" style="width:100%;margin-top:4px">
-      </div>
-      <div style="margin-top:8px">
-        <label class="detail-label">Pattern (use {name}, {date}, {ext})</label>
-        <input id="tmpl-pattern" class="input-text" placeholder="{name}_{date}" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('templates', 'Document Name Templates', body, [
-      { label: 'Close', onClick: closeModal },
-      { label: 'Save Template', primary: true, onClick: async () => {
-        const name = document.getElementById('tmpl-name')?.value.trim();
-        const pat  = document.getElementById('tmpl-pattern')?.value.trim();
-        if (!name) { App.toast('Enter a template name', 'error'); return; }
-        const r = await SFM.saveRenameTemplate({ name, pattern: pat || name });
-        if (r.ok) { App.toast('Template saved', 'success'); closeModal(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
+  // Full manager lives in rename-templates.js (language, list, search,
+  // Add / Apply / Remove / Save to file).
+  function openTemplates() { return RenameTemplates.openManager(); }
 
   // ── 9. Change Case / Uppercase ────────────────────────────────────────────
   function openUppercase() {

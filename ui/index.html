@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Student File Manager</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="rename-templates.css">
 </head>
 <body>
 
@@ -275,11 +276,11 @@
             <div class="detail-section-title">Rename</div>
             <div style="position:relative">
               <input type="text" class="rename-input input-text" id="rename-input"
-                     placeholder="New name…" autocomplete="off" spellcheck="false" style="width:100%">
+                     placeholder="New name… (type to see templates)" autocomplete="off" spellcheck="false" style="width:100%">
               <div id="rename-autocomplete" class="rename-suggestions hidden" style="position:absolute;width:100%;z-index:200"></div>
             </div>
             <div style="display:flex;gap:6px;margin-top:6px">
-              <button class="btn btn-primary" id="rename-btn" style="flex:1" title="Apply rename (Shift+Enter)">Apply</button>
+              <button class="btn btn-primary" id="rename-btn" style="flex:1" title="Apply rename (Enter) · Shift+Enter: best template · Ctrl+Enter: rename + save as template">Apply</button>
             </div>
           </div>
 
@@ -382,6 +383,7 @@
 <script src="js/account.js"></script>
 <script src="js/file-tree.js"></script>
 <script src="js/preview.js"></script>
+<script src="js/rename-templates.js"></script>
 <script src="js/details.js"></script>
 <script src="js/context-menu.js"></script>
 <script src="js/dialogs.js"></script>

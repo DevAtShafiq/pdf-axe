@@ -10,8 +10,6 @@ const Details = (() => {
   // ── State ─────────────────────────────────────────────────────────────────
   let _path         = null;
   let _entry        = null;
-  let _suggestions  = [];
-  let _acIdx        = -1;
 
   // ── DOM helpers ───────────────────────────────────────────────────────────
   const $  = id  => document.getElementById(id);
@@ -33,7 +31,7 @@ const Details = (() => {
       if (info.ok && _path === entry.path) _enrichDetails(info);
     } catch(e) {}
 
-    _loadSuggestions(entry);
+    if (_rt) _rt.reset();
   }
 
   // ── Public: multi-select summary ──────────────────────────────────────────
@@ -130,109 +128,61 @@ const Details = (() => {
     $('quick-actions').classList.remove('hidden');
   }
 
-  async function _loadSuggestions(entry) {
-    try {
-      const r = await SFM.filterSuggestions('', entry.ext || '');
-      _suggestions = r.ok ? (r.suggestions || []) : [];
-    } catch(e) { _suggestions = []; }
-  }
+  // Template suggestions dropdown (rename-templates.js) — attached in init().
+  let _rt = null;
 
   function _initRenameBar() {
     const input = $('rename-input');
     const ac    = $('rename-autocomplete');
     if (!input || !ac) return;
-
-    input.addEventListener('input', async () => {
-      const q = input.value.trim();
-      _acIdx  = -1;
-      if (!q) { _hideAc(); return; }
-      try {
-        const ext = _entry?.ext || '';
-        const r   = await SFM.filterSuggestions(q, ext);
-        _showAc(r.ok ? (r.suggestions || []) : [], input);
-      } catch(e) { _hideAc(); }
-    });
-
-    input.addEventListener('keydown', async e => {
-      const items = ac.querySelectorAll('.ac-item');
-      if (e.key === 'ArrowDown') { e.preventDefault(); _acIdx = Math.min(_acIdx + 1, items.length - 1); _acHighlight(items); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); _acIdx = Math.max(_acIdx - 1, -1); _acHighlight(items); }
-      else if (e.key === 'Enter' && e.shiftKey) {
-        // Shift+Enter: apply the best template suggestion for this file, then rename.
-        e.preventDefault();
-        let chosen = null;
-        if (_acIdx >= 0 && items[_acIdx]) chosen = items[_acIdx].dataset.val;   // highlighted suggestion
-        else if (items.length)            chosen = items[0].dataset.val;        // top listed suggestion
-        else {
-          // No dropdown open — fetch the best matching template for the current name/ext.
-          try {
-            const r = await SFM.filterSuggestions(input.value.trim(), _entry?.ext || '');
-            const sugg = (r.ok && r.suggestions) ? r.suggestions : [];
-            if (sugg.length) chosen = sugg[0];
-          } catch (_) {}
-        }
-        if (chosen) input.value = chosen;      // fall back to the typed value when nothing matched
-        _hideAc();
-        _commitRename();
-      }
-      else if (e.key === 'Enter') {
-        // Plain Enter only accepts a highlighted autocomplete suggestion.
-        if (_acIdx >= 0 && items[_acIdx]) { e.preventDefault(); input.value = items[_acIdx].dataset.val; _hideAc(); }
-      }
-      else if (e.key === 'Escape') { _hideAc(); input.value = _entry?.name || ''; }
-    });
-
-    input.addEventListener('blur', () => { setTimeout(_hideAc, 120); });
-
+    if (typeof RenameTemplates !== 'undefined') {
+      _rt = RenameTemplates.attach(input, ac, {
+        getEntry: () => _entry,
+        rename:   opts => _commitRename(opts),
+      });
+    } else {
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _commitRename(); } });
+    }
     const btn = $('rename-btn');
-    if (btn) btn.addEventListener('click', _commitRename);
+    if (btn) btn.addEventListener('click', () => _commitRename());
   }
 
-  function _showAc(items, input) {
-    const ac = $('rename-autocomplete');
-    if (!ac) return;
-    ac.innerHTML = '';
-    items.slice(0, 12).forEach(val => {
-      const d = document.createElement('div');
-      d.className = 'ac-item'; d.dataset.val = val;
-      d.textContent = val;
-      d.addEventListener('mousedown', e => { e.preventDefault(); input.value = val; _hideAc(); });
-      ac.appendChild(d);
-    });
-    ac.classList.toggle('hidden', items.length === 0);
-  }
-
-  function _hideAc() {
-    const ac = $('rename-autocomplete');
-    if (ac) ac.classList.add('hidden');
-    _acIdx = -1;
-  }
-
-  function _acHighlight(items) {
-    items.forEach((el, i) => el.classList.toggle('active', i === _acIdx));
-    if (_acIdx >= 0 && items[_acIdx]) $('rename-input').value = items[_acIdx].dataset.val;
-  }
-
-  async function _commitRename() {
+  // opts: {}                → rename to the typed name as-is
+  //       { stem }          → rename to <stem><original ext>, auto " (2)" on clash
+  //       { stem, save }    → same, and save the name as a custom template
+  async function _commitRename(opts = {}) {
     const input = $('rename-input');
     if (!input || !_path) return;
-    const newName = input.value.trim();
-    if (!newName || newName === _entry?.name) return;
-
-    const r = await SFM.renameFile(_path, newName);
+    const oldPath = _path, oldName = _entry?.name || '';
+    let r;
+    if (opts.stem != null) {
+      if (!String(opts.stem).trim()) return;
+      r = await SFM.renameWithTemplate(oldPath, opts.stem, !!opts.save);
+    } else {
+      const newName = (opts.typed ?? input.value).trim();
+      if (!newName || newName === oldName) return;
+      r = await SFM.renameFile(oldPath, newName);
+      if (r.ok) r.new_name = newName;
+    }
     if (r.ok) {
+      const newName = r.new_name || (r.new_path || '').split(/[\\/]/).pop();
+      const newPath = r.new_path;
       App.pushUndo({
         label: `Rename → ${newName}`,
-        undo: async () => { await SFM.renameFile(r.new_path, _entry.name); FileTree.refresh(); },
-        redo: async () => { await SFM.renameFile(_path, newName); FileTree.refresh(); }
+        undo: async () => { await SFM.renameFile(newPath, oldName); FileTree.refresh(); },
+        redo: async () => { await SFM.renameFile(oldPath, newName); FileTree.refresh(); }
       });
-      _path = r.new_path;
-      if (_entry) _entry = { ..._entry, name: newName, path: r.new_path };
-      App.toast(`Renamed to ${newName}`, 'success');
+      _path = newPath;
+      if (_entry) _entry = { ..._entry, name: newName, path: newPath };
+      input.value = newName;
+      if (_rt) _rt.reset();
+      App.toast(opts.save
+        ? (r.saved ? `Renamed to ${newName} · saved as template` : `Renamed to ${newName} (template not saved)`)
+        : `Renamed to ${newName}`, 'success');
       FileTree.refresh();
     } else {
       App.toast('Rename failed: ' + r.error, 'error');
-      input.value = _entry?.name || '';
+      input.value = oldName;
     }
   }
 
