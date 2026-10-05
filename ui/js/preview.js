@@ -75,13 +75,15 @@ const Preview = (() => {
       await _openText(path);
     } else {
       _showOnly('empty');
-      emptyEl().innerHTML = `<span class="big-icon">📄</span><p>${_esc(name)}</p><p class="text-muted" style="font-size:11px">No preview available</p>`;
+      emptyEl().innerHTML = `<div class="empty-state-icon">${Icons.file({ ext: _ext, name }, 28)}</div>`
+        + `<p class="empty-state-title">${_esc(name)}</p><p class="empty-state-text">No preview for this file type. Use “Open” in the details pane.</p>`;
     }
   }
 
   function clear() {
     _path = null; _pdfCount = 0; _pdfCurPage = 0;
     _showOnly('empty');
+    if (_emptyDefault !== null) emptyEl().innerHTML = _emptyDefault;
     fileNameEl().textContent = 'No file selected';
   }
 
@@ -227,7 +229,8 @@ const Preview = (() => {
   // ── Error state ───────────────────────────────────────────────────────────
   function _showError(msg) {
     _showOnly('empty');
-    emptyEl().innerHTML = `<span class="big-icon">⚠️</span><p class="text-red">${_esc(msg)}</p>`;
+    emptyEl().innerHTML = `<div class="empty-state-icon text-red">${Icons.svg('alert-triangle', 26)}</div>`
+      + `<p class="empty-state-title">Can't show a preview</p><p class="empty-state-text text-red">${_esc(String(msg))}</p>`;
   }
 
   // ── Zoom ──────────────────────────────────────────────────────────────────
@@ -251,6 +254,9 @@ const Preview = (() => {
   function _updateZoomLabel() {
     const lbl = zoomLabel();
     if (lbl) lbl.textContent = Math.round(_zoom * 100) + '%';
+    // Visual only: at ≤100% pages are capped to the pane width (style.css)
+    const wrap = pdfWrap();
+    if (wrap) wrap.classList.toggle('fit-width', _zoom <= 1.0001);
   }
 
   // ── PDF contextual toolbar ────────────────────────────────────────────────
@@ -338,7 +344,9 @@ const Preview = (() => {
   function getPdfCount()    { return _pdfCount; }
 
   // ── Init ──────────────────────────────────────────────────────────────────
+  let _emptyDefault = null;   // the static "Nothing selected" markup from index.html
   function init() {
+    if (emptyEl()) _emptyDefault = emptyEl().innerHTML;
     _initPdfToolbar();
     _initZoomButtons();
     _initPdfKeyNav();

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Student File Manager</title>
+<title>PDF Axe</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="rename-templates.css">
 <link rel="stylesheet" href="convert-tools.css">
@@ -16,30 +16,29 @@
 <div id="app">
 
   <!-- ═══════════════════════════════════════════════
-       SIDEBAR — vertical icon rail
+       SIDEBAR — vertical navigation rail
        ═══════════════════════════════════════════════ -->
-  <aside id="sidebar">
-    <div class="sidebar-logo">S</div>
+  <aside id="sidebar" aria-label="Main navigation">
+    <div class="sidebar-logo" id="sidebar-logo" title="PDF Axe"></div>
 
     <nav class="sidebar-nav">
-      <button class="sidebar-btn active" data-panel="workspace" title="">
-        🗂
-        <span class="tooltip-label">Files Workspace</span>
+      <button class="sidebar-btn active" data-panel="workspace" aria-label="Files">
+        <i data-icon="folder" data-size="20"></i>
+        <span class="tooltip-label">Files</span>
+      </button>
+      <button class="sidebar-btn" data-panel="cloud" aria-label="Cloud">
+        <i data-icon="cloud" data-size="20"></i>
+        <span class="tooltip-label">Cloud</span>
       </button>
     </nav>
 
     <div class="sidebar-bottom">
-      <div class="sidebar-divider"></div>
-      <button class="sidebar-btn" data-panel="cloud" title="">
-        ☁️
-        <span class="tooltip-label">Cloud</span>
-      </button>
-      <button class="sidebar-btn" data-panel="account" title="">
-        👤
+      <button class="sidebar-btn" data-panel="account" aria-label="Account">
+        <i data-icon="user" data-size="20"></i>
         <span class="tooltip-label">Account</span>
       </button>
-      <button class="sidebar-btn" data-panel="settings" title="">
-        ⚙️
+      <button class="sidebar-btn" data-panel="settings" aria-label="Settings">
+        <i data-icon="settings" data-size="20"></i>
         <span class="tooltip-label">Settings</span>
       </button>
     </div>
@@ -52,86 +51,75 @@
 
     <!-- Navigation -->
     <div class="toolbar-group">
-      <button class="toolbar-btn-icon" id="btn-nav-back"    title="Back (Alt+Left)"    disabled>←</button>
-      <button class="toolbar-btn-icon" id="btn-nav-forward" title="Forward (Alt+Right)" disabled>→</button>
-      <button class="toolbar-btn-icon" id="btn-nav-up"      title="Up (Alt+Up)">↑</button>
+      <button class="toolbar-btn-icon" id="btn-nav-back"    title="Back (Alt+Left)"     aria-label="Back" disabled><i data-icon="arrow-left"></i></button>
+      <button class="toolbar-btn-icon" id="btn-nav-forward" title="Forward (Alt+Right)" aria-label="Forward" disabled><i data-icon="arrow-right"></i></button>
+      <button class="toolbar-btn-icon" id="btn-nav-up"      title="Up one level (Alt+Up)" aria-label="Up one level"><i data-icon="arrow-up"></i></button>
     </div>
 
     <div class="toolbar-sep"></div>
 
     <!-- Folder actions -->
     <div class="toolbar-group">
-      <button class="toolbar-btn" id="btn-open-folder">
-        <span class="icon">📂</span> Open
+      <button class="toolbar-btn toolbar-btn-strong" id="btn-open-folder">
+        <i data-icon="folder-open"></i><span class="tb-label">Open</span>
       </button>
-      <button class="toolbar-btn-icon" id="btn-refresh" title="Refresh (F5)">🔄</button>
-      <button class="toolbar-btn-icon" id="btn-new-folder" title="New Folder (Ctrl+Shift+N)">📁+</button>
+      <button class="toolbar-btn-icon" id="btn-refresh"    title="Refresh (F5)" aria-label="Refresh"><i data-icon="refresh"></i></button>
+      <button class="toolbar-btn-icon" id="btn-new-folder" title="New folder (Ctrl+Shift+N)" aria-label="New folder"><i data-icon="folder-plus"></i></button>
     </div>
 
     <div class="toolbar-sep"></div>
 
-    <!-- PDF operations -->
+    <!-- Document tools -->
     <div class="toolbar-group">
-      <button class="toolbar-btn" id="btn-combine-pdf" title="Combine PDFs (Ctrl+Enter)">
-        <span class="icon">📎</span> Combine
+      <button class="toolbar-btn" id="btn-convert" title="Convert images to PDF, or PDF pages to images">
+        <i data-icon="convert"></i><span class="tb-label">Convert</span>
       </button>
-      <button class="toolbar-btn" id="btn-smart-split" title="Smart Split, Merge & Rename (GPT-4o)">
-        <span class="icon">✂️</span> Smart Split
+      <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDFs or images">
+        <i data-icon="compress"></i><span class="tb-label">Compress</span>
       </button>
-      <button class="toolbar-btn" id="btn-convert" title="Convert: images → PDF, PDF → images">
-        <span class="icon">🔁</span> Convert
+      <button class="toolbar-btn" id="btn-combine-pdf" title="Merge selected PDFs and images (Ctrl+Enter)">
+        <i data-icon="merge"></i><span class="tb-label">Merge</span>
       </button>
-      <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDF(s) or image(s)">
-        <span class="icon">🗜</span> Compress
+      <button class="toolbar-btn" id="btn-smart-split" title="Smart split &amp; rename a scanned PDF with AI">
+        <i data-icon="scissors"></i><span class="tb-label">Split</span>
       </button>
-    </div>
-
-    <div class="toolbar-sep"></div>
-
-    <!-- View toggles -->
-    <div class="toolbar-group">
-      <button class="toolbar-btn-icon view-mode-btn active" id="btn-view-list"  title="List view">☰</button>
-      <button class="toolbar-btn-icon view-mode-btn"        id="btn-view-thumb" title="Thumbnail view">⊞</button>
+      <button class="toolbar-btn" id="btn-qr" title="Check QR codes in the selected files, or scan the screen">
+        <i data-icon="qr-code"></i><span class="tb-label">QR</span>
+      </button>
     </div>
 
     <div class="toolbar-sep"></div>
 
     <!-- Undo / Redo -->
     <div class="toolbar-group">
-      <button class="toolbar-btn-icon" id="btn-undo" title="Undo (Ctrl+Z)"  disabled>↩</button>
-      <button class="toolbar-btn-icon" id="btn-redo" title="Redo (Ctrl+Y)"  disabled>↪</button>
-    </div>
-
-    <div class="toolbar-sep"></div>
-
-    <!-- QR -->
-    <div class="toolbar-group">
-      <button class="toolbar-btn" id="btn-qr" title="Scan QR code from screen">
-        <span class="icon">📷</span> QR
-      </button>
+      <button class="toolbar-btn-icon" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled><i data-icon="undo"></i></button>
+      <button class="toolbar-btn-icon" id="btn-redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled><i data-icon="redo"></i></button>
     </div>
 
     <div class="toolbar-spacer"></div>
 
     <!-- Search -->
-    <div class="toolbar-search">
-      <span class="icon">🔍</span>
-      <input type="text" id="search-input" placeholder="Search files…" autocomplete="off">
-    </div>
+    <label class="toolbar-search" for="search-input">
+      <i data-icon="search" data-size="14"></i>
+      <input type="text" id="search-input" placeholder="Search this folder" autocomplete="off" spellcheck="false">
+    </label>
 
-    <div class="toolbar-sep"></div>
-
-    <!-- Cost tracker -->
-    <div class="cost-chip" id="cost-chip" title="GPT-4o session cost — click to reset">
-      <span class="dot"></span>
-      <span id="cost-label">$0.0000</span>
+    <!-- View toggles -->
+    <div class="segmented" role="group" aria-label="View">
+      <button class="seg-btn view-mode-btn active" id="btn-view-list"  title="List view" aria-label="List view"><i data-icon="list"></i></button>
+      <button class="seg-btn view-mode-btn"        id="btn-view-thumb" title="Thumbnail view" aria-label="Thumbnail view"><i data-icon="grid"></i></button>
     </div>
 
     <!-- More actions -->
-    <button class="toolbar-btn" id="btn-more" title="More actions">⋯</button>
+    <button class="toolbar-btn-icon" id="btn-more" title="More actions" aria-label="More actions"><i data-icon="more-horizontal"></i></button>
 
     <!-- Theme toggle -->
-    <button class="toolbar-btn" id="btn-theme" title="Toggle light/dark theme" style="margin-left:4px;font-size:16px;">🌙</button>
+    <button class="toolbar-btn-icon" id="btn-theme" title="Switch to light theme" aria-label="Toggle theme"><i data-icon="moon"></i></button>
+
+    <!-- Account (menu is built by account.js) -->
+    <button class="avatar-btn" id="btn-account" title="Account" aria-label="Account" aria-haspopup="menu">
+      <span class="avatar" id="btn-account-avatar"><i data-icon="user" data-size="14"></i></span>
+    </button>
 
   </header>
 
@@ -145,22 +133,21 @@
 
       <!-- Pane 1: Folder Tree / Navigation -->
       <div class="pane" id="pane-tree">
-        <!-- Breadcrumb -->
-        <div id="breadcrumb">
-          <span class="breadcrumb-seg last" id="bc-root">Home</span>
+        <div class="pane-header">
+          <span class="pane-title">Explorer</span>
         </div>
         <!-- Alert strip (hidden until needed) -->
         <div class="alert-strip warning hidden" id="alert-strip">
-          <span class="icon">⚠️</span>
+          <i data-icon="alert-triangle" data-size="14"></i>
           <span id="alert-text">Missing documents detected</span>
-          <button class="btn btn-ghost" style="margin-left:auto;padding:2px 8px;font-size:11px" id="alert-dismiss">✕</button>
+          <button class="icon-btn icon-btn-sm" style="margin-left:auto" id="alert-dismiss" aria-label="Dismiss"><i data-icon="x" data-size="14"></i></button>
         </div>
         <!-- Tree body -->
         <div class="pane-body">
           <div class="tree-body" id="tree-body">
             <!-- populated by file-tree.js -->
-            <div style="padding:40px 16px;text-align:center;color:var(--text-muted);font-size:12px">
-              Click <strong>Open</strong> to load a folder
+            <div class="empty-state empty-state-sm">
+              <p class="empty-state-text">Loading drives…</p>
             </div>
           </div>
         </div>
@@ -170,29 +157,38 @@
 
       <!-- Pane 2: File List / Thumbnail -->
       <div class="pane" id="pane-filelist">
-        <div class="pane-header">
-          <span id="filelist-title">Files</span>
-          <span class="flex-1"></span>
-          <!-- View buttons -->
-          <button class="view-btn active" id="fl-view-list"  title="List">☰</button>
-          <button class="view-btn"        id="fl-view-thumb" title="Thumbnails">⊞</button>
+        <div class="pane-header pane-header-crumbs">
+          <!-- Breadcrumb (file-tree.js) -->
+          <div id="breadcrumb">
+            <span class="breadcrumb-seg last" id="bc-root">No folder open</span>
+          </div>
+          <div class="segmented segmented-sm">
+            <button class="seg-btn view-btn active" id="fl-view-list"  title="List" aria-label="List"><i data-icon="list" data-size="14"></i></button>
+            <button class="seg-btn view-btn"        id="fl-view-thumb" title="Thumbnails" aria-label="Thumbnails"><i data-icon="grid" data-size="14"></i></button>
+          </div>
         </div>
 
-        <!-- List view toolbar (sort, filter) -->
+        <!-- Column header (list view) / zoom (thumbnail view) -->
         <div class="filelist-toolbar" id="fl-sort-bar">
-          <span style="font-size:11px;color:var(--text-muted)">Name</span>
-          <span class="flex-1"></span>
+          <span class="col-head col-name">Name</span>
+          <span class="col-head col-date">Modified</span>
+          <span class="col-head col-size">Size</span>
           <div class="thumb-zoom-bar" id="thumb-zoom-bar" style="display:none">
-            <button class="toolbar-btn-icon" id="thumb-zoom-out" style="width:22px;height:22px;font-size:12px">−</button>
-            <input type="range" class="zoom-slider" id="thumb-zoom-slider" min="60" max="200" value="100">
-            <button class="toolbar-btn-icon" id="thumb-zoom-in"  style="width:22px;height:22px;font-size:12px">+</button>
+            <button class="icon-btn icon-btn-sm" id="thumb-zoom-out" title="Smaller" aria-label="Smaller thumbnails"><i data-icon="minus" data-size="14"></i></button>
+            <input type="range" class="zoom-slider" id="thumb-zoom-slider" min="60" max="200" value="100" aria-label="Thumbnail size">
+            <button class="icon-btn icon-btn-sm" id="thumb-zoom-in" title="Larger" aria-label="Larger thumbnails"><i data-icon="plus" data-size="14"></i></button>
           </div>
         </div>
 
         <div class="pane-body">
           <!-- List view -->
           <div id="filelist-list" class="filelist-body">
-            <!-- populated by file-tree.js -->
+            <div class="empty-state">
+              <div class="empty-state-icon"><i data-icon="folder-open" data-size="28"></i></div>
+              <p class="empty-state-title">Open a folder to get started</p>
+              <p class="empty-state-text">Browse your PDFs and images, then merge, split, convert or compress them.</p>
+              <button class="btn btn-primary" onclick="FileTree.browseFolder()"><i data-icon="folder-open"></i>Open folder</button>
+            </div>
           </div>
           <!-- Thumbnail grid (hidden by default) -->
           <div id="filelist-thumb" class="thumb-grid hidden">
@@ -206,33 +202,35 @@
       <!-- Pane 3: Preview -->
       <div class="pane" id="pane-preview">
         <div class="preview-toolbar">
-          <span id="preview-file-name" class="label text-muted">No file selected</span>
+          <span id="preview-file-name" class="label">No file selected</span>
           <div class="toolbar-group" id="preview-zoom-bar">
-            <button class="toolbar-btn-icon" id="preview-zoom-out"   title="Zoom out (Ctrl+−)" style="width:26px;height:26px">−</button>
-            <span   id="preview-zoom-label" style="font-size:11px;color:var(--text-muted);min-width:38px;text-align:center">100%</span>
-            <button class="toolbar-btn-icon" id="preview-zoom-in"    title="Zoom in (Ctrl+=)"  style="width:26px;height:26px">+</button>
-            <button class="toolbar-btn-icon" id="preview-zoom-reset" title="Reset zoom (Ctrl+0)" style="width:26px;height:26px;font-size:11px">fit</button>
+            <button class="icon-btn" id="preview-zoom-out"   title="Zoom out (Ctrl+−)" aria-label="Zoom out"><i data-icon="zoom-out"></i></button>
+            <span   id="preview-zoom-label" class="zoom-label">100%</span>
+            <button class="icon-btn" id="preview-zoom-in"    title="Zoom in (Ctrl+=)"  aria-label="Zoom in"><i data-icon="zoom-in"></i></button>
+            <button class="icon-btn" id="preview-zoom-reset" title="Reset zoom (Ctrl+0)" aria-label="Reset zoom"><i data-icon="scan-fit"></i></button>
           </div>
-          <button class="toolbar-btn-icon" id="preview-fullscreen" title="Full screen (Ctrl+Shift+Enter)">⛶</button>
+          <div class="toolbar-sep toolbar-sep-sm"></div>
+          <button class="icon-btn" id="preview-fullscreen" title="Open full view" aria-label="Open full view"><i data-icon="maximize"></i></button>
         </div>
 
-        <!-- PDF contextual toolbar (shown when PDF is previewed) -->
+        <!-- PDF contextual toolbar (shown when a PDF is previewed) -->
         <div class="pdf-ctx-toolbar hidden" id="pdf-ctx-toolbar">
-          <button class="toolbar-btn" id="pdf-rotate-cw"  title="Rotate clockwise">↻</button>
-          <button class="toolbar-btn" id="pdf-rotate-ccw" title="Rotate counter-clockwise">↺</button>
-          <div class="toolbar-sep"></div>
-          <button class="toolbar-btn" id="pdf-del-page"   title="Delete current page">🗑</button>
-          <button class="toolbar-btn" id="pdf-arrange"    title="Arrange / merge pages">⊞ Arrange</button>
-          <button class="toolbar-btn" id="pdf-split"      title="Split into several PDFs">✂ Split</button>
-          <button class="toolbar-btn" id="pdf-extract"    title="Extract this page (or a range) to a new PDF">⇱ Extract</button>
-          <button class="toolbar-btn" id="pdf-compress"   title="Compress PDF">🗜 Compress</button>
+          <button class="icon-btn" id="pdf-rotate-ccw" title="Rotate page counter-clockwise" aria-label="Rotate counter-clockwise"><i data-icon="rotate-ccw"></i></button>
+          <button class="icon-btn" id="pdf-rotate-cw"  title="Rotate page clockwise" aria-label="Rotate clockwise"><i data-icon="rotate-cw"></i></button>
+          <button class="icon-btn icon-btn-danger" id="pdf-del-page" title="Delete current page" aria-label="Delete current page"><i data-icon="trash"></i></button>
+          <div class="toolbar-sep toolbar-sep-sm"></div>
+          <button class="btn btn-ghost btn-sm" id="pdf-arrange"  title="Arrange / reorder pages"><i data-icon="layers" data-size="14"></i>Arrange</button>
+          <button class="btn btn-ghost btn-sm" id="pdf-split"    title="Split into several PDFs"><i data-icon="scissors" data-size="14"></i>Split</button>
+          <button class="btn btn-ghost btn-sm" id="pdf-extract"  title="Extract this page (or a range) to a new PDF"><i data-icon="extract" data-size="14"></i>Extract</button>
+          <button class="btn btn-ghost btn-sm" id="pdf-compress" title="Compress PDF"><i data-icon="compress" data-size="14"></i>Compress</button>
         </div>
 
         <div class="preview-body" id="preview-body">
           <!-- Empty state -->
           <div class="preview-empty" id="preview-empty">
-            <span class="big-icon">👁</span>
-            <p>Select a file to preview</p>
+            <div class="empty-state-icon"><i data-icon="eye" data-size="28"></i></div>
+            <p class="empty-state-title">Nothing selected</p>
+            <p class="empty-state-text">Select a PDF or image to preview it here.</p>
           </div>
 
           <!-- PDF canvas area -->
@@ -247,12 +245,12 @@
 
           <!-- PDF floating page nav -->
           <div class="pdf-float-nav hidden" id="pdf-float-nav">
-            <button id="pdf-prev" title="Previous page (←)">‹</button>
+            <button id="pdf-prev" title="Previous page (←)" aria-label="Previous page"><i data-icon="chevron-left"></i></button>
             <div class="pdf-page-info">
-              <input type="text" id="pdf-page-input" value="1" style="width:32px">
-              <span style="color:var(--text-muted)">/ <span id="pdf-total-pages">1</span></span>
+              <input type="text" id="pdf-page-input" value="1" aria-label="Page number">
+              <span>of <span id="pdf-total-pages">1</span></span>
             </div>
-            <button id="pdf-next" title="Next page (→)">›</button>
+            <button id="pdf-next" title="Next page (→)" aria-label="Next page"><i data-icon="chevron-right"></i></button>
           </div>
         </div>
       </div>
@@ -261,22 +259,21 @@
 
       <!-- Pane 4: Details + Actions -->
       <div class="pane" id="pane-details">
-        <div class="pane-header">Details</div>
+        <div class="pane-header"><span class="pane-title">Details</span></div>
 
         <!-- Empty state -->
-        <div id="details-empty" style="padding:40px 16px;text-align:center;color:var(--text-muted);font-size:12px">
-          Select a file to view details
+        <div id="details-empty" class="empty-state empty-state-sm">
+          <div class="empty-state-icon"><i data-icon="info" data-size="22"></i></div>
+          <p class="empty-state-text">Select a file to see its details and actions.</p>
         </div>
 
         <!-- Content (shown when a file is selected) -->
         <div class="details-body hidden" id="details-content">
 
-          <!-- File type badge -->
-          <div class="file-type-badge" id="file-type-badge" style="text-align:center;font-size:28px;padding:12px 0 8px">📄</div>
-
-          <!-- Dynamic detail rows (populated by details.js) -->
-          <div class="detail-section">
-            <div id="detail-rows"></div>
+          <!-- File header: type badge + dynamic rows -->
+          <div class="detail-section detail-head">
+            <div class="type-badge" id="file-type-badge">FILE</div>
+            <div class="detail-rows" id="detail-rows"></div>
           </div>
 
           <!-- Rename -->
@@ -284,45 +281,43 @@
             <div class="detail-section-title">Rename</div>
             <div style="position:relative">
               <input type="text" class="rename-input input-text" id="rename-input"
-                     placeholder="New name… (type to see templates)" autocomplete="off" spellcheck="false" style="width:100%">
+                     placeholder="New name… (type to see templates)" autocomplete="off" spellcheck="false">
               <div id="rename-autocomplete" class="rename-suggestions hidden" style="position:absolute;width:100%;z-index:200"></div>
             </div>
-            <div style="display:flex;gap:6px;margin-top:6px">
-              <button class="btn btn-primary" id="rename-btn" style="flex:1" title="Apply rename (Enter) · Shift+Enter: best template · Ctrl+Enter: rename + save as template">Apply</button>
-            </div>
+            <button class="btn btn-primary btn-block" id="rename-btn" title="Apply rename (Enter) · Shift+Enter: best template · Ctrl+Enter: rename + save as template"><i data-icon="check" data-size="14"></i>Apply rename</button>
           </div>
 
           <!-- Quick actions -->
           <div class="detail-section" id="quick-actions">
             <div class="detail-section-title">Actions</div>
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <button class="qa-btn primary" id="qa-open"><span class="icon">📂</span> Open</button>
-              <button class="qa-btn"         id="qa-opendir"><span class="icon">📁</span> Open Folder</button>
-              <button class="qa-btn"         id="qa-copy-path"><span class="icon">📋</span> Copy Path</button>
-              <button class="qa-btn hidden"  id="qa-convert-pdf" title="Convert this image to PDF"><span class="icon">📄</span> Convert to PDF</button>
-              <button class="qa-btn hidden"  id="qa-convert-img" title="Convert to JPG / PNG / WEBP / BMP / TIFF"><span class="icon">🔁</span> Convert Format…</button>
-              <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon">🖼</span> PDF → Images…</button>
-              <button class="qa-btn hidden"  id="qa-compress" title="Make a smaller copy"><span class="icon">🗜</span> Compress…</button>
-              <button class="qa-btn danger"  id="qa-delete"><span class="icon">🗑</span> Move to Review</button>
+            <div class="qa-list">
+              <button class="qa-btn primary" id="qa-open"><span class="icon"><i data-icon="external-link"></i></span> Open</button>
+              <button class="qa-btn"         id="qa-opendir"><span class="icon"><i data-icon="folder-open"></i></span> Show in folder</button>
+              <button class="qa-btn"         id="qa-copy-path"><span class="icon"><i data-icon="copy"></i></span> Copy path</button>
+              <button class="qa-btn hidden"  id="qa-convert-pdf" title="Convert this image to PDF"><span class="icon"><i data-icon="file-pdf"></i></span> Convert to PDF</button>
+              <button class="qa-btn hidden"  id="qa-convert-img" title="Convert to JPG / PNG / WEBP / BMP / TIFF"><span class="icon"><i data-icon="convert"></i></span> Convert format…</button>
+              <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon"><i data-icon="images"></i></span> PDF to images…</button>
+              <button class="qa-btn hidden"  id="qa-compress" title="Make a smaller copy"><span class="icon"><i data-icon="compress"></i></span> Compress…</button>
+              <button class="qa-btn danger"  id="qa-delete" title="Move to the _to_review folder (nothing is deleted)"><span class="icon"><i data-icon="archive"></i></span> Move to review</button>
             </div>
           </div>
 
           <!-- PDF pages: merge / split / arrange / extract (js/pdf-tools.js) -->
           <div class="detail-section hidden" id="pdf-tools-section">
-            <div class="detail-section-title">PDF Pages</div>
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <button class="qa-btn" id="qa-pdf-arrange"><span class="icon">⊞</span> Arrange Pages…</button>
-              <button class="qa-btn" id="qa-pdf-split"><span class="icon">✂</span> Split PDF…</button>
-              <button class="qa-btn" id="qa-pdf-extract"><span class="icon">⇱</span> Extract Pages…</button>
-              <button class="qa-btn" id="qa-pdf-merge"><span class="icon">📎</span> Merge with Other Files…</button>
-              <button class="qa-btn hidden" id="qa-pdf-merge-sel"><span class="icon">📎</span> Merge selected…</button>
+            <div class="detail-section-title">PDF pages</div>
+            <div class="qa-list">
+              <button class="qa-btn" id="qa-pdf-arrange"><span class="icon"><i data-icon="layers"></i></span> Arrange pages…</button>
+              <button class="qa-btn" id="qa-pdf-split"><span class="icon"><i data-icon="scissors"></i></span> Split PDF…</button>
+              <button class="qa-btn" id="qa-pdf-extract"><span class="icon"><i data-icon="extract"></i></span> Extract pages…</button>
+              <button class="qa-btn" id="qa-pdf-merge"><span class="icon"><i data-icon="merge"></i></span> Merge with other files…</button>
+              <button class="qa-btn hidden" id="qa-pdf-merge-sel"><span class="icon"><i data-icon="merge"></i></span> Merge selected…</button>
             </div>
           </div>
 
           <!-- AI Photo Editor (images only) -->
           <div class="detail-section hidden" id="ai-photo-section">
-            <div class="detail-section-title">AI Photo Edit</div>
-            <div style="display:flex;flex-direction:column;gap:4px">
+            <div class="detail-section-title">AI photo edit</div>
+            <div class="qa-list">
               <div class="ai-opts">
                 <label title="Suit colour">Suit
                   <select id="ai-suit-color">
@@ -332,17 +327,17 @@
                     <option value="grey">Grey</option>
                   </select></label>
                 <label title="Add a necktie"><input type="checkbox" id="ai-tie" checked> Tie</label>
-                <label title="High = best detail; Medium = cheaper">Quality
+                <label title="High = best detail; Medium = faster">Quality
                   <select id="ai-quality">
                     <option value="high">High</option>
                     <option value="medium">Medium</option>
                   </select></label>
               </div>
-              <button class="qa-btn primary" id="ai-wear-suit" data-ai-action="wear_suit"><span class="icon">👔</span> Wear Suit &amp; Tie</button>
+              <button class="qa-btn primary" id="ai-wear-suit" data-ai-action="wear_suit"><span class="icon"><i data-icon="shirt"></i></span> Wear Suit &amp; Tie</button>
               <div class="ai-cost" id="ai-cost-est"></div>
-              <button class="qa-btn hidden" id="ai-compare" title="Before / after slider"><span class="icon">⇆</span> Compare with original</button>
-              <button class="qa-btn" id="ai-crop"><span class="icon">✂️</span> Crop…</button>
-              <div id="ai-photo-status" style="font-size:11px;color:var(--text-muted);min-height:14px"></div>
+              <button class="qa-btn hidden" id="ai-compare" title="Before / after slider"><span class="icon"><i data-icon="compare"></i></span> Compare with original</button>
+              <button class="qa-btn" id="ai-crop"><span class="icon"><i data-icon="crop"></i></span> Crop…</button>
+              <div id="ai-photo-status" class="hint"></div>
             </div>
           </div>
 
@@ -352,10 +347,23 @@
     </div><!-- /panel-workspace -->
 
     <!-- ─── PANEL: Settings ─────────────────────── -->
-    <div id="panel-settings" class="panel-view hidden" style="flex:1;overflow:auto;display:none;padding:32px 40px">
-      <h2 style="margin:0 0 16px;font-size:18px;font-weight:600">⚙️ Settings</h2>
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 24px">Configure API keys, defaults, and appearance.</p>
-      <button class="btn btn-primary" id="open-settings-dialog" style="min-width:180px">Open Settings…</button>
+    <div id="panel-settings" class="panel-view page-panel hidden" style="display:none">
+      <div class="page-inner">
+        <div class="page-header">
+          <div class="page-header-icon"><i data-icon="settings" data-size="20"></i></div>
+          <div>
+            <h2 class="page-title">Settings</h2>
+            <p class="page-subtitle">Default folders, OCR language, appearance and the AI key.</p>
+          </div>
+        </div>
+        <div class="card card-row">
+          <div class="flex-1">
+            <div class="card-title">Application settings</div>
+            <p class="text-muted text-sm">Opens the settings window.</p>
+          </div>
+          <button class="btn btn-primary" id="open-settings-dialog"><i data-icon="settings" data-size="14"></i>Open settings…</button>
+        </div>
+      </div>
     </div>
 
     <!-- ─── PANEL: Account (rendered by account.js) ── -->
@@ -378,10 +386,10 @@
       <span class="dot" id="status-dot"></span>
       <span id="status-text">Ready</span>
     </div>
-    <div class="status-sep"></div>
     <div class="status-item" id="status-folder" style="display:none">
-      <span>📁</span>
-      <span id="status-folder-name" class="truncate" style="max-width:260px"></span>
+      <span class="status-sep"></span>
+      <i data-icon="folder" data-size="12"></i>
+      <span id="status-folder-name" class="truncate" style="max-width:320px"></span>
     </div>
     <div class="status-sep" id="status-sep-sel" style="display:none"></div>
     <div class="status-item" id="status-sel" style="display:none">
@@ -392,23 +400,19 @@
       <span class="acct-chip-dot" id="acct-chip-dot"></span>
       <span id="acct-chip-text"></span>
     </div>
-    <div class="status-sep" id="status-sep-cost"></div>
-    <div class="status-item">
-      <span id="status-cost">GPT: $0.0000</span>
-    </div>
   </footer>
 
 </div><!-- /app -->
 
 <!-- ═══════════════════════════════════════════════
-     CONTEXT MENU (hidden by default)
+     CONTEXT MENU (legacy mount point; context-menu.js builds #ctx-menu)
      ═══════════════════════════════════════════════ -->
 <div id="context-menu" class="hidden"></div>
 
 <!-- ═══════════════════════════════════════════════
      TOAST NOTIFICATIONS
      ═══════════════════════════════════════════════ -->
-<div id="toast-container"></div>
+<div id="toast-container" aria-live="polite"></div>
 
 <!-- ═══════════════════════════════════════════════
      MODAL PORTAL (dialogs render here)
@@ -418,6 +422,7 @@
 <!-- ═══════════════════════════════════════════════
      SCRIPTS
      ═══════════════════════════════════════════════ -->
+<script src="js/icons.js"></script>
 <script src="js/bridge.js"></script>
 <script src="js/app.js"></script>
 <script src="js/account.js"></script>

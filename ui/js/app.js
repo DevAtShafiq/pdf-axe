@@ -1,6 +1,6 @@
 /**
  * app.js — Core application: state, routing, toasts, keyboard shortcuts,
- *           undo/redo registry, pane resizing, cost poller.
+ *           undo/redo registry, pane resizing, theme toggle.
  */
 
 // ── Global App State ─────────────────────────────────────────────────────────
@@ -22,7 +22,6 @@ const App = (() => {
     thumbZoom:       100,      // %
     searchQuery:     '',
     currentPanel:    'workspace',
-    costPollTimer:   null,
   };
 
   // ── Panel Switching ───────────────────────────────────────────────────────
@@ -43,11 +42,12 @@ const App = (() => {
 
   // ── Toast Notifications ───────────────────────────────────────────────────
   function toast(message, type = 'info', duration = 3500) {
-    const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+    const icons = { info: 'info', success: 'check-circle', error: 'x-circle', warning: 'alert-triangle' };
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
     el.className = `toast ${type}`;
-    el.innerHTML = `<span class="icon">${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    el.innerHTML = `<span class="icon">${Icons.svg(icons[type] || 'info', 16)}</span><span>${message}</span>`;
     container.appendChild(el);
     setTimeout(() => {
       el.classList.add('fade-out');
@@ -166,7 +166,8 @@ const App = (() => {
       const row = document.createElement('div');
       row.style.cssText = 'padding:6px 14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       row.title = f;
-      row.innerHTML = '📂 ' + f.split(/[\\/]/).slice(-2).join('/');
+      row.innerHTML = Icons.svg('folder', 14, 'text-muted') + '<span class="truncate">'
+        + _escHtml(f.split(/[\\/]/).slice(-2).join('/')) + '</span>';
       row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-hover)');
       row.addEventListener('mouseleave', () => row.style.background = '');
       row.addEventListener('click', () => { dd.remove(); navigate(f); });
@@ -202,21 +203,22 @@ const App = (() => {
     document.getElementById('btn-nav-forward').disabled = state.historyFwd.length === 0;
   }
 
-  // ── Cost Polling ──────────────────────────────────────────────────────────
-  async function _pollCost() {
-    try {
-      const r = await SFM.getCost();
-      if (r.ok) {
-        const v = `$${r.cost_usd.toFixed(4)}`;
-        document.getElementById('cost-label').textContent = v;
-        document.getElementById('status-cost').textContent = `GPT: ${v}`;
-      }
-    } catch(e) {}
+  function _escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function startCostPoller() {
-    _pollCost();
-    state.costPollTimer = setInterval(_pollCost, 10000);
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  // Dark is the default (:root); light sets data-theme="light" on <html>.
+  function applyTheme(theme) {
+    const light = theme === 'light';
+    const html = document.documentElement;
+    if (light) html.setAttribute('data-theme', 'light'); else html.removeAttribute('data-theme');
+    window._sfmTheme = light ? 'light' : 'dark';
+    const tb = document.getElementById('btn-theme');
+    if (tb) {
+      tb.innerHTML = Icons.svg(light ? 'sun' : 'moon', 16);
+      tb.title = light ? 'Switch to dark theme' : 'Switch to light theme';
+    }
   }
 
   // ── Pane Resizing ─────────────────────────────────────────────────────────
@@ -399,35 +401,18 @@ const App = (() => {
     wire('btn-qr',    () => QrScan.scanSelection());
     wire('btn-more',  () => Dialogs.openMoreMenu());
     wire('btn-theme', () => {
-      const html = document.documentElement;
-      const isCurrentlyDark = html.getAttribute('data-theme') !== 'light';
-      if (isCurrentlyDark) {
-        // → light mode
-        html.setAttribute('data-theme', 'light');
-        document.getElementById('btn-theme').textContent = '☀️';
-        window._sfmTheme = 'light';
-        SFM.saveSettings({ theme: 'light' }).catch(() => {});
-      } else {
-        // → dark mode: REMOVE attribute so :root (dark) CSS applies
-        html.removeAttribute('data-theme');
-        document.getElementById('btn-theme').textContent = '🌙';
-        window._sfmTheme = 'dark';
-        SFM.saveSettings({ theme: 'dark' }).catch(() => {});
-      }
+      const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      SFM.saveSettings({ theme: next }).catch(() => {});
     });
     // Restore saved theme from settings
     SFM.getSettings().then(r => {
-      if (r.ok && r.settings && r.settings.theme === 'light') {
-        document.documentElement.setAttribute('data-theme', 'light');
-        const tb = document.getElementById('btn-theme');
-        if (tb) tb.textContent = '☀️';
-      }
+      if (r.ok && r.settings && r.settings.theme === 'light') applyTheme('light');
     }).catch(() => {});
-    wire('cost-chip', async () => {
-      await SFM.resetCost();
-      document.getElementById('cost-label').textContent = '$0.0000';
-      toast('Cost tracker reset', 'info', 1500);
-    });
+
+    // Brand mark in the sidebar
+    const logo = document.getElementById('sidebar-logo');
+    if (logo && !logo.firstChild) logo.innerHTML = Icons.logo(32);
 
     // Search
     const searchInput = document.getElementById('search-input');
@@ -475,7 +460,6 @@ const App = (() => {
     safe(_initKeyboard,      '_initKeyboard');
     safe(_initEventHandlers, '_initEventHandlers');
     safe(_initPaneResizers,  '_initPaneResizers');
-    safe(startCostPoller,    'startCostPoller');
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _boot);
@@ -488,6 +472,6 @@ const App = (() => {
     state,
     navigate, toast, setStatus, setStatusFolder,
     setStatusSelection, pushUndo, undo, redo,
-    switchPanel, navBack, navForward, navUp,
+    switchPanel, navBack, navForward, navUp, applyTheme,
   };
 })();

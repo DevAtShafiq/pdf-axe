@@ -40,8 +40,8 @@ const Details = (() => {
     _path  = null;
     _entry = null;
     _showPanel();
-    $('file-type-badge').textContent = '📁';
-    $('file-type-badge').className   = 'type-badge type-folder';
+    $('file-type-badge').innerHTML = Icons.svg('files', 14) + '<span>' + entries.length + ' ITEMS</span>';
+    $('file-type-badge').className = 'type-badge type-file';
 
     const totalSize = entries.reduce((a, e) => a + (e.size || 0), 0);
     _clearRows();
@@ -81,10 +81,12 @@ const Details = (() => {
       '.txt': ['TXT','type-txt'], '.md':  ['MD','type-txt'],
     };
     if (entry.is_dir) {
-      badge.textContent = '📁'; badge.className = 'type-badge type-folder';
+      badge.innerHTML = Icons.svg('folder', 14) + '<span>FOLDER</span>';
+      badge.className = 'type-badge type-folder';
     } else {
       const [label, cls] = iconMap[ext] || [ext.replace('.','').toUpperCase() || 'FILE', 'type-file'];
-      badge.textContent = label; badge.className = `type-badge ${cls}`;
+      badge.innerHTML = Icons.svg(Icons.fileType(ext).icon, 14) + '<span>' + _esc(label) + '</span>';
+      badge.className = `type-badge ${cls}`;
     }
   }
 

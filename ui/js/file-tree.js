@@ -37,148 +37,25 @@ const FileTree = (() => {
   const thumbEl = () => $('filelist-thumb');
   const treeEl  = () => $('tree-body');
 
-  // ── Windows shell icon cache ──────────────────────────────────────────────
-  // Keyed by ext (e.g. ".pdf") or "__folder__"
-  // Value: base64 data-URL string, or null if failed
-  const _iconCache  = new Map();
-  const _iconFetching = new Set();   // exts currently in-flight
-
-  // SVG fallbacks used ONLY while real icons are loading
-  // ── Per-extension icon map (emoji shown inline, always crisp) ───────────────
-  const _EXT_ICONS = {
-    // Documents
-    '.pdf':  { e:'📄', c:'#e53e3e' },
-    '.doc':  { e:'📝', c:'#2b6cb0' }, '.docx': { e:'📝', c:'#2b6cb0' },
-    '.xls':  { e:'📊', c:'#276749' }, '.xlsx': { e:'📊', c:'#276749' },
-    '.csv':  { e:'📊', c:'#276749' },
-    '.ppt':  { e:'📋', c:'#c05621' }, '.pptx': { e:'📋', c:'#c05621' },
-    '.txt':  { e:'📃', c:'#718096' }, '.md':   { e:'📃', c:'#718096' },
-    '.rtf':  { e:'📃', c:'#718096' },
-    // Images
-    '.jpg':  { e:'🖼️', c:'#d69e2e' }, '.jpeg': { e:'🖼️', c:'#d69e2e' },
-    '.png':  { e:'🖼️', c:'#d69e2e' }, '.webp': { e:'🖼️', c:'#d69e2e' },
-    '.gif':  { e:'🖼️', c:'#d69e2e' }, '.bmp':  { e:'🖼️', c:'#d69e2e' },
-    '.tiff': { e:'🖼️', c:'#d69e2e' }, '.tif':  { e:'🖼️', c:'#d69e2e' },
-    '.svg':  { e:'🖼️', c:'#d69e2e' }, '.heic': { e:'🖼️', c:'#d69e2e' },
-    // Archives
-    '.zip':  { e:'🗜️', c:'#744210' }, '.rar':  { e:'🗜️', c:'#744210' },
-    '.7z':   { e:'🗜️', c:'#744210' }, '.tar':  { e:'🗜️', c:'#744210' },
-    '.gz':   { e:'🗜️', c:'#744210' },
-    // Video
-    '.mp4':  { e:'🎬', c:'#553c9a' }, '.avi':  { e:'🎬', c:'#553c9a' },
-    '.mov':  { e:'🎬', c:'#553c9a' }, '.mkv':  { e:'🎬', c:'#553c9a' },
-    '.wmv':  { e:'🎬', c:'#553c9a' },
-    // Audio
-    '.mp3':  { e:'🎵', c:'#2c7a7b' }, '.wav':  { e:'🎵', c:'#2c7a7b' },
-    '.flac': { e:'🎵', c:'#2c7a7b' }, '.aac':  { e:'🎵', c:'#2c7a7b' },
-    // Code / data
-    '.json': { e:'⚙️', c:'#285e61' }, '.xml':  { e:'⚙️', c:'#285e61' },
-    '.py':   { e:'🐍', c:'#2b6cb0' }, '.js':   { e:'📜', c:'#d69e2e' },
-    '.html': { e:'🌐', c:'#c05621' }, '.css':  { e:'🎨', c:'#553c9a' },
-    // Misc
-    '.exe':  { e:'⚡', c:'#718096' }, '.bat':  { e:'⚡', c:'#718096' },
-    '.lnk':  { e:'🔗', c:'#718096' },
-  };
-
-  function _extIconHTML(ext, size = 18) {
-    const info = _EXT_ICONS[ext] || { e:'📄', c:'#718096' };
-    return `<span style="font-size:${size - 2}px;line-height:${size}px;display:inline-block;width:${size}px;text-align:center;" title="${ext || 'file'}">${info.e}</span>`;
+  // ── File-type icons ───────────────────────────────────────────────────────
+  // Consistent line icons from icons.js, tinted per file type (.ft-* classes).
+  function iconFor(entry, size = 16) {
+    return Icons.file(entry, size);
   }
+  const _folderIcon = (size = 16) => Icons.svg('folder', size);
+  const _driveIcon  = (size = 16) => Icons.svg('hard-drive', size);
+  const _chev = open => Icons.svg(open ? 'chevron-down' : 'chevron-right', 14);
 
-  const _SVG_FOLDER = `<svg viewBox="0 0 20 20" width="18" height="18"><path d="M2 5c0-.9.7-1.6 1.6-1.6H8l1.6 1.6H16.4c.9 0 1.6.7 1.6 1.6v8c0 .9-.7 1.6-1.6 1.6H3.6C2.7 15.2 2 14.5 2 13.6V5z" fill="#DCB44A"/></svg>`;
-
-  /** Return an icon HTML string for a file entry — always immediate, no async */
-  function iconFor(entry, size = 18) {
-    if (entry.is_dir) {
-      // Use cached real Windows icon if available, else SVG folder
-      const cached = _iconCache.get('__folder__');
-      if (cached) return `<img class="file-icon-img" src="${cached}" width="${size}" height="${size}" draggable="false">`;
-      return _SVG_FOLDER.replace(/width="18" height="18"/g, `width="${size}" height="${size}"`);
-    }
-    // For files: use cached Windows icon if available, else emoji
-    const ext = (entry.ext || '').toLowerCase();
-    const cached = _iconCache.get(ext);
-    if (cached) return `<img class="file-icon-img" src="${cached}" width="${size}" height="${size}" draggable="false">`;
-    return _extIconHTML(ext, size);
-  }
-
-  /** Scale a fallback SVG or <img> inside an icon span to thumbSize px */
-  function _sizeIconEl(span, thumbSize) {
-    const s = Math.round(thumbSize * 0.5) + 'px';
-    const svg = span.querySelector('svg');
-    if (svg) { svg.setAttribute('width', s); svg.setAttribute('height', s); }
-    const img = span.querySelector('img');
-    if (img) { img.style.width = s; img.style.height = s; }
-  }
-
-  /** Batch-fetch Windows shell icons for all unique exts in the current listing.
-   *  Once received, patch every visible icon in the DOM without a full re-render. */
-  async function _prefetchIcons(entries) {
-    // Collect exts we don't have yet
-    const needed = new Set();
-    if (!_iconCache.has('__folder__') && !_iconFetching.has('__folder__')) needed.add('__folder__');
-    for (const e of entries) {
-      const k = e.is_dir ? '__folder__' : (e.ext || '__unknown__');
-      if (!_iconCache.has(k) && !_iconFetching.has(k)) needed.add(e.is_dir ? '__folder__' : e.ext);
-    }
-    if (!needed.size) return;
-
-    // Mark in-flight
-    needed.forEach(k => _iconFetching.add(k));
-
-    // Separate folders from file exts
-    const fileExts = [...needed].filter(k => k !== '__folder__');
-
+  // Compact modified date for the list column
+  function _fmtShortDate(ts) {
+    if (!ts) return '';
     try {
-      const r = await SFM.getFileTypeIconsBatch(fileExts, 18);
-      if (r && r.ok && r.icons) {
-        // r.icons is { ".pdf": "data:...", "__folder__": "data:..." ... }
-        for (const [k, v] of Object.entries(r.icons)) {
-          _iconCache.set(k, v);
-          _iconFetching.delete(k);
-        }
-        // Patch DOM: replace fallback SVGs with real icons without re-rendering
-        _patchIconsInDom();
-      }
-    } catch(e) {
-      // On failure, cache null so we stop retrying
-      needed.forEach(k => { _iconCache.set(k, null); _iconFetching.delete(k); });
-    }
-  }
-
-  /** Swap fallback SVGs for real <img> tags in the already-rendered list/thumb DOM */
-  function _patchIconsInDom() {
-    // List view: .file-item .icon
-    listEl()?.querySelectorAll('.file-item').forEach(row => {
-      const idx   = +row.dataset.idx;
-      const entry = _filtered[idx];
-      if (!entry) return;
-      const iconSpan = row.querySelector('.icon');
-      if (iconSpan && !iconSpan.querySelector('img')) {
-        iconSpan.innerHTML = iconFor(entry);
-      }
-    });
-    // Thumb view: .img-wrap when no real thumbnail yet
-    thumbEl()?.querySelectorAll('.thumb-tile').forEach(tile => {
-      const idx   = +tile.dataset.idx;
-      const entry = _filtered[idx];
-      if (!entry) return;
-      const ic = tile.querySelector('.thumb-icon');
-      if (ic && !ic.querySelector('img')) {
-        ic.innerHTML = iconFor(entry);
-      }
-    });
-    // Tree nodes
-    treeEl()?.querySelectorAll('.tree-icon').forEach(span => {
-      if (!span.querySelector('img')) {
-        const node = span.closest('[data-path]');
-        if (node) {
-          // We only know it's a folder if it has the drive/folder class
-          const dataUrl = _iconCache.get('__folder__');
-          if (dataUrl) span.innerHTML = `<img class="file-icon-img" src="${dataUrl}" width="15" height="15" draggable="false">`;
-        }
-      }
-    });
+      const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
+      const now = new Date();
+      if (d.toDateString() === now.toDateString())
+        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      return d.toLocaleDateString(undefined, { year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return ''; }
   }
 
   // ── Load Folder ───────────────────────────────────────────────────────────
@@ -204,8 +81,6 @@ const FileTree = (() => {
       _selectionChanged();
       _updateTreeHighlight(path);
       _renderTreeRoot();
-      // Async: fetch real Windows icons and patch them into the DOM
-      _prefetchIcons(_entries);
     } catch(e) {
       App.toast('Failed to load folder: ' + e, 'error');
       App.setStatus('Error');
@@ -261,19 +136,22 @@ const FileTree = (() => {
     const el = listEl();
     el.innerHTML = '';
     if (!_filtered.length) {
-      el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px">Empty folder</div>';
+      el.innerHTML = _emptyHtml();
       return;
     }
     _filtered.forEach((entry, idx) => {
       const row = document.createElement('div');
-      row.className = 'file-item' + (_selected.has(entry.path) ? ' selected' : '')
+      row.className = 'file-item' + (entry.is_dir ? ' is-dir' : '')
+                    + (_selected.has(entry.path) ? ' selected' : '')
                     + (idx === _focusIdx ? ' focused' : '');
       row.dataset.idx  = idx;
       row.dataset.path = entry.path;
+      row.title = entry.name;
       row.innerHTML = `
         <span class="icon">${iconFor(entry)}</span>
         <span class="name">${_esc(entry.name)}</span>
-        <span class="size">${entry.size_str}</span>`;
+        <span class="date">${_esc(_fmtShortDate(entry.mtime))}</span>
+        <span class="size">${entry.size_str || ''}</span>`;
       _bindRowEvents(row, idx, entry);
       el.appendChild(row);
     });
@@ -285,7 +163,8 @@ const FileTree = (() => {
     const size = Math.round(80 * _thumbZoom / 100);
 
     if (!_filtered.length) {
-      el.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-size:12px">Empty folder</div>';
+      el.innerHTML = _emptyHtml();
+      el.firstElementChild.style.gridColumn = '1 / -1';
       return;
     }
 
@@ -307,14 +186,14 @@ const FileTree = (() => {
         // placeholder — lazy load
         const ic = document.createElement('span');
         ic.className = 'thumb-icon';
-        ic.innerHTML = iconFor(entry, size);
+        ic.innerHTML = iconFor(entry, Math.round(size * 0.42));
         wrap.appendChild(ic);
         wrap.dataset.lazyPath = entry.path;
         wrap.dataset.lazyExt  = entry.ext;
       } else {
         const ic = document.createElement('span');
         ic.className = 'thumb-icon';
-        ic.innerHTML = iconFor(entry, size);
+        ic.innerHTML = iconFor(entry, Math.round(size * 0.42));
         wrap.appendChild(ic);
       }
 
@@ -330,6 +209,29 @@ const FileTree = (() => {
     });
 
     _startLazyThumbLoad();
+  }
+
+  // Empty states: no folder yet / nothing matches the search / empty folder
+  function _emptyHtml() {
+    if (!_currentFolder) {
+      return `<div class="empty-state">
+        <div class="empty-state-icon">${Icons.svg('folder-open', 28)}</div>
+        <p class="empty-state-title">Open a folder to get started</p>
+        <p class="empty-state-text">Browse your PDFs and images, then merge, split, convert or compress them.</p>
+        <button class="btn btn-primary" onclick="FileTree.browseFolder()">${Icons.svg('folder-open', 16)}Open folder</button>
+      </div>`;
+    }
+    if (_searchQuery) {
+      return `<div class="empty-state">
+        <div class="empty-state-icon">${Icons.svg('search', 26)}</div>
+        <p class="empty-state-title">No matches</p>
+        <p class="empty-state-text">Nothing in this folder matches “${_esc(_searchQuery)}”.</p>
+      </div>`;
+    }
+    return `<div class="empty-state">
+      <div class="empty-state-icon">${Icons.svg('folder', 26)}</div>
+      <p class="empty-state-title">This folder is empty</p>
+    </div>`;
   }
 
   function _isPreviewable(entry) {
@@ -379,14 +281,19 @@ const FileTree = (() => {
       cumulative += (i === 0 ? '' : '/') + part;
       const seg = document.createElement('span');
       seg.className = 'breadcrumb-seg' + (i === parts.length - 1 ? ' last' : '');
-      seg.textContent = part;  // drive letter e.g. "D:"
+      seg.title = cumulative.replace(/\//g, '\\');
+      if (i === 0 && /^[A-Za-z]:$/.test(part)) {
+        seg.innerHTML = Icons.svg('hard-drive', 14) + '<span>' + _esc(part) + '</span>';
+      } else {
+        seg.textContent = part;
+      }
       const capPath = cumulative;
       seg.addEventListener('click', () => App.navigate(capPath + '/'));
       bc.appendChild(seg);
       if (i < parts.length - 1) {
         const arrow = document.createElement('span');
         arrow.className = 'breadcrumb-arrow';
-        arrow.textContent = '›';
+        arrow.innerHTML = Icons.svg('chevron-right', 12);
         bc.appendChild(arrow);
       }
     });
@@ -467,7 +374,8 @@ const FileTree = (() => {
     if (paths.length === 1) {
       Details.showFile(_filtered.find(e => e.path === paths[0]) || null);
     } else if (paths.length > 1) {
-      Details.showMultiple(paths);
+      // Entry objects (not bare paths) so the details pane can total their sizes
+      Details.showMultiple(_entries.filter(e => _selected.has(e.path)));
     } else {
       Details.clear();
     }
@@ -781,7 +689,7 @@ const FileTree = (() => {
   async function _initTree() {
     const el = treeEl();
     if (!el) return;
-    el.innerHTML = '<div style="padding:12px 8px;color:var(--text-muted);font-size:11px">Loading drives…</div>';
+    el.innerHTML = '<div class="tree-loading" style="padding:12px 8px">Loading drives…</div>';
     try {
       const r = await SFM.getDrives();
       _treeState.drives = (r && r.ok && r.drives && r.drives.length) ? r.drives : [];
@@ -799,9 +707,8 @@ const FileTree = (() => {
 
     // Always show a Browse button at the top
     const browseBtn = document.createElement('button');
-    browseBtn.className = 'btn tree-browse-btn';
-    browseBtn.textContent = '📂  Open Folder…';
-    browseBtn.style.cssText = 'margin:8px 6px 4px;width:calc(100% - 12px);font-size:12px;justify-content:flex-start;';
+    browseBtn.className = 'btn btn-sm tree-browse-btn';
+    browseBtn.innerHTML = Icons.svg('folder-open', 14) + 'Open folder…';
     browseBtn.addEventListener('click', () => browseFolder());
     el.appendChild(browseBtn);
 
@@ -821,8 +728,7 @@ const FileTree = (() => {
     if (_currentFolder) {
       const hdr2 = document.createElement('div');
       hdr2.className = 'tree-section-hdr';
-      hdr2.style.marginTop = '8px';
-      hdr2.textContent = 'Current Folder';
+      hdr2.textContent = 'Current folder';
       el.appendChild(hdr2);
       const folderName = _currentFolder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || _currentFolder;
       const node = _makeTreeNode({ path: _currentFolder, name: folderName, is_dir: true }, 0, false);
@@ -837,14 +743,10 @@ const FileTree = (() => {
     row.className = 'tree-node tree-drive';
     row.dataset.path = path;
     const isExp = _treeState.expanded.has(path);
-    // Use cached real icon or SVG fallback
-    const folderIcon = (_iconCache.get('__folder__'))
-      ? `<img class="file-icon-img" src="${_iconCache.get('__folder__')}" width="15" height="15" draggable="false">`
-      : _SVG_FOLDER;
-    row.innerHTML = `
-      <span class="tree-arrow">${isExp ? '▾' : '▸'}</span>
-      <span class="tree-icon">${folderIcon}</span>
-      <span class="tree-label">${_esc(label)}</span>`;
+    row.innerHTML = `<div class="tree-line" style="padding-left:4px">
+      <span class="tree-arrow">${_chev(isExp)}</span>
+      <span class="tree-icon">${_driveIcon(16)}</span>
+      <span class="tree-label" title="${_esc(path)}">${_esc(label)}</span></div>`;
     row.querySelector('.tree-arrow').addEventListener('click', async (e) => {
       e.stopPropagation();
       await _toggleTreeNode(row, path, 1);
@@ -867,13 +769,12 @@ const FileTree = (() => {
   function _makeTreeNode(entry, depth, autoExpand) {
     const row = document.createElement('div');
     row.className = 'tree-node';
-    row.style.paddingLeft = (depth * 14 + 4) + 'px';
     row.dataset.path = entry.path;
     const isExp = _treeState.expanded.has(entry.path);
-    row.innerHTML = `
-      <span class="tree-arrow">${isExp ? '▾' : '▸'}</span>
-      <span class="tree-icon">${(_iconCache.get('__folder__') ? `<img class="file-icon-img" src="${_iconCache.get('__folder__')}" width="15" height="15" draggable="false">` : _SVG_FOLDER)}</span>
-      <span class="tree-label" title="${_esc(entry.path)}">${_esc(entry.name)}</span>`;
+    row.innerHTML = `<div class="tree-line" style="padding-left:${depth * 14 + 4}px">
+      <span class="tree-arrow">${_chev(isExp)}</span>
+      <span class="tree-icon">${_folderIcon(16)}</span>
+      <span class="tree-label" title="${_esc(entry.path)}">${_esc(entry.name)}</span></div>`;
 
     row.querySelector('.tree-arrow').addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -902,16 +803,16 @@ const FileTree = (() => {
     if (_treeState.expanded.has(path)) {
       _treeState.expanded.delete(path);
       children.innerHTML = '';
-      if (arrow) arrow.textContent = '▸';
+      if (arrow) arrow.innerHTML = _chev(false);
     } else {
       _treeState.expanded.add(path);
-      if (arrow) arrow.textContent = '▾';
+      if (arrow) arrow.innerHTML = _chev(true);
       await _loadTreeChildren(children, path, childDepth);
     }
   }
 
   async function _loadTreeChildren(container, parentPath, depth) {
-    container.innerHTML = '<div style="padding:2px 4px;color:var(--text-muted);font-size:10px">Loading…</div>';
+    container.innerHTML = '<div class="tree-loading">Loading…</div>';
     try {
       const r = await SFM.listFolder(parentPath);
       container.innerHTML = '';

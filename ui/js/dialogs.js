@@ -23,15 +23,16 @@ const Dialogs = (() => {
     overlay.style.zIndex = z;
     document.body.appendChild(overlay);
 
+    // buttons: [{ label, primary?, danger?, icon? (Icons name), onClick }]
     const btnHtml = (buttons || []).map(b =>
-      `<button class="btn ${b.primary ? 'btn-primary' : ''}" data-modal-btn="${b.label}">${_esc(b.label)}</button>`
+      `<button class="btn ${b.primary ? 'btn-primary' : ''} ${b.danger ? 'btn-danger' : ''}" data-modal-btn="${b.label}">${b.icon ? Icons.svg(b.icon, 16) : ''}${_esc(b.label)}</button>`
     ).join('');
 
     overlay.innerHTML = `
       <div class="modal" id="modal-${id}" role="dialog" aria-labelledby="modal-title-${id}">
         <div class="modal-header">
           <h2 class="modal-title" id="modal-title-${id}">${_esc(title)}</h2>
-          <button class="modal-close" aria-label="Close">&#x2715;</button>
+          <button class="modal-close" aria-label="Close">${Icons.svg('x', 16)}</button>
         </div>
         <div class="modal-body" id="modal-body-${id}">${bodyHtml}</div>
         ${btnHtml ? `<div class="modal-footer">${btnHtml}</div>` : ''}
@@ -117,7 +118,7 @@ const Dialogs = (() => {
 <div class="modal" id="modal-${_esc(name)}" style="width:${o.width || '560px'};max-width:98vw;${o.extraStyle || ''}">
   <div class="modal-header">
     <h2 class="modal-title">${_esc(o.title || '')}</h2>
-    <button class="modal-close" aria-label="Close">&#x2715;</button>
+    <button class="modal-close" aria-label="Close">${Icons.svg('x', 16)}</button>
   </div>
   <div class="modal-body">${o.body || ''}</div>
   ${o.footer ? `<div class="modal-footer">${o.footer}</div>` : ''}
@@ -139,26 +140,26 @@ const Dialogs = (() => {
     const name  = path.split(/[\\/]/).pop();
     const isPdf = (ext || '').toLowerCase() === '.pdf';
     const body  = `
-      <div id="fullview-wrap" style="width:100%;flex:1 1 auto;min-height:0;overflow:auto;background:#111;display:flex;padding:16px;box-sizing:border-box">
+      <div id="fullview-wrap" style="width:100%;flex:1 1 auto;min-height:0;overflow:auto;background:var(--bg-preview);border-radius:var(--radius-lg);display:flex;padding:16px;box-sizing:border-box">
         <div id="fullview-inner" style="margin:auto;display:flex;flex-direction:column;gap:12px;align-items:center"></div>
       </div>
       ${isPdf ? `
-      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:8px;flex-wrap:wrap;flex-shrink:0">
-        <button class="btn" id="fv-prev">&#9664;</button>
-        <span style="font-size:13px">Page <input id="fv-page-input" type="number" min="1" value="${startPage+1}" style="width:50px;text-align:center;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 4px"> / <span id="fv-total">?</span></span>
-        <button class="btn" id="fv-next">&#9654;</button>
-        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-        <button class="btn" id="fv-zoom-out" title="Zoom out (−)">&#8722;</button>
-        <select id="fv-zoom" class="btn" title="Ctrl + scroll to zoom" style="padding:4px 8px"><option value="fit" selected>Fit Page</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option><option value="4">400%</option></select>
-        <button class="btn" id="fv-zoom-in" title="Zoom in (+)">&#43;</button>
-        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-        <button class="btn" id="fv-rot-ccw" title="Rotate counter-clockwise">&#8634;</button>
-        <button class="btn" id="fv-rot-cw"  title="Rotate clockwise">&#8635;</button>
-        <button class="btn" id="fv-del-page" title="Delete this page" style="color:var(--text-danger)">&#128465; Del Page</button>
-        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-        <button class="btn" id="fv-append" title="Append another PDF to this one">&#128196;+ Append</button>
-        <button class="btn" id="fv-merge" title="Merge with other PDFs">&#128206; Merge</button>
-        <button class="btn" id="fv-arrange" title="Arrange / reorder pages">&#8645; Arrange</button>
+      <div class="fv-bar">
+        <button class="icon-btn" id="fv-prev" title="Previous page" aria-label="Previous page">${Icons.svg('chevron-left', 16)}</button>
+        <span class="fv-page">Page <input id="fv-page-input" type="number" min="1" value="${startPage+1}" style="width:56px;text-align:center"> of <span id="fv-total">?</span></span>
+        <button class="icon-btn" id="fv-next" title="Next page" aria-label="Next page">${Icons.svg('chevron-right', 16)}</button>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="icon-btn" id="fv-zoom-out" title="Zoom out (−)" aria-label="Zoom out">${Icons.svg('zoom-out', 16)}</button>
+        <select id="fv-zoom" title="Ctrl + scroll to zoom" style="width:110px"><option value="fit" selected>Fit page</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option><option value="4">400%</option></select>
+        <button class="icon-btn" id="fv-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${Icons.svg('zoom-in', 16)}</button>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="icon-btn" id="fv-rot-ccw" title="Rotate counter-clockwise" aria-label="Rotate counter-clockwise">${Icons.svg('rotate-ccw', 16)}</button>
+        <button class="icon-btn" id="fv-rot-cw"  title="Rotate clockwise" aria-label="Rotate clockwise">${Icons.svg('rotate-cw', 16)}</button>
+        <button class="icon-btn icon-btn-danger" id="fv-del-page" title="Delete this page" aria-label="Delete this page">${Icons.svg('trash', 16)}</button>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="btn btn-sm btn-ghost" id="fv-append" title="Append another PDF to this one">${Icons.svg('plus', 14)}Append</button>
+        <button class="btn btn-sm btn-ghost" id="fv-merge" title="Merge with other PDFs">${Icons.svg('merge', 14)}Merge</button>
+        <button class="btn btn-sm btn-ghost" id="fv-arrange" title="Arrange / reorder pages">${Icons.svg('layers', 14)}Arrange</button>
       </div>` : ''}`;
 
     _openModal('fullview', name, body, [{ label: 'Close', onClick: closeModal }]);
@@ -441,34 +442,70 @@ const Dialogs = (() => {
     const rk = await SFM.getApiKey();
     const apiKey = rk.key || '';
 
+    const OCR_LANGS = [
+      ['eng', 'English'], ['kor', 'Korean'], ['jpn', 'Japanese'], ['chi_sim', 'Chinese (Simplified)'],
+      ['chi_tra', 'Chinese (Traditional)'], ['ara', 'Arabic'], ['fra', 'French'], ['deu', 'German'],
+      ['spa', 'Spanish'], ['rus', 'Russian'],
+    ];
+    const curTheme = s.theme || (document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
     const body = `
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div>
-          <label class="detail-label">OpenAI / GPT API Key</label>
-          <input id="s-apikey" class="input-text" type="password" value="${_esc(apiKey)}" placeholder="sk-..." style="width:100%;margin-top:4px">
-        </div>
-        <div>
-          <label class="detail-label">Default output folder</label>
-          <div style="display:flex;gap:8px;margin-top:4px">
-            <input id="s-outfolder" class="input-text" value="${_esc(s.output_folder||'')}" style="flex:1">
-            <button class="btn" id="s-outfolder-browse">Browse&#x2026;</button>
+      <div class="settings-form">
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('folder', 16)}General</div>
+          <div class="settings-row">
+            <label class="field-label" for="s-outfolder">Default output folder</label>
+            <div>
+              <div class="field-row">
+                <input id="s-outfolder" class="input-text" value="${_esc(s.output_folder||'')}" placeholder="Same folder as the original file">
+                <button class="btn" id="s-outfolder-browse">Browse&#x2026;</button>
+              </div>
+              <div class="field-hint">Where new PDFs and images are saved. Leave empty to save next to the original.</div>
+            </div>
           </div>
-        </div>
-        <div>
-          <label class="detail-label">OCR language</label>
-          <select id="s-ocrlang" class="input-text" style="margin-top:4px;width:100%">
-            ${['eng','kor','jpn','chi_sim','chi_tra','ara','fra','deu','spa','rus'].map(l =>
-              `<option value="${l}" ${s.ocr_lang===l?'selected':''}>${l}</option>`
-            ).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="detail-label">App theme</label>
-          <select id="s-theme" class="input-text" style="margin-top:4px;width:100%">
-            <option value="dark"  ${(s.theme||'dark')==='dark' ?'selected':''}>Dark</option>
-            <option value="light" ${s.theme==='light'          ?'selected':''}>Light</option>
-          </select>
-        </div>
+          <div class="settings-row">
+            <label class="field-label" for="s-ocrlang">OCR language</label>
+            <div>
+              <select id="s-ocrlang" class="input-text">
+                ${OCR_LANGS.map(([v, n]) =>
+                  `<option value="${v}" ${s.ocr_lang===v?'selected':''}>${n} (${v})</option>`
+                ).join('')}
+              </select>
+              <div class="field-hint">Used when reading text from scanned documents.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('palette', 16)}Appearance</div>
+          <div class="settings-row">
+            <span class="field-label">Theme</span>
+            <div>
+              <div class="segmented segmented-block" id="s-theme-seg" role="radiogroup" aria-label="Theme">
+                <button type="button" class="seg-btn ${curTheme==='dark'?'active':''}" data-theme-val="dark">${Icons.svg('moon', 14)}Dark</button>
+                <button type="button" class="seg-btn ${curTheme==='light'?'active':''}" data-theme-val="light">${Icons.svg('sun', 14)}Light</button>
+              </div>
+              <select id="s-theme" class="hidden" aria-hidden="true">
+                <option value="dark"  ${curTheme==='dark' ?'selected':''}>Dark</option>
+                <option value="light" ${curTheme==='light'?'selected':''}>Light</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('sparkles', 16)}AI features</div>
+          <div class="settings-row">
+            <label class="field-label" for="s-apikey">OpenAI API key</label>
+            <div>
+              <div class="input-group">
+                <span class="input-icon">${Icons.svg('key', 14)}</span>
+                <input id="s-apikey" class="input-text mono" type="password" value="${_esc(apiKey)}" placeholder="sk-…" autocomplete="off" spellcheck="false">
+                <button type="button" class="icon-btn input-action" id="s-apikey-toggle" title="Show key" aria-label="Show key">${Icons.svg('eye', 16)}</button>
+              </div>
+              <div class="field-hint">Needed for Smart Split and AI photo edits. Stored on this computer only.</div>
+            </div>
+          </div>
+        </section>
       </div>`;
 
     _openModal('settings', 'Settings', body, [
@@ -483,14 +520,33 @@ const Dialogs = (() => {
         };
         const r = await SFM.saveSettings(ns);
         closeModal();
-        if (r.ok) App.toast('Settings saved', 'success');
+        if (r.ok) { App.toast('Settings saved', 'success'); if (App.applyTheme) App.applyTheme(ns.theme); }
         else       App.toast('Save failed: ' + r.error, 'error');
       }},
     ]);
+    const _sm = document.getElementById('modal-settings');
+    if (_sm) _sm.style.width = 'min(640px, 94vw)';
 
     document.getElementById('s-outfolder-browse')?.addEventListener('click', async () => {
       const r = await SFM.call('browse_for_folder');
       if (r.ok && r.path) document.getElementById('s-outfolder').value = r.path;
+    });
+    // Theme segmented control mirrors the (hidden) #s-theme select
+    document.querySelectorAll('#s-theme-seg [data-theme-val]').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('#s-theme-seg .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+      const sel = document.getElementById('s-theme');
+      if (sel) sel.value = b.dataset.themeVal;
+    }));
+    // Show / hide the API key
+    document.getElementById('s-apikey-toggle')?.addEventListener('click', () => {
+      const inp = document.getElementById('s-apikey');
+      const t = document.getElementById('s-apikey-toggle');
+      if (!inp || !t) return;
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      t.innerHTML = Icons.svg(show ? 'eye-off' : 'eye', 16);
+      t.title = show ? 'Hide key' : 'Show key';
+      t.setAttribute('aria-label', t.title);
     });
   }
 
@@ -501,19 +557,27 @@ const Dialogs = (() => {
 
   // ── 16. More Menu ─────────────────────────────────────────────────────────
   function openMoreMenu() {
+    const item = (id, icon, label, hint) =>
+      `<button class="qa-btn more-item" id="${id}"><span class="icon">${Icons.svg(icon, 16)}</span>
+         <span class="flex-1">${label}</span>${hint ? `<span class="hint">${hint}</span>` : ''}</button>`;
     const body = `
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <button class="qa-btn" id="mm-templates">&#x1F4DD;  Document Name Templates&#x2026;</button>
-        <button class="qa-btn" id="mm-uppercase">&#x1F520;  Change Case / Uppercase Tool&#x2026;</button>
-        <button class="qa-btn" id="mm-copyto">&#x1F4CB;  Copy To&#x2026;</button>
-        <button class="qa-btn" id="mm-moveto">&#x2702;&#xFE0F;  Move To&#x2026;</button>
-        <button class="qa-btn" id="mm-expand-all">&#x1F4C2;  Expand All Folders</button>
-        <button class="qa-btn" id="mm-collapse-all">&#x1F4C1;  Collapse All Folders</button>
+      <div class="qa-list">
+        <div class="section-title" style="padding:4px 8px 2px">Rename</div>
+        ${item('mm-templates', 'templates', 'Document name templates&#x2026;')}
+        ${item('mm-uppercase', 'case', 'Change case&#x2026;', 'UPPER · Title · lower')}
+        <div class="section-title" style="padding:12px 8px 2px">Files</div>
+        ${item('mm-copyto', 'copy', 'Copy selection to&#x2026;')}
+        ${item('mm-moveto', 'folder-input', 'Move selection to&#x2026;')}
+        <div class="section-title" style="padding:12px 8px 2px">Folder tree</div>
+        ${item('mm-expand-all', 'chevrons-up-down', 'Expand all folders')}
+        ${item('mm-collapse-all', 'chevrons-down-up', 'Collapse all folders')}
       </div>`;
 
-    _openModal('more', 'More Actions', body, [
+    _openModal('more', 'More actions', body, [
       { label: 'Close', onClick: closeModal },
     ]);
+    const _mm = document.getElementById('modal-more');
+    if (_mm) _mm.style.width = 'min(420px, 94vw)';
 
     const wire = (id, fn) => {
       const e = document.getElementById(id);
@@ -532,7 +596,7 @@ const Dialogs = (() => {
     const name = path.split(/[\\/]/).pop();
     const body = `
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-        GPT-4o is identifying, splitting and merging pages in:<br>
+        AI is identifying, splitting and merging pages in:<br>
         <strong>${_esc(name)}</strong>
       </p>
       <div id="ss-log"
@@ -566,11 +630,11 @@ const Dialogs = (() => {
       SFM.off('smart_rename_done', _onDone);
       App.setStatus('Ready');
       if (r.ok) {
-        if (statusEl) statusEl.textContent = '✅ Complete — files saved alongside original.';
+        if (statusEl) statusEl.textContent = 'Complete — files saved alongside original.';
         App.toast('Smart Split complete', 'success');
         FileTree.refresh();
       } else {
-        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + (r.error || 'Failed'); }
+        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '' + (r.error || 'Failed'); }
         App.toast('Smart Split failed: ' + r.error, 'error', 7000);
       }
     }
@@ -690,11 +754,11 @@ const Dialogs = (() => {
       SFM.off('ocr_rename_done', _onDone);
       App.setStatus('Ready');
       if (r.ok) {
-        if (statusEl) statusEl.textContent = '✅ Done — ' + (r.files?.length || '?') + ' file(s) created';
+        if (statusEl) statusEl.textContent = 'Done — ' + (r.files?.length || '?') + ' file(s) created';
         App.toast('OCR Split complete', 'success');
         FileTree.refresh();
       } else {
-        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + (r.error || 'Failed'); }
+        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '' + (r.error || 'Failed'); }
         App.toast('OCR Split failed: ' + r.error, 'error', 7000);
       }
     }
@@ -718,7 +782,7 @@ const Dialogs = (() => {
       <div id="ocr-log" style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:10px;height:200px;overflow-y:auto;font-family:monospace;font-size:11px;white-space:pre-wrap"></div>
       <div id="ocr-status" style="margin-top:8px;font-size:12px;color:var(--accent);min-height:18px">Starting…</div>`;
 
-    _openModal('ocr-rename-prog', '🔍 Rename by Document Type (OCR)', body, [
+    _openModal('ocr-rename-prog', 'Rename by Document Type (OCR)', body, [
       { label: 'Close', onClick: closeModal },
     ]);
 
@@ -734,10 +798,10 @@ const Dialogs = (() => {
     const _unsubDone = SFM.on('ocr_rename_done', e => {
       _unsubLog(); _unsubDone();
       if (e.ok) {
-        if (statEl) statEl.textContent = '✅ Done — all files renamed.';
+        if (statEl) statEl.textContent = 'Done — all files renamed.';
         App.toast('OCR rename complete', 'success');
       } else {
-        if (statEl) statEl.textContent = '❌ Error: ' + (e.error || 'unknown');
+        if (statEl) statEl.textContent = 'Error: ' + (e.error || 'unknown');
         App.toast('OCR rename failed', 'error');
       }
       FileTree.refresh();
@@ -745,7 +809,7 @@ const Dialogs = (() => {
 
     SFM.ocrRenameProgress(paths).catch(err => {
       _appendLog('Error starting: ' + err);
-      if (statEl) statEl.textContent = '❌ Could not start.';
+      if (statEl) statEl.textContent = 'Could not start.';
     });
   }
 

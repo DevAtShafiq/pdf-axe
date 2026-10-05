@@ -72,7 +72,7 @@ def main() -> None:
 
     # ── create window ─────────────────────────────────────────────────────────
     window = webview.create_window(
-        title      = "Student File Manager",
+        title      = "PDF Axe",
         url        = _ui_url(),
         js_api     = bridge,
         width      = 1400,
@@ -82,7 +82,7 @@ def main() -> None:
         # text_select keeps default Chromium behaviour
         text_select = True,
         # background colour while page loads (matches our dark chrome)
-        background_color = "#1a1d21",
+        background_color = "#0e1014",
     )
 
     # ── inject window reference into bridge after DOM is ready ────────────────

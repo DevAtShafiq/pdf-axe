@@ -10,6 +10,7 @@ const ContextMenu = (() => {
 
   // ── Build DOM ─────────────────────────────────────────────────────────────
   let _menu = null;
+  const DANGER = new Set(['Move to Review']);
 
   function _ensureMenu() {
     if (_menu) return _menu;
@@ -42,10 +43,10 @@ const ContextMenu = (() => {
     const mainPath = entry?.path || paths[0];
 
     // Section: open
-    _item(menu, '\u{1F5C2}️', 'Open',           'Ctrl+Enter', () => { hide(); if(entry) SFM.openNative(entry.path); });
-    _item(menu, '\u{1F4C2}', 'Show in Explorer', '',              () => { hide(); if(entry) SFM.openFolder(entry.path.replace(/[\\\/][^\\\/]+$/, '')); });
+    _item(menu, 'external-link', 'Open',           'Ctrl+Enter', () => { hide(); if(entry) SFM.openNative(entry.path); });
+    _item(menu, 'folder-open', 'Show in Explorer', '',              () => { hide(); if(entry) SFM.openFolder(entry.path.replace(/[\\\/][^\\\/]+$/, '')); });
     if (single && entry && !isDir) {
-      _item(menu, '\u{1F4E4}', 'Open with\u2026', '', async () => {
+      _item(menu, 'app-window', 'Open with\u2026', '', async () => {
         hide();
         App.setStatus('Getting apps\u2026', true);
         const r = await SFM.getOpenWithCommands(mainPath);
@@ -53,11 +54,15 @@ const ContextMenu = (() => {
         if (!r.ok || !r.commands?.length) { App.toast('No apps found for this file type', 'info'); return; }
         // Mini floating picker
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:#0004;';
+        overlay.className = 'modal-overlay';
+        overlay.style.zIndex = 99999;
         const listHtml = r.commands.map((c, i) =>
-          '<button class="btn" style="width:100%;text-align:left;margin:2px 0;padding:7px 12px" data-idx="' + i + '">' + _esc(c[0]) + '</button>'
+          '<button class="qa-btn" data-idx="' + i + '"><span class="icon">' + Icons.svg('app-window', 16) + '</span>' + _esc(c[0]) + '</button>'
         ).join('');
-        overlay.innerHTML = '<div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:16px;min-width:260px;max-width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 40px #0008"><div style="font-weight:600;margin-bottom:10px;font-size:14px">Open with\u2026</div>' + listHtml + '<button class="btn" id="ow-cancel" style="width:100%;margin-top:10px">Cancel</button></div>';
+        overlay.innerHTML = '<div class="modal modal-sm" role="dialog">'
+          + '<div class="modal-header"><h2 class="modal-title">Open with\u2026</h2></div>'
+          + '<div class="modal-body" style="gap:2px;padding:8px 12px">' + listHtml + '</div>'
+          + '<div class="modal-footer"><button class="btn" id="ow-cancel">Cancel</button></div></div>';
         document.body.appendChild(overlay);
         overlay.querySelectorAll('[data-idx]').forEach(btn => {
           btn.addEventListener('click', async () => {
@@ -73,14 +78,14 @@ const ContextMenu = (() => {
     _sep(menu);
 
     // Section: edit
-    _item(menu, '✂️', 'Cut',  'Ctrl+X', () => { hide(); FileTree.cutSelection(); });
-    _item(menu, '\u{1F4CB}', 'Copy', 'Ctrl+C', () => { hide(); FileTree.copySelection(); });
-    _item(menu, '\u{1F4CC}', 'Paste','Ctrl+V', () => { hide(); FileTree.pasteSelection(); });
+    _item(menu, 'scissors', 'Cut',  'Ctrl+X', () => { hide(); FileTree.cutSelection(); });
+    _item(menu, 'copy', 'Copy', 'Ctrl+C', () => { hide(); FileTree.copySelection(); });
+    _item(menu, 'paste', 'Paste','Ctrl+V', () => { hide(); FileTree.pasteSelection(); });
     _sep(menu);
 
     // Section: file ops
-    _item(menu, '✏️', 'Rename',         'F2',  () => { hide(); setTimeout(() => Details.beginRename(), 100); });
-    _item(menu, '\u{1F5D1}️', 'Move to Review', 'Del', async () => {
+    _item(menu, 'text-cursor', 'Rename',         'F2',  () => { hide(); setTimeout(() => Details.beginRename(), 100); });
+    _item(menu, 'archive', 'Move to Review', 'Del', async () => {
       hide();
       if (!confirm('Move ' + paths.length + ' item(s) to _to_review/?')) return;
       const r = await SFM.softDelete(paths);
@@ -96,41 +101,41 @@ const ContextMenu = (() => {
       && entries.every(e => /^\.(pdf|jpe?g|png|bmp|gif|tiff?|webp)$/i.test(e.ext || ''))
       && entries.some(e => (e.ext||'').toLowerCase() === '.pdf');
     if (mixedPdfImg) {
-      _item(menu, '\u{1F4CE}', 'Merge into One PDF…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
+      _item(menu, 'merge', 'Merge into One PDF…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
       _sep(menu);
     }
     if (allPdf) {
       if (multi) {
-        _item(menu, '\u{1F4CE}', 'Merge PDFs…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
-        _item(menu, '\u{1F5DC}️', 'Compress ' + entries.length + ' PDFs…', '', () => { hide(); Dialogs.openCompressPdf(entries.map(e => e.path)); });
+        _item(menu, 'merge', 'Merge PDFs…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
+        _item(menu, 'compress', 'Compress ' + entries.length + ' PDFs…', '', () => { hide(); Dialogs.openCompressPdf(entries.map(e => e.path)); });
         _sep(menu);
       }
       if (isPdf) {
-        _item(menu, '\u{2B0D}', 'Arrange Pages…', '', () => { hide(); PdfTools.openArrange([mainPath]); });
-        _item(menu, '✂️', 'Split PDF…', '', () => { hide(); PdfTools.openSplit(mainPath); });
-        _item(menu, '\u{1F4C4}', 'Extract Pages…', '', () => { hide(); PdfTools.openExtract(mainPath); });
+        _item(menu, 'layers', 'Arrange Pages…', '', () => { hide(); PdfTools.openArrange([mainPath]); });
+        _item(menu, 'scissors', 'Split PDF…', '', () => { hide(); PdfTools.openSplit(mainPath); });
+        _item(menu, 'extract', 'Extract Pages…', '', () => { hide(); PdfTools.openExtract(mainPath); });
         // "Current page" = the page shown in the preview for this file.
         const curPage = PdfTools.previewPageFor(mainPath);
         if (curPage !== null) {
-          _item(menu, '\u{1F4C4}→', 'Extract Current Page (' + (curPage + 1) + ') → New PDF', '', () => {
+          _item(menu, 'file-pdf', 'Extract Current Page (' + (curPage + 1) + ') → New PDF', '', () => {
             hide(); PdfTools.extractPage(mainPath, curPage);
           });
         }
-        _item(menu, '\u{1F520}', 'Smart Split & Rename…','', () => {
+        _item(menu, 'sparkles', 'Smart Split & Rename…','', () => {
           hide(); Dialogs.openSmartSplitProgress(mainPath);
         });
-        _item(menu, '\u{1F50D}', 'Rename by Doc Type (OCR)\u2026', '', () => { hide(); Dialogs.openOcrRenameProgress([mainPath]); });
-        _item(menu, '\u{1F5DC}️', 'Compress PDF…',  '', () => { hide(); Dialogs.openCompressPdf(mainPath); });
-        _item(menu, '\u{1F4F7}', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
-        _item(menu, '\u{1F50D}', 'Split & Rename by OCR…',   '', () => { hide(); Dialogs.openSplitRenameOcrProgress(mainPath); });
+        _item(menu, 'scan-text', 'Rename by Doc Type (OCR)\u2026', '', () => { hide(); Dialogs.openOcrRenameProgress([mainPath]); });
+        _item(menu, 'compress', 'Compress PDF…',  '', () => { hide(); Dialogs.openCompressPdf(mainPath); });
+        _item(menu, 'images', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
+        _item(menu, 'scan-text', 'Split & Rename by OCR…',   '', () => { hide(); Dialogs.openSplitRenameOcrProgress(mainPath); });
         _sep(menu);
       }
     }
 
     // Section: image ops
     if (isImg) {
-      _item(menu, '✂️', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
-      _item(menu, '\u{1F454}', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
+      _item(menu, 'crop', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
+      _item(menu, 'shirt', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
     }
 
     // Section: image compress / convert (single or multi-select)
@@ -138,16 +143,16 @@ const ContextMenu = (() => {
     const allImg = entries.length > 0 && entries.every(e => !e.is_dir && IMG_EXTS.includes((e.ext||'').toLowerCase()));
     if (allImg) {
       const imgPaths = entries.map(e => e.path);
-      _item(menu, '\u{1F5DC}️', imgPaths.length > 1 ? 'Compress Images…' : 'Compress Image…', '',
+      _item(menu, 'compress', imgPaths.length > 1 ? 'Compress Images…' : 'Compress Image…', '',
         () => { hide(); Dialogs.openCompressImages(imgPaths); });
-      _item(menu, '\u{1F501}', 'Convert Image Format…', '', () => { hide(); ConvertTools.openConvertImage(imgPaths); });
+      _item(menu, 'convert', 'Convert Image Format…', '', () => { hide(); ConvertTools.openConvertImage(imgPaths); });
       if (imgPaths.length > 1) {
         // Several images → one multi-page PDF (reorderable) or one PDF each
-        _item(menu, '\u{1F4CE}', 'Combine Images into One PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'combine' }); });
-        _item(menu, '\u{1F4C4}', 'Convert Each to PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'separate' }); });
+        _item(menu, 'combine', 'Combine Images into One PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'combine' }); });
+        _item(menu, 'file-pdf', 'Convert Each to PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'separate' }); });
       } else {
-        _item(menu, '\u{1F4C4}', 'Convert to PDF', '', () => { hide(); ConvertTools.quickImageToPdf(imgPaths[0]); });
-        _item(menu, '\u{1F4C4}', 'Convert to PDF (options)…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths); });
+        _item(menu, 'file-pdf', 'Convert to PDF', '', () => { hide(); ConvertTools.quickImageToPdf(imgPaths[0]); });
+        _item(menu, 'file-pdf', 'Convert to PDF (options)…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths); });
       }
       _sep(menu);
     } else if (isImg) {
@@ -155,14 +160,14 @@ const ContextMenu = (() => {
     }
 
     // Section: copy / move (always visible)
-    _item(menu, '\u{1F4CB}', 'Copy To…', '', () => { hide(); Dialogs.openCopyTo(paths); });
-    _item(menu, '\u{2702}\uFE0F', 'Move To…', '', () => { hide(); Dialogs.openMoveTo(paths); });
+    _item(menu, 'copy', 'Copy To…', '', () => { hide(); Dialogs.openCopyTo(paths); });
+    _item(menu, 'folder-input', 'Move To…', '', () => { hide(); Dialogs.openMoveTo(paths); });
     _sep(menu);
 
     // Section: folder ops (directory only)
     if (isDir) {
-      _item(menu, '\u{1F4C2}', 'Expand All', '', () => { hide(); FileTree.expandAll(); });
-      _item(menu, '\u{1F4C1}', 'Collapse All', '', () => { hide(); FileTree.collapseAll(); });
+      _item(menu, 'chevrons-up-down', 'Expand All', '', () => { hide(); FileTree.expandAll(); });
+      _item(menu, 'chevrons-down-up', 'Collapse All', '', () => { hide(); FileTree.collapseAll(); });
       _sep(menu);
     }
 
@@ -172,25 +177,25 @@ const ContextMenu = (() => {
                               '.tiff','.tif','.pdf']);
     const _qrPaths = entries.filter(e => !e.is_dir && _qrExts.has((e.ext || '').toLowerCase())).map(e => e.path);
     if (!isDir && _qrPaths.length) {
-      _item(menu, '\u{1F4F7}', _qrPaths.length > 1 ? `Check QR Codes (${_qrPaths.length} files)` : 'Scan QR from File', '', () => {
+      _item(menu, 'qr-code', _qrPaths.length > 1 ? `Check QR Codes (${_qrPaths.length} files)` : 'Scan QR from File', '', () => {
         hide();
         QrScan.scanPaths(_qrPaths);
       });
-      _item(menu, '\u{1F4F7}', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
+      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
     } else {
       // Screen scan — open click-overlay
-      _item(menu, '\u{1F4F7}', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
+      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.openScreen(); });
     }
 
     // Section: copy path
     _sep(menu);
-    _item(menu, '\u{1F517}', 'Copy Path', '', () => {
+    _item(menu, 'link', 'Copy Path', '', () => {
       hide();
       const text = paths.join('\n');
       navigator.clipboard.writeText(text).catch(() => SFM.setClipboard(text));
       App.toast('Path copied', 'success');
     });
-    _item(menu, '\u{1F4CB}', 'Copy Name', '', () => {
+    _item(menu, 'clipboard', 'Copy Name', '', () => {
       hide();
       const names = entries.map(e => e.name).join('\n');
       navigator.clipboard.writeText(names).catch(() => SFM.setClipboard(names));
@@ -212,10 +217,12 @@ const ContextMenu = (() => {
   }
 
   // ── Builders ──────────────────────────────────────────────────────────────
+  // icon: an Icons name (js/icons.js), e.g. 'copy', 'scissors', 'file-pdf'
   function _item(menu, icon, label, shortcut, fn, disabled = false) {
     const div = document.createElement('div');
-    div.className = 'ctx-item';
-    div.innerHTML = '<span class="ctx-icon">' + icon + '</span>'
+    div.className = 'ctx-item' + (DANGER.has(label) ? ' danger' : '');
+    div.setAttribute('role', 'menuitem');
+    div.innerHTML = '<span class="ctx-icon">' + (icon ? Icons.svg(icon, 16) : '') + '</span>'
       + '<span class="ctx-label">' + _esc(label) + '</span>'
       + (shortcut ? '<span class="ctx-shortcut">' + shortcut + '</span>' : '');
     if (disabled) div.classList.add('disabled');
