@@ -57,8 +57,10 @@ const PdfTools = (() => {
     return () => { off(); wrapEl.classList.remove('on'); };
   }
   const progressHtml = () => `
-    <div class="pt-progress"><div class="progress-wrap"><div class="progress-bar" style="width:0%"></div></div>
-    <div class="pt-hint"></div></div>`;
+    <div class="pt-progress progress-block"><div class="progress-wrap"><div class="progress-bar" style="width:0%"></div></div>
+    <div class="pt-hint progress-label"></div></div>`;
+  const ic = (name, size = 16, cls = '') => Icons.svg(name, size, cls);
+  const setBtn = (b, label, icon) => Dialogs.setBtn(b, label, icon);
 
   // Shared success/failure reporting.
   function finish(r, okMsg, selectPath) {
@@ -75,14 +77,13 @@ const PdfTools = (() => {
 
   // ── tiny modal (own stack; Escape closes the top one) ─────────────────────
   const _mstack = [];
-  function modal({ title, body, footer, cls }) {
+  function modal({ title, icon, subtitle, body, footer, cls }) {
     const ov = document.createElement('div');
     ov.className = 'modal-overlay pt-overlay';
     ov.style.zIndex = 9500 + _mstack.length * 20;
     ov.innerHTML = `
       <div class="modal pt-modal ${cls || ''}" role="dialog">
-        <div class="modal-header"><h2 class="modal-title">${esc(title)}</h2>
-          <button class="modal-close" aria-label="Close">&#x2715;</button></div>
+        ${Dialogs.header(title, { icon, subtitle })}
         <div class="modal-body">${body}</div>
         ${footer ? `<div class="modal-footer">${footer}</div>` : ''}
       </div>`;
@@ -110,6 +111,17 @@ const PdfTools = (() => {
     _mstack[_mstack.length - 1].close();
   }, true);
 
+  // Disable the footer while a job runs; the primary button shows a spinner.
+  function footBusy(m, on) {
+    m.busy = on;
+    m.$$('.modal-footer .btn').forEach(b => {
+      b.disabled = on;
+      if (b.classList.contains('btn-primary')) b.classList.toggle('is-loading', on);
+    });
+  }
+
+  const checkMark = () => `<span class="option-card-check">${ic('check', 10)}</span>`;
+
   async function browseFolderInto(input) {
     const r = await SFM.call('browse_for_folder');
     if (r && r.ok && r.path) input.value = r.path;
@@ -122,34 +134,41 @@ const PdfTools = (() => {
     let items = [];                      // {path, count, error, isImg}
     const m = modal({
       title: 'Merge into one PDF',
+      icon: 'merge',
+      subtitle: 'Combine PDFs and images in the order below',
       cls: 'pt-wide',
       body: `
-        <div>
-          <span class="pt-label">Files, in merge order — drag to reorder, or use ▲ ▼</span>
-          <div class="pt-list" id="pt-m-list"></div>
-          <div class="pt-row" style="margin-top:6px">
-            <button class="btn" id="pt-m-add">+ Add files…</button>
-            <button class="btn" id="pt-m-sort" title="Sort by file name">Sort A→Z</button>
-            <span class="pt-spacer" style="flex:1"></span>
-            <span class="pt-hint" id="pt-m-total"></span>
+        <div class="field">
+          <div class="section-head">
+            <span class="field-label">Files in merge order <span class="text-muted">· drag to reorder</span></span>
+            <span class="row">
+              <span class="pill pill-neutral" id="pt-m-total"></span>
+              <button class="btn btn-sm btn-ghost" id="pt-m-sort" title="Sort by file name">${ic('chevrons-up-down', 14)}Sort A–Z</button>
+              <button class="btn btn-sm" id="pt-m-add">${ic('plus', 14)}Add files…</button>
+            </span>
+          </div>
+          <div class="reorder-list pt-list" id="pt-m-list"></div>
+        </div>
+        <div class="field-grid">
+          <div class="field">
+            <label class="field-label" for="pt-m-name">Output file name</label>
+            <div class="field-row"><input class="input-text" id="pt-m-name"><span class="field-suffix">.pdf</span></div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="pt-m-dir">Save in folder</label>
+            <div class="field-row"><input class="input-text" id="pt-m-dir"><button class="btn" id="pt-m-browse">Browse…</button></div>
           </div>
         </div>
-        <div>
-          <span class="pt-label">Output file name</span>
-          <div class="pt-row"><input class="input-text" id="pt-m-name"><span class="pt-hint">.pdf</span></div>
+        <div class="col">
+          <label class="switch"><input type="checkbox" id="pt-m-bm"><span class="switch-track"></span>Add a bookmark for each file</label>
+          <label class="switch"><input type="checkbox" id="pt-m-move"><span class="switch-track"></span>Afterwards, move the source files to <code>_to_review/</code></label>
         </div>
-        <div>
-          <span class="pt-label">Save in folder</span>
-          <div class="pt-row"><input class="input-text" id="pt-m-dir"><button class="btn" id="pt-m-browse">Browse…</button></div>
-        </div>
-        <label class="pt-check"><input type="checkbox" id="pt-m-bm"> Add a bookmark for each file</label>
-        <label class="pt-check"><input type="checkbox" id="pt-m-move"> Afterwards, move the source files to <code>_to_review/</code></label>
-        <div class="pt-hint">Images become one page each. An existing file is never overwritten — a number is added to the new name.</div>
+        <div class="field-hint">Images become one page each. An existing file is never overwritten — a number is added to the new name.</div>
         ${progressHtml()}`,
       footer: `
+        <button class="btn btn-ghost footer-left" id="pt-m-arrange" title="Open the page editor with all these files">${ic('layers')}Arrange pages…</button>
         <button class="btn" id="pt-m-cancel">Cancel</button>
-        <button class="btn" id="pt-m-arrange" title="Open the page editor with all these files">Arrange pages…</button>
-        <button class="btn btn-primary" id="pt-m-go">Merge</button>`,
+        <button class="btn btn-primary" id="pt-m-go">${ic('merge')}Merge</button>`,
     });
     const list = m.$('#pt-m-list'), nameInp = m.$('#pt-m-name'), dirInp = m.$('#pt-m-dir');
     m.$('#pt-m-bm').checked   = store('mergeBookmarks') !== '0';
@@ -168,7 +187,7 @@ const PdfTools = (() => {
         !items.some(it => it.path.toLowerCase() === p.toLowerCase()));
       const skipped = (ps || []).length - fresh.length;
       if (!fresh.length) { if (skipped) App.toast('Only new PDF or image files can be added', 'warning'); return; }
-      list.innerHTML = '<div class="pt-empty">Reading files…</div>';
+      list.innerHTML = '<div class="pt-empty progress-label"><span class="spinner"></span>Reading files…</div>';
       const r = await SFM.pdfInfos(fresh);
       const infos = (r && r.items) || [];
       fresh.forEach((p, i) => {
@@ -180,25 +199,30 @@ const PdfTools = (() => {
 
     function render() {
       if (!items.length) {
-        list.innerHTML = '<div class="pt-empty">No files yet — click “Add files…”.</div>';
+        list.innerHTML = `<div class="empty-state empty-state-sm pt-empty"><div class="empty-state-icon">${ic('files', 22)}</div>
+          <div class="empty-state-title">No files yet</div><div class="empty-state-text">Add PDFs or images to merge them into one PDF.</div></div>`;
       } else {
         list.innerHTML = items.map((it, i) => `
-          <div class="pt-item" draggable="true" data-i="${i}">
-            <span class="pt-grip" title="Drag to reorder">⋮⋮</span>
-            <span class="pt-num">${i + 1}</span>
-            <span class="pt-kind ${it.isImg ? 'img' : ''}">${it.isImg ? 'IMG' : 'PDF'}</span>
-            <div class="pt-name"><div title="${esc(it.path)}">${esc(baseOf(it.path))}</div><small>${esc(dirOf(it.path))}</small></div>
-            <span class="pt-pages ${it.error ? 'bad' : ''}">${it.error ? '⚠ ' + esc(it.error) : it.count + (it.count === 1 ? ' page' : ' pages')}</span>
-            <button class="btn pt-mini" data-act="up"   title="Move up" ${i === 0 ? 'disabled' : ''}>▲</button>
-            <button class="btn pt-mini" data-act="down" title="Move down" ${i === items.length - 1 ? 'disabled' : ''}>▼</button>
-            <button class="btn pt-mini" data-act="rm"   title="Remove from list">✕</button>
+          <div class="pt-item reorder-row" draggable="true" data-i="${i}">
+            <span class="reorder-grip" title="Drag to reorder">${ic('grip-vertical', 14)}</span>
+            <span class="reorder-num">${i + 1}</span>
+            <span class="reorder-thumb">${Icons.file({ name: it.path }, 18)}</span>
+            <div class="reorder-name"><span title="${esc(it.path)}">${esc(baseOf(it.path))}</span><small>${esc(dirOf(it.path))}</small></div>
+            ${it.error ? `<span class="pill pill-red pt-pages-bad" title="${esc(it.error)}">${ic('alert-triangle', 12)}${esc(it.error)}</span>`
+                       : `<span class="pill pill-neutral">${it.isImg ? 'Image · 1 page' : it.count + (it.count === 1 ? ' page' : ' pages')}</span>`}
+            <span class="reorder-actions">
+              <button class="icon-btn icon-btn-sm" data-act="up"   title="Move up" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>${ic('arrow-up', 14)}</button>
+              <button class="icon-btn icon-btn-sm" data-act="down" title="Move down" aria-label="Move down" ${i === items.length - 1 ? 'disabled' : ''}>${ic('arrow-down', 14)}</button>
+              <button class="icon-btn icon-btn-sm icon-btn-danger" data-act="rm" title="Remove from list" aria-label="Remove from list">${ic('x', 14)}</button>
+            </span>
           </div>`).join('');
       }
       const pages = items.reduce((a, it) => a + (it.count || 0), 0);
       const bad = items.filter(it => it.error).length;
       m.$('#pt-m-total').textContent = items.length
-        ? `${items.length} file(s) · ${pages} page(s)` + (bad ? ` · ${bad} can't be read` : '') : '';
-      m.$('#pt-m-go').textContent = pages ? `Merge ${pages} page(s)` : 'Merge';
+        ? `${items.length} file${items.length === 1 ? '' : 's'} · ${pages} page${pages === 1 ? '' : 's'}` + (bad ? ` · ${bad} unreadable` : '') : '';
+      m.$('#pt-m-total').classList.toggle('hidden', !items.length);
+      setBtn(m.$('#pt-m-go'), pages ? `Merge ${pages} page${pages === 1 ? '' : 's'}` : 'Merge', 'merge');
       m.$('#pt-m-go').disabled = items.length < 1 || !!bad;
       m.$('#pt-m-arrange').disabled = items.length < 1 || !!bad;
     }
@@ -270,11 +294,11 @@ const PdfTools = (() => {
       store('mergeMoveSources', moveSrc ? '1' : '0');
       const job = newJob();
       const stop = trackProgress(m.$('.pt-progress'), job);
-      m.busy = true; m.$$('.modal-footer .btn').forEach(b => b.disabled = true);
+      footBusy(m, true);
       App.setStatus('Merging PDFs…', true);
       const r = await SFM.pdfMerge(items.map(it => it.path), joinP(dir, name + '.pdf'), bookmarks, job)
         .catch(e => ({ ok: false, error: String(e) }));
-      stop(); m.busy = false; m.$$('.modal-footer .btn').forEach(b => b.disabled = false);
+      stop(); footBusy(m, false);
       if (!r.ok) { finish(r); render(); return; }
       let extra = '';
       if (moveSrc) {
@@ -305,30 +329,43 @@ const PdfTools = (() => {
     const n = info.page_count, stem = stemOf(path);
     const mode0 = store('splitMode') || 'each';
     const m = modal({
-      title: 'Split PDF — ' + baseOf(path),
+      title: 'Split PDF',
+      icon: 'split',
+      subtitle: `${baseOf(path)} · ${n} page${n === 1 ? '' : 's'}`,
       body: `
-        <div class="pt-hint">${esc(baseOf(path))} · ${n} page(s)</div>
-        <div class="pt-modes">
-          <label class="pt-mode" data-mode="each"><input type="radio" name="pt-s-mode" value="each">
-            <span class="pt-mode-title">Every page</span><span class="pt-hint">one file per page</span></label>
-          <label class="pt-mode" data-mode="every"><input type="radio" name="pt-s-mode" value="every">
-            <span class="pt-mode-title">Every N pages</span>
-            <input class="input-text" id="pt-s-every" type="number" min="1" max="${n}" value="${esc(store('splitEvery') || 2)}" style="width:80px"><span class="pt-hint">pages per file</span></label>
-          <label class="pt-mode" data-mode="ranges"><input type="radio" name="pt-s-mode" value="ranges">
-            <span class="pt-mode-title">By page ranges</span>
-            <input class="input-text" id="pt-s-ranges" placeholder="e.g. 1-3, 4-6, 7-end" style="flex:1"></label>
-          <label class="pt-mode" data-mode="extract"><input type="radio" name="pt-s-mode" value="extract">
-            <span class="pt-mode-title">Selected pages → one file</span>
-            <input class="input-text" id="pt-s-pick" placeholder="e.g. 1, 3, 5-6" style="flex:1"></label>
+        <div class="field">
+          <span class="field-label">How to split</span>
+          <div class="option-cards pt-modes">
+            <label class="option-card pt-mode" data-mode="each"><input type="radio" name="pt-s-mode" value="each">
+              <span class="option-card-icon">${ic('files')}</span>
+              <span class="option-card-body"><span class="option-card-title">Every page</span>
+                <span class="option-card-desc">One file per page (${n} files).</span></span>${checkMark()}</label>
+            <label class="option-card pt-mode" data-mode="every"><input type="radio" name="pt-s-mode" value="every">
+              <span class="option-card-icon">${ic('layers')}</span>
+              <span class="option-card-body"><span class="option-card-title">Every N pages</span>
+                <span class="option-card-row"><input class="input-text pt-num-input" id="pt-s-every" type="number" min="1" max="${n}" value="${esc(store('splitEvery') || 2)}"><span class="option-card-desc">pages per file</span></span></span>${checkMark()}</label>
+            <label class="option-card pt-mode" data-mode="ranges"><input type="radio" name="pt-s-mode" value="ranges">
+              <span class="option-card-icon">${ic('scissors')}</span>
+              <span class="option-card-body"><span class="option-card-title">By page ranges</span>
+                <span class="option-card-row"><input class="input-text" id="pt-s-ranges" placeholder="e.g. 1-3, 4-6, 7-end"></span></span>${checkMark()}</label>
+            <label class="option-card pt-mode" data-mode="extract"><input type="radio" name="pt-s-mode" value="extract">
+              <span class="option-card-icon">${ic('extract')}</span>
+              <span class="option-card-body"><span class="option-card-title">Selected pages, one file</span>
+                <span class="option-card-row"><input class="input-text" id="pt-s-pick" placeholder="e.g. 1, 3, 5-6"></span></span>${checkMark()}</label>
+          </div>
         </div>
-        <div><span class="pt-label">Result</span><div class="pt-preview" id="pt-s-prev"></div><div class="pt-err" id="pt-s-err"></div></div>
-        <div>
-          <span class="pt-label">Output folder</span>
-          <div class="pt-row"><input class="input-text" id="pt-s-dir" value="${esc(joinP(dirOf(path), stem + '_split'))}"><button class="btn" id="pt-s-browse">Browse…</button></div>
-          <div class="pt-hint" style="margin-top:4px">The folder is created if needed. Existing files are never overwritten.</div>
+        <div class="field">
+          <span class="field-label">Result</span>
+          <div class="pt-result"><span class="pt-result-icon">${ic('files')}</span><div class="pt-preview" id="pt-s-prev"></div></div>
+          <div class="pt-err" id="pt-s-err"></div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="pt-s-dir">Output folder</label>
+          <div class="field-row"><input class="input-text" id="pt-s-dir" value="${esc(joinP(dirOf(path), stem + '_split'))}"><button class="btn" id="pt-s-browse">Browse…</button></div>
+          <div class="field-hint">The folder is created if needed. Existing files are never overwritten.</div>
         </div>
         ${progressHtml()}`,
-      footer: `<button class="btn" id="pt-s-cancel">Cancel</button><button class="btn btn-primary" id="pt-s-go">Split</button>`,
+      footer: `<button class="btn" id="pt-s-cancel">Cancel</button><button class="btn btn-primary" id="pt-s-go">${ic('split')}Split</button>`,
     });
     const modeOf = () => (m.$('input[name="pt-s-mode"]:checked') || {}).value || 'each';
     const specOf = mode => mode === 'ranges' ? m.$('#pt-s-ranges').value : mode === 'extract' ? m.$('#pt-s-pick').value : '';
@@ -355,8 +392,8 @@ const PdfTools = (() => {
       if (!r.ok) { m.$('#pt-s-prev').textContent = ''; return; }
       const names = r.groups.map(g => `${stem}_p${label(g)}.pdf`);
       const shown = names.slice(0, 4).join(', ') + (names.length > 4 ? `, … (${names.length - 4} more)` : '');
-      m.$('#pt-s-prev').textContent = `${r.count} file(s): ${shown}`;
-      m.$('#pt-s-go').textContent = r.count === 1 ? 'Create 1 file' : `Create ${r.count} files`;
+      m.$('#pt-s-prev').innerHTML = `<strong>${r.count} file${r.count === 1 ? '' : 's'}</strong><span class="text-muted">${esc(shown)}</span>`;
+      setBtn(m.$('#pt-s-go'), r.count === 1 ? 'Create 1 file' : `Create ${r.count} files`, 'split');
     }
     let t = null;
     const later = () => { clearTimeout(t); t = setTimeout(preview, 180); };
@@ -377,11 +414,11 @@ const PdfTools = (() => {
       const mode = modeOf(), every = +m.$('#pt-s-every').value || 1;
       store('splitMode', mode); if (mode === 'every') store('splitEvery', every);
       const job = newJob(), stop = trackProgress(m.$('.pt-progress'), job);
-      m.busy = true; m.$$('.modal-footer .btn').forEach(b => b.disabled = true);
+      footBusy(m, true);
       App.setStatus('Splitting PDF…', true);
       const r = await SFM.pdfSplit(path, mode, every, specOf(mode), m.$('#pt-s-dir').value.trim(), job)
         .catch(e => ({ ok: false, error: String(e) }));
-      stop(); m.busy = false; m.$$('.modal-footer .btn').forEach(b => b.disabled = false);
+      stop(); footBusy(m, false);
       if (!r.ok) { finish(r); return; }
       m.close();
       finish(r, `Split into ${r.count} file(s) → <b>${esc(baseOf(r.out_dir))}</b>`, r.out_dir);
@@ -401,21 +438,23 @@ const PdfTools = (() => {
     const n = info.page_count;
     const start = (opts && Number.isInteger(opts.page)) ? String(opts.page + 1) : '';
     const m = modal({
-      title: 'Extract pages — ' + baseOf(path),
+      title: 'Extract pages',
+      icon: 'extract',
+      subtitle: `${baseOf(path)} · ${n} page${n === 1 ? '' : 's'}`,
+      cls: 'modal-sm pt-narrow',
       body: `
-        <div class="pt-hint">${esc(baseOf(path))} · ${n} page(s)</div>
-        <div>
-          <span class="pt-label">Pages to extract, in this order</span>
+        <div class="field">
+          <label class="field-label" for="pt-e-spec">Pages to extract, in this order</label>
           <input class="input-text" id="pt-e-spec" value="${esc(start)}" placeholder="e.g. 1-3, 5, 8-end">
           <div class="pt-err" id="pt-e-err"></div>
         </div>
-        <div>
-          <span class="pt-label">New file name (leave empty for automatic)</span>
-          <div class="pt-row"><input class="input-text" id="pt-e-name" placeholder="${esc(stemOf(path))}_p…"><span class="pt-hint">.pdf</span></div>
-          <div class="pt-hint" style="margin-top:4px">Saved next to the original, which is not changed. Existing files are never overwritten.</div>
+        <div class="field">
+          <label class="field-label" for="pt-e-name">New file name</label>
+          <div class="field-row"><input class="input-text" id="pt-e-name" placeholder="${esc(stemOf(path))}_p… (automatic)"><span class="field-suffix">.pdf</span></div>
+          <div class="field-hint">Saved next to the original, which is not changed. Existing files are never overwritten.</div>
         </div>
         ${progressHtml()}`,
-      footer: `<button class="btn" id="pt-e-cancel">Cancel</button><button class="btn btn-primary" id="pt-e-go">Extract</button>`,
+      footer: `<button class="btn" id="pt-e-cancel">Cancel</button><button class="btn btn-primary" id="pt-e-go">${ic('extract')}Extract</button>`,
     });
     const specInp = m.$('#pt-e-spec');
     let valid = false, seq = 0;
@@ -427,7 +466,7 @@ const PdfTools = (() => {
       valid = !!r.ok;
       m.$('#pt-e-go').disabled = !valid;
       m.$('#pt-e-err').className = r.ok ? 'pt-ok' : 'pt-err';
-      m.$('#pt-e-err').textContent = r.ok ? `${r.groups[0].length} page(s): ${r.groups[0].slice(0, 30).join(', ')}${r.groups[0].length > 30 ? ', …' : ''}` : r.error;
+      m.$('#pt-e-err').innerHTML = ic(r.ok ? 'check-circle' : 'alert-circle', 14) + esc(r.ok ? `${r.groups[0].length} page${r.groups[0].length === 1 ? '' : 's'}: ${r.groups[0].slice(0, 30).join(', ')}${r.groups[0].length > 30 ? ', …' : ''}` : r.error);
     }
     let t = null;
     specInp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(check, 180); });
@@ -438,11 +477,11 @@ const PdfTools = (() => {
       if (!valid) return;
       const nm = cleanName(m.$('#pt-e-name').value);
       const job = newJob(), stop = trackProgress(m.$('.pt-progress'), job);
-      m.busy = true; m.$$('.modal-footer .btn').forEach(b => b.disabled = true);
+      footBusy(m, true);
       App.setStatus('Extracting pages…', true);
       const r = await SFM.pdfExtract(path, specInp.value, nm ? joinP(dirOf(path), nm + '.pdf') : '', job)
         .catch(e => ({ ok: false, error: String(e) }));
-      stop(); m.busy = false; m.$$('.modal-footer .btn').forEach(b => b.disabled = false);
+      stop(); footBusy(m, false);
       if (!r.ok) { finish(r); return; }
       m.close();
       finish(r, `Extracted ${r.page_count} page(s) → <b>${esc(baseOf(r.out_path))}</b>`, r.out_path);
@@ -527,39 +566,55 @@ const PdfTools = (() => {
     const defDir  = (opts && opts.folder) || dirOf(primary);
     ov.innerHTML = `
       <div class="pt-org" role="dialog">
-        <div class="pt-org-bar">
-          <span class="pt-org-title" title="${esc(paths.join('\n'))}">${mode === 'merge' ? 'Merge & arrange' : 'Arrange'} — ${esc(baseOf(primary))}${paths.length > 1 ? ` +${paths.length - 1}` : ''}</span>
-          <button class="btn" data-a="rotl" title="Rotate left (L)">↺ Left</button>
-          <button class="btn" data-a="rotr" title="Rotate right (R)">↻ Right</button>
-          <button class="btn" data-a="dup"  title="Duplicate (Ctrl+D)">⧉ Duplicate</button>
-          <button class="btn" data-a="del"  title="Delete page (Del)">🗑 Delete</button>
-          <span class="pt-sep"></span>
-          <button class="btn" data-a="insert" title="Insert all pages of other PDFs or images after the selection">＋ Insert pages…</button>
-          <button class="btn" data-a="extract" title="Save the selected pages as a new PDF">⇱ Extract selected</button>
-          <span class="pt-sep"></span>
-          <button class="btn" data-a="undo" title="Undo (Ctrl+Z)">↶ Undo</button>
-          <button class="btn" data-a="redo" title="Redo (Ctrl+Y)">↷ Redo</button>
-          <button class="btn" data-a="all"  title="Select all (Ctrl+A)">Select all</button>
-          <span class="pt-sep"></span>
-          <button class="btn" data-a="zout" title="Smaller thumbnails">−</button>
-          <button class="btn" data-a="zin"  title="Larger thumbnails">+</button>
+        <div class="pt-org-head">
+          <span class="modal-head-icon">${ic(mode === 'merge' ? 'merge' : 'layers', 18)}</span>
+          <div class="modal-heading">
+            <h2 class="modal-title">${mode === 'merge' ? 'Merge & arrange pages' : 'Arrange pages'}</h2>
+            <div class="modal-subtitle" title="${esc(paths.join('\n'))}">${esc(baseOf(primary))}${paths.length > 1 ? ` + ${paths.length - 1} more` : ''}</div>
+          </div>
+          <span class="pill pill-neutral" id="pt-a-status"></span>
+          <button class="modal-close" id="pt-a-x" aria-label="Close" title="Close (Esc)">${ic('x')}</button>
+        </div>
+        <div class="pt-org-bar" role="toolbar">
+          <div class="pt-tb-group">
+            <button class="icon-btn" data-a="undo" data-tooltip="Undo · Ctrl+Z" aria-label="Undo">${ic('undo')}</button>
+            <button class="icon-btn" data-a="redo" data-tooltip="Redo · Ctrl+Y" aria-label="Redo">${ic('redo')}</button>
+          </div>
+          <span class="toolbar-sep"></span>
+          <div class="pt-tb-group">
+            <button class="icon-btn" data-a="rotl" data-tooltip="Rotate left · L" aria-label="Rotate left">${ic('rotate-ccw')}</button>
+            <button class="icon-btn" data-a="rotr" data-tooltip="Rotate right · R" aria-label="Rotate right">${ic('rotate-cw')}</button>
+            <button class="icon-btn" data-a="dup"  data-tooltip="Duplicate · Ctrl+D" aria-label="Duplicate">${ic('copy')}</button>
+            <button class="icon-btn icon-btn-danger" data-a="del" data-tooltip="Delete · Del" aria-label="Delete pages">${ic('trash')}</button>
+          </div>
+          <span class="toolbar-sep"></span>
+          <div class="pt-tb-group">
+            <button class="btn btn-sm btn-ghost" data-a="insert" title="Insert all pages of other PDFs or images after the selection">${ic('plus', 14)}Insert pages…</button>
+            <button class="btn btn-sm btn-ghost" data-a="extract" title="Save the selected pages as a new PDF">${ic('extract', 14)}Extract selected</button>
+            <button class="btn btn-sm btn-ghost" data-a="all" title="Select all (Ctrl+A)">${ic('list-checks', 14)}<span class="pt-all-label">Select all</span></button>
+          </div>
           <span class="pt-spacer"></span>
-          <span class="pt-status" id="pt-a-status"></span>
+          <span class="pt-tb-hint">Click, Ctrl+click or Shift+click to select · drag to move</span>
+          <div class="pt-tb-group">
+            <button class="icon-btn" data-a="zout" data-tooltip="Smaller thumbnails" aria-label="Smaller thumbnails">${ic('zoom-out')}</button>
+            <button class="icon-btn" data-a="zin"  data-tooltip="Larger thumbnails" aria-label="Larger thumbnails">${ic('zoom-in')}</button>
+          </div>
         </div>
         <div class="pt-grid" id="pt-a-grid" tabindex="0"><div class="pt-caret" id="pt-a-caret"></div></div>
         <div class="pt-org-foot">
           ${canOverwrite ? `
-          <label class="pt-check"><input type="radio" name="pt-a-out" value="new" checked> Save as new file</label>` :
-          '<span class="pt-label" style="margin:0">Save as</span>'}
-          <input class="input-text" id="pt-a-name" value="${esc(defName)}"><span class="pt-hint">.pdf in</span>
-          <input class="input-text" id="pt-a-dir" value="${esc(defDir)}" style="width:260px">
-          <button class="btn" id="pt-a-browse">Browse…</button>
-          ${canOverwrite ? `
-          <label class="pt-check" title="The current version is copied to _to_review/ first"><input type="radio" name="pt-a-out" value="over"> Overwrite original</label>` : ''}
+          <div class="segmented pt-out-seg" role="radiogroup" aria-label="Save mode">
+            <label class="seg-btn"><input type="radio" name="pt-a-out" value="new" checked>${ic('file-pdf', 14)}Save as new file</label>
+            <label class="seg-btn" title="The current version is copied to _to_review/ first"><input type="radio" name="pt-a-out" value="over">${ic('refresh', 14)}Overwrite original</label>
+          </div>` : `<span class="field-label">Save as</span>`}
+          <div class="pt-foot-fields">
+            <div class="field-row"><input class="input-text" id="pt-a-name" value="${esc(defName)}" aria-label="File name"><span class="field-suffix">.pdf in</span></div>
+            <div class="field-row pt-foot-dir"><input class="input-text" id="pt-a-dir" value="${esc(defDir)}" aria-label="Folder"><button class="btn" id="pt-a-browse">Browse…</button></div>
+          </div>
           ${progressHtml()}
           <span class="pt-spacer"></span>
           <button class="btn" id="pt-a-cancel">Close</button>
-          <button class="btn btn-primary" id="pt-a-save">Save</button>
+          <button class="btn btn-primary" id="pt-a-save">${ic('check')}Save</button>
         </div>
       </div>`;
     document.body.appendChild(ov);
@@ -642,14 +697,18 @@ const PdfTools = (() => {
         t.innerHTML = `
           <div class="pt-thumb" style="width:${w}px;height:${h}px">
             <img draggable="false" alt="" style="transform:${tf};visibility:${du ? 'visible' : 'hidden'}" ${du ? `src="${du}"` : ''}>
-            ${du ? '' : `<span class="pt-ph">${du === '' ? 'No preview' : 'Loading…'}</span>`}
-            <span class="pt-check-badge">✓</span>
+            ${du ? '' : `<span class="pt-ph">${du === '' ? 'No preview' : '<span class="spinner"></span>'}</span>`}
+            <span class="pt-num-badge">${i + 1}</span>
+            <span class="pt-check-badge">${ic('check', 12)}</span>
+            ${s.rotate ? `<span class="pt-rot-badge" title="Rotated ${s.rotate}°">${ic('rotate-cw', 11)}${s.rotate}°</span>` : ''}
             <div class="pt-tile-tools">
-              <button data-t="rotl" title="Rotate left">↺</button><button data-t="rotr" title="Rotate right">↻</button>
-              <button data-t="dup" title="Duplicate">⧉</button><button data-t="del" class="del" title="Delete">✕</button>
+              <button data-t="rotl" title="Rotate left" aria-label="Rotate left">${ic('rotate-ccw', 14)}</button>
+              <button data-t="rotr" title="Rotate right" aria-label="Rotate right">${ic('rotate-cw', 14)}</button>
+              <button data-t="dup" title="Duplicate" aria-label="Duplicate">${ic('copy', 14)}</button>
+              <button data-t="del" class="del" title="Delete" aria-label="Delete">${ic('trash', 14)}</button>
             </div>
           </div>
-          <div class="pt-cap" title="${esc(baseOf(s.path))} — page ${s.page + 1}">${i + 1}${multi ? ' · ' + esc(stemOf(s.path).slice(0, 16)) + ' p' + (s.page + 1) : (s.page !== i ? ` <span class="pt-hint">(was ${s.page + 1})</span>` : '')}${s.rotate ? ` <span class="pt-rot">↻${s.rotate}°</span>` : ''}</div>`;
+          <div class="pt-cap" title="${esc(baseOf(s.path))} — page ${s.page + 1}">${multi ? esc(stemOf(s.path).slice(0, 18)) + ' · p' + (s.page + 1) : (s.page !== i ? `Page ${i + 1} <span class="text-muted">· was ${s.page + 1}</span>` : `Page ${i + 1}`)}</div>`;
         frag.appendChild(t);
         if (du === undefined) lazy.push(t);
       });
@@ -660,11 +719,12 @@ const PdfTools = (() => {
     }
     function status() {
       const n = sel.size;
-      $('#pt-a-status').textContent = `${slots.length} page(s)` + (n ? ` · ${n} selected` : '') + (dirty() ? ' · unsaved changes' : '');
+      $('#pt-a-status').textContent = `${slots.length} page${slots.length === 1 ? '' : 's'}` + (n ? ` · ${n} selected` : '') + (dirty() ? ' · unsaved changes' : '');
+      $('#pt-a-status').className = 'pill ' + (dirty() ? 'pill-yellow pill-dot' : 'pill-neutral');
       ov.querySelector('[data-a="undo"]').disabled = !undoStack.length;
       ov.querySelector('[data-a="redo"]').disabled = !redoStack.length;
       ov.querySelector('[data-a="extract"]').disabled = !n;
-      ov.querySelector('[data-a="all"]').textContent = (n && n === slots.length) ? 'Select none' : 'Select all';
+      ov.querySelector('[data-a="all"] .pt-all-label').textContent = (n && n === slots.length) ? 'Select none' : 'Select all';
       ['rotl', 'rotr', 'dup', 'del'].forEach(a => { ov.querySelector(`[data-a="${a}"]`).disabled = !targets().length; });
       $('#pt-a-save').disabled = !slots.length;
     }
@@ -729,11 +789,14 @@ const PdfTools = (() => {
       if (busy) return null;
       busy = true; self.busy = true;
       const job = newJob(), stop = trackProgress(ov.querySelector('.pt-progress'), job);
-      ov.querySelectorAll('.pt-org-foot .btn, .pt-org-bar .btn').forEach(b => b.disabled = true);
+      const ctl = '.pt-org-foot .btn, .pt-org-bar .btn, .pt-org-bar .icon-btn';
+      ov.querySelectorAll(ctl).forEach(b => b.disabled = true);
+      $('#pt-a-save').classList.add('is-loading');
       App.setStatus(label, true);
       const r = await SFM.pdfBuild(pages, out, replace, job).catch(e => ({ ok: false, error: String(e) }));
       stop(); busy = false; self.busy = false;
-      ov.querySelectorAll('.pt-org-foot .btn, .pt-org-bar .btn').forEach(b => b.disabled = false);
+      ov.querySelectorAll(ctl).forEach(b => b.disabled = false);
+      $('#pt-a-save').classList.remove('is-loading');
       status();
       return r;
     }
@@ -812,11 +875,13 @@ const PdfTools = (() => {
     }, { passive: false });
     $('#pt-a-browse').addEventListener('click', () => browseFolderInto($('#pt-a-dir')));
     $('#pt-a-cancel').addEventListener('click', tryClose);
+    $('#pt-a-x').addEventListener('click', tryClose);
     $('#pt-a-save').addEventListener('click', save);
     ov.querySelectorAll('input[name="pt-a-out"]').forEach(rb => rb.addEventListener('change', () => {
       const over = overwriteChosen();
       ['#pt-a-name', '#pt-a-dir', '#pt-a-browse'].forEach(s => { $(s).disabled = over; });
-      $('#pt-a-save').textContent = over ? 'Overwrite original…' : 'Save';
+      ov.querySelector('.pt-foot-fields')?.classList.toggle('is-dim', over);
+      setBtn($('#pt-a-save'), over ? 'Overwrite original…' : 'Save', over ? 'refresh' : 'check');
     }));
 
     // ── selection (click / ctrl / shift) + per-tile tools ───────────────────
