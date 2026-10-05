@@ -275,10 +275,30 @@ const FileTree = (() => {
     const bc = $('breadcrumb');
     bc.innerHTML = '';
     const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+    // Deep paths: show the drive, an ellipsis for the middle, and the last two
+    // folders, instead of squeezing every segment down to a couple of letters.
+    const collapse = parts.length > 4;
+    const hiddenTo = parts.length - 2;   // parts[1 .. hiddenTo-1] are hidden
     // Drive letter gets special treatment
     let cumulative = '';
     parts.forEach((part, i) => {
       cumulative += (i === 0 ? '' : '/') + part;
+      if (collapse && i >= 1 && i < hiddenTo) {
+        if (i === hiddenTo - 1) {
+          const more = document.createElement('span');
+          more.className = 'breadcrumb-seg breadcrumb-more';
+          more.textContent = '…';
+          more.title = cumulative.replace(/\//g, '\\');
+          const capMore = cumulative;
+          more.addEventListener('click', () => App.navigate(capMore + '/'));
+          bc.appendChild(more);
+          const arrow = document.createElement('span');
+          arrow.className = 'breadcrumb-arrow';
+          arrow.innerHTML = Icons.svg('chevron-right', 12);
+          bc.appendChild(arrow);
+        }
+        return;
+      }
       const seg = document.createElement('span');
       seg.className = 'breadcrumb-seg' + (i === parts.length - 1 ? ' last' : '');
       seg.title = cumulative.replace(/\//g, '\\');
