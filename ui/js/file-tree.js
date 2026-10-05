@@ -800,6 +800,10 @@ const FileTree = (() => {
     });
 
     input.addEventListener('keydown', e => {
+      // Keys typed in the box never reach the list / global shortcuts: a commit
+      // can finish (and focus the list) before the event bubbles, and the
+      // list's Enter would then open the file.
+      e.stopPropagation();
       if (e.key === 'Tab') {
         e.preventDefault(); e.stopPropagation();
         _commit({ advance: e.shiftKey ? -1 : 1 });
