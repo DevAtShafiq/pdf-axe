@@ -984,12 +984,18 @@ class SFMBridge(PdfToolsBridgeMixin):
                 if api_key:
                     os.environ.setdefault("OPENAI_API_KEY", api_key)
                 log_cb = self._log_cb("smart_rename_log")
-                _fo.pdf_smart_split_merge_rename(
+                # out_dir is required (old app: same folder as the source PDF);
+                # the old 'output_folder=' keyword raised TypeError every time.
+                res = _fo.pdf_smart_split_merge_rename(
                     path,
-                    output_folder=out_dir or None,
-                    log=log_cb,
+                    out_dir or os.path.dirname(os.path.abspath(path)),
+                    log_cb,
+                    fallback_prefix=os.path.splitext(os.path.basename(path))[0] or "page",
                 )
-                self._emit("smart_rename_done", {"ok": True})
+                ok, files = (res if isinstance(res, tuple) else (bool(res), []))
+                if not ok:
+                    raise RuntimeError("Smart split failed — see the log for details.")
+                self._emit("smart_rename_done", {"ok": True, "files": list(files or [])})
             except Exception as exc:
                 self._emit("smart_rename_done", {"ok": False, "error": str(exc)})
         self._thread(_run)
