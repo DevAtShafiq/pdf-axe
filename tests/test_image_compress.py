@@ -229,3 +229,73 @@ def test_bridge_compress_images_target_and_summary(big_jpeg, tmp_path):
     assert r["saved"] == r["before"] - r["after"] > 0
     one = b.compress_image(big_jpeg, 60, 400, "webp")
     assert one["ok"] and one["out"].endswith(".webp") and one["size"] == [400, 300]
+
+
+def test_target_png_note_explains_jpg(tmp_path):
+    p = tmp_path / "scan.png"
+    _noisy_rgb(500, 400).save(p)
+    r = mc.compress_image(str(p), target_bytes=40 * 1024)
+    assert r["target_met"] is True and r["out"].endswith(".jpg")
+    assert "Saved as JPG to reach the target" in r["note"]
+    assert r["format_changed"] is True
+
+
+def test_target_already_under_keeps_original(tmp_path):
+    p = tmp_path / "small.jpg"
+    _noisy_rgb(120, 90).save(p, quality=60)
+    before = sorted(os.listdir(tmp_path))
+    r = mc.compress_image(str(p), target_bytes=500 * 1024)
+    assert r["kept_original"] and r["target_met"] is True and r["out"] == ""
+    assert "Already under 500 KB" in r["note"]
+    assert sorted(os.listdir(tmp_path)) == before
+
+
+def test_target_unreachable_asks_before_saving(big_jpeg, tmp_path):
+    before = sorted(os.listdir(tmp_path))
+    r = mc.compress_image(big_jpeg, target_bytes=300, save_smallest=False)
+    assert r["target_met"] is False and r["kept_original"] and r["out"] == ""
+    assert r["can_save_smallest"] and r["smallest"] > 300
+    assert r["note"].startswith("Could not reach")
+    assert sorted(os.listdir(tmp_path)) == before
+    s = mc.compress_image(big_jpeg, target_bytes=300, save_smallest=True)
+    assert s["target_met"] is False and s["out"] and s["after"] < s["before"]
+
+
+def test_bridge_image_target_flags(big_jpeg):
+    import sfm_bridge
+    b = sfm_bridge.SFMBridge()
+    ok = b.compress_image(big_jpeg, 70, 0, "", "", 60)
+    assert ok["ok"] and ok["target_met"] is True and ok["after"] <= 60 * 1024
+    miss = b.compress_image(big_jpeg, 70, 0, "", "", 0.3, False)
+    assert miss["ok"] and miss["target_met"] is False and not miss["out"]
+
+
+def test_preview_image_matches_actual_and_writes_nothing(big_jpeg, tmp_path):
+    before = sorted(os.listdir(tmp_path))
+    pv = mc.preview_image(big_jpeg, 45, 600, "", smallest=True)
+    assert sorted(os.listdir(tmp_path)) == before                 # nothing written
+    assert pv["before"] == os.path.getsize(big_jpeg) and not pv["kept_original"]
+    real = mc.compress_image(big_jpeg, 45, 600)
+    assert pv["after"] == real["after"]                            # exact for images
+    assert 0 < pv["smallest"] < pv["after"]
+    lo, hi = mc.preview_image(big_jpeg, 30)["after"], mc.preview_image(big_jpeg, 90)["after"]
+    assert lo < hi
+
+
+def test_preview_image_dry_run_flag(big_jpeg, tmp_path):
+    before = sorted(os.listdir(tmp_path))
+    r = mc.compress_image(big_jpeg, 50, dry_run=True)
+    assert r["dry_run"] and r["out"] == "" and r["after"] < r["before"]
+    assert sorted(os.listdir(tmp_path)) == before
+
+
+def test_bridge_preview_images(big_jpeg, monkeypatch):
+    import sfm_bridge
+    b = sfm_bridge.SFMBridge()
+    events = []
+    monkeypatch.setattr(b, "_emit", lambda ev, payload=None: events.append((ev, payload)))
+    monkeypatch.setattr(b, "_thread", lambda fn, *a, **k: fn(*a, **k))
+    b.compress_preview([big_jpeg], {"channel": "img", "img_quality": 40, "smallest": True}, "pi")
+    res = events[0][1]
+    assert res["ok"] and res["kind"] == "image" and res["after"] < res["before"]
+    assert res["smallest"] and events[-1][1]["done"]

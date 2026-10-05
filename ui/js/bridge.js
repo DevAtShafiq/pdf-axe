@@ -124,8 +124,12 @@ const SFM = (() => {
     mergePdfs:           (paths, out)              => call('merge_pdfs', paths, out),
     splitPdf:            (path, dir)               => call('split_pdf_pages', path, dir),
     compressPdf:         (path, out)               => call('compress_pdf', path, out),
-    compressPdfQuality:  (path, quality='ebook', out='') => call('compress_pdf_quality', path, quality, out),
-    compressPdfAsync:    (path, out='', preset='ebook') => call('compress_pdf_async', path, out, preset),
+    compressPdfQuality:  (path, quality='ebook', out='', targetKb=0, saveSmallest=false) => call('compress_pdf_quality', path, quality, out, targetKb, saveSmallest),
+    // job='' → compress_done event (legacy); job set → media_progress (per attempt) + media_done
+    compressPdfAsync:    (path, out='', preset='ebook', targetKb=0, job='', saveSmallest=false) => call('compress_pdf_async', path, out, preset, targetKb, job, saveSmallest),
+    fileSizes:           (paths)                   => call('file_sizes', paths),
+    // Predicted sizes, in memory; emits compress_preview events tagged with job
+    compressPreview:     (paths, settings={}, job='') => call('compress_preview', paths, settings, job),
     rotatePage:          (path, page, deg)         => call('rotate_pdf_page', path, page, deg),
     deletePage:          (path, page)              => call('delete_pdf_page', path, page),
     reorderPages:        (path, order, out)        => call('reorder_pdf_pages', path, order, out),
@@ -153,7 +157,7 @@ const SFM = (() => {
     // Image
     cropImage:           (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),
-    compressImage:       (path, quality=70, maxEdge=0, fmt='', out='', targetKb=0) => call('compress_image', path, quality, maxEdge, fmt, out, targetKb),
+    compressImage:       (path, quality=70, maxEdge=0, fmt='', out='', targetKb=0, saveSmallest=true) => call('compress_image', path, quality, maxEdge, fmt, out, targetKb, saveSmallest),
     compressImages:      (paths, quality=70, maxEdge=0, fmt='', targetKb=0)        => call('compress_images', paths, quality, maxEdge, fmt, targetKb),
     convertImage:        (path, fmt, out='', quality=92)               => call('convert_image', path, fmt, out, quality),
     ocrRenameProgress:   (paths)                           => call('ocr_rename_with_progress', paths),

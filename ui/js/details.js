@@ -215,8 +215,7 @@ const Details = (() => {
     wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
     wire('qa-compress',    () => {
       if (!_path) return;
-      if (ConvertTools.isPdf(_path)) ConvertTools.openCompressPdf([_path]);
-      else ConvertTools.openCompressImages([_path]);
+      ConvertTools.openCompress([_path]);
     });
   }
 

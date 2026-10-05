@@ -5,8 +5,10 @@
  *   ConvertTools.quickImageToPdf(path)            one image → PDF with defaults
  *   ConvertTools.openPdfToImages(path)            PDF pages → PNG/JPG/WEBP
  *   ConvertTools.openConvertImage(paths)          image format conversion
- *   ConvertTools.openCompressPdf(paths)           PDF compression (single / batch)
- *   ConvertTools.openCompressImages(paths)        image compression (single / batch)
+ *   ConvertTools.openCompress(paths)              compress PDFs, images or a mix, optionally
+ *                                                 to a target size ("Under 100 KB")
+ *   ConvertTools.openCompressPdf(paths)           thin wrapper → openCompress (PDFs only)
+ *   ConvertTools.openCompressImages(paths)        thin wrapper → openCompress (images only)
  *
  * Backend: media_convert.py via sfm_bridge (SFM.* wrappers in bridge.js).
  * Every operation keeps the originals and never overwrites (name-2, name-3 …).
@@ -472,7 +474,9 @@ const ConvertTools = (() => {
     }
   }
 
-  // ── 4. Compress PDF(s) ────────────────────────────────────────────────────
+  // ── 4. Compress (PDFs, images or a mix) ───────────────────────────────────
+  // One dialog for any selection. A target size ("Under 100 KB") applies to
+  // every file; "No limit" shows the PDF presets / image quality options.
   // [key, title, description, expected effect, effect tone, icon]
   const PDF_PRESETS = [
     ['screen',   'Smallest',     'Images at 72 dpi. For email, WhatsApp and upload portals.', 'Largest saving', 'pill-green', 'compress'],
@@ -480,215 +484,551 @@ const ConvertTools = (() => {
     ['printer',  'High quality', 'Images at 300 dpi. Best for printing.', 'Smaller saving', 'pill-neutral', 'file-image'],
     ['lossless', 'Lossless',     'Only removes waste; images are untouched.', 'No quality loss', 'pill-neutral', 'shield-check'],
   ];
+  // [value (KB, '0' = none, 'custom'), title, hint]
+  const TARGETS = [
+    ['0', 'No limit', 'Pick quality'],
+    ['100', '100 KB', 'Forms, portals'],
+    ['200', '200 KB', 'Email'],
+    ['500', '500 KB', 'Uploads'],
+    ['1024', '1 MB', 'Sharper'],
+    ['2048', '2 MB', 'Print-ready'],
+    ['custom', 'Custom', 'Any size'],
+  ];
+  // Mirror of media_convert.PDF_TARGET_LADDER (index 0 = clean-up only): the
+  // "Custom level" slider picks a step; slider value s -> ladder index (length - s).
+  const PDF_LADDER = [null, [300, 85], [300, 80], [250, 80], [200, 80], [200, 70], [170, 70],
+    [150, 70], [150, 60], [135, 60], [120, 55], [110, 55], [96, 55], [96, 45], [85, 45],
+    [72, 40], [72, 35], [60, 35], [60, 30], [50, 30]];
+  const LEVEL_MAX = PDF_LADDER.length - 1;
+  const _levelIdx = s => PDF_LADDER.length - Math.max(1, Math.min(LEVEL_MAX, s | 0));
+  const _levelText = s => { const st = PDF_LADDER[_levelIdx(s)]; return `Images ${st[0]} dpi · quality ${st[1]}`; };
+  const CMP_DEFAULTS = { target: '0', custom: 300, unit: 'KB', preset: 'ebook', level: 12, quality: 70, edge: 1600, fmt: '' };
+  const PREVIEW_DEBOUNCE = 250;
   const _check = () => `<span class="option-card-check">${Icons.svg('check', 10)}</span>`;
 
-  function _resultRow(name, r) {
-    if (!r.ok) return `<div class="result-row err"><span class="result-icon">${Icons.svg('x-circle', 16)}</span>
-      <span class="result-name" title="${_esc(name)}">${_esc(name)}</span><span class="result-detail">${_esc(r.error)}</span></div>`;
-    if (r.kept_original) return `<div class="result-row kept"><span class="result-icon">${Icons.svg('check', 16)}</span>
-      <span class="result-name" title="${_esc(name)}">${_esc(name)}</span>
-      <span class="result-detail">${_fmtBytes(r.before)} <span class="pill pill-neutral">Original kept — ${_esc((r.note || 'already optimized').replace(/ — .*$/, ''))}</span></span></div>`;
-    const warn = r.target_met === false;
-    return `<div class="result-row ${warn ? 'warn' : 'ok'}"><span class="result-icon">${Icons.svg(warn ? 'alert-triangle' : 'check-circle', 16)}</span>
-      <span class="result-name" title="${_esc(r.out)}">${_esc(_name(r.out))}</span>
-      <span class="result-detail">${_sizeChange(r.before, r.after)}${_pctPill(r.before, r.after)}${warn ? '<span class="pill pill-yellow">Target not reached</span>' : ''}</span></div>`;
+  // "100 KB", "1 MB", "1.5 MB" for a size given in KB.
+  function _kbLabel(kb) {
+    kb = Number(kb) || 0;
+    if (kb >= 1024) return (Math.round(kb / 1024 * 10) / 10) + ' MB';
+    return Math.round(kb) + ' KB';
   }
-  // Summary callout shown above the result rows when a batch finishes.
-  function _summaryHtml(s, total, noun) {
-    if (s.good.length) {
-      return `<div class="callout success">${Icons.svg('check-circle', 16)}<div class="callout-body">
-        <span class="callout-title">${s.good.length === total ? 'Done' : `${s.good.length} of ${total} ${noun}s compressed`}</span>
-        <span class="row">${_sizeChange(s.before, s.after)}${_pctPill(s.before, s.after)}</span></div></div>`;
-    }
-    if (s.failed === total) {
-      return `<div class="callout error">${Icons.svg('alert-circle', 16)}<div class="callout-body">
-        <span class="callout-title">Compression failed</span><span>See the details below.</span></div></div>`;
-    }
-    return `<div class="callout warning">${Icons.svg('info', 16)}<div class="callout-body">
-      <span class="callout-title">Already well compressed</span><span>No smaller copy could be made, so the original${total > 1 ? 's were' : ' was'} kept.</span></div></div>`;
-  }
-  function _summary(results) {
-    const good = results.filter(r => r.ok && !r.kept_original);
-    const before = good.reduce((a, r) => a + r.before, 0);
-    const after = good.reduce((a, r) => a + r.after, 0);
-    return { good, before, after, kept: results.filter(r => r.ok && r.kept_original).length,
-             failed: results.filter(r => !r.ok).length };
+  // Short size for pills: "340 KB", "1.2 MB".
+  function _short(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+    return (Math.round(n / 1024 / 1024 * 10) / 10) + ' MB';
   }
 
+  function openCompress(paths) {
+    const all = (Array.isArray(paths) ? paths : [paths]).filter(Boolean);
+    const items = all.filter(p => isPdf(p) || isImage(p));
+    if (!items.length) { App.toast('Compress works on PDFs and images', 'warning'); return; }
+    if (items.length < all.length) App.toast(`${all.length - items.length} file(s) left out — only PDFs and images can be compressed`, 'info');
+    const pdfs = items.filter(isPdf), imgs = items.filter(isImage);
+    const single = items.length === 1;
+    const o = _load('compress', CMP_DEFAULTS);
+    const knownTarget = TARGETS.some(([v]) => v === String(o.target));
+    const curTarget = knownTarget ? String(o.target) : '0';
+
+    const title = single ? (pdfs.length ? 'Compress PDF' : 'Compress image')
+      : !imgs.length ? 'Compress PDFs' : !pdfs.length ? 'Compress images' : 'Compress files';
+    const countText = [pdfs.length && `${pdfs.length} PDF${pdfs.length === 1 ? '' : 's'}`,
+                       imgs.length && `${imgs.length} image${imgs.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+    const subtitle = single ? _name(items[0]) : countText;
+
+    const body = `
+      <div class="field">
+        <div class="section-head"><span class="field-label">Target size</span><span class="cmp-target-hint" id="cmp-target-hint"></span></div>
+        <div class="cmp-targets" id="cmp-targets" role="radiogroup" aria-label="Target size">
+          ${TARGETS.map(([v, t, d]) => `
+            <label class="cmp-target"><input type="radio" name="cmp-target" value="${v}" ${v === curTarget ? 'checked' : ''}>
+              <span class="cmp-target-title">${t}</span><span class="cmp-target-desc">${d}</span></label>`).join('')}
+        </div>
+        <div class="cmp-custom hidden" id="cmp-custom-row">
+          <label class="field-label" for="cmp-custom">Custom target</label>
+          <input id="cmp-custom" type="number" min="1" step="any" class="input-text" value="${_esc(o.custom)}">
+          ${_segSelect('cmp-unit', [['KB', 'KB'], ['MB', 'MB']], o.unit)}
+        </div>
+      </div>
+      <div class="cmp-quality" id="cmp-quality">
+        ${pdfs.length ? `
+        <div class="field">
+          <span class="field-label">${imgs.length ? 'PDF quality' : 'Compression level'}</span>
+          <div class="option-cards" id="pc-presets" role="radiogroup">
+            ${PDF_PRESETS.map(([k, t, d, fx, tone, ic]) => `
+              <label class="option-card"><input type="radio" name="pc-preset" value="${k}" ${k === o.preset ? 'checked' : ''}>
+                <span class="option-card-icon">${Icons.svg(ic, 16)}</span>
+                <span class="option-card-body"><span class="option-card-title">${t}</span>
+                  <span class="option-card-desc">${d}</span>
+                  <span class="option-card-meta"><span class="pill ${tone}">${fx}</span><span class="pill pill-neutral cmp-est" id="pc-est-${k}"></span></span></span>
+                ${_check()}</label>`).join('')}
+            <label class="option-card cmp-level-card"><input type="radio" name="pc-preset" value="level" ${o.preset === 'level' ? 'checked' : ''}>
+              <span class="option-card-icon">${Icons.svg('settings', 16)}</span>
+              <span class="option-card-body"><span class="option-card-title">Custom level</span>
+                <span class="option-card-desc">Drag the slider until the size looks right.</span>
+                <span class="option-card-meta"><span class="pill pill-neutral cmp-est" id="pc-est-level"></span></span></span>
+              ${_check()}</label>
+          </div>
+          <div class="cmp-level hidden" id="pc-level-row">
+            <div class="section-head"><label class="field-label" for="pc-level" id="pc-level-text">${_esc(_levelText(o.level))}</label><span class="cmp-readout" id="pc-level-est"></span></div>
+            <input id="pc-level" type="range" min="1" max="${LEVEL_MAX}" step="1" value="${_esc(o.level)}" class="cvt-range">
+            <div class="cvt-range-scale"><span>Smaller file</span><span>Better quality</span></div>
+          </div>
+        </div>` : ''}
+        ${imgs.length ? `
+        <div class="field" id="ic-q-row">
+          <div class="section-head"><label class="field-label" for="ic-q">${pdfs.length ? 'Image quality' : 'Quality'} <span class="pill pill-neutral" id="ic-q-val">${_esc(o.quality)}</span></label><span class="cmp-readout" id="ic-est"></span></div>
+          <input id="ic-q" type="range" min="10" max="95" step="1" value="${_esc(o.quality)}" class="cvt-range">
+          <div class="cvt-range-scale"><span>Smaller file</span><span>Better quality</span></div>
+        </div>
+        <div class="field-grid">
+          ${_field('Max size (longest edge)', _select('ic-edge', [[0, 'Original'], [3000, '3000 px'], [2000, '2000 px'], [1600, '1600 px'], [1200, '1200 px'], [1024, '1024 px'], [800, '800 px']], o.edge))}
+          ${_field('Output format', _select('ic-fmt', [['', 'Same as original'], ['jpg', 'JPG'], ['webp', 'WEBP'], ['png', 'PNG']], o.fmt))}
+        </div>` : ''}
+      </div>
+      ${_noteHtml('cmp-note')}
+      <div class="field">
+        <div class="section-head"><span class="field-label">${single ? 'File' : `Files <span class="text-muted">· ${_esc(countText)}</span>`}</span><span class="cmp-total" id="cmp-total"></span></div>
+        <div class="result-list cmp-files" id="cmp-files"></div>
+      </div>
+      ${single && pdfs.length ? _field('Output file', `<div class="input-group"><span class="input-icon">${Icons.svg('file-pdf', 14)}</span><input id="pc-out" class="input-text" value="${_esc(_stem(items[0]) + '_compressed.pdf')}"></div><div class="field-hint">The original is kept. An existing file is never replaced.</div>`)
+        : `<div class="field-hint">${single ? 'The original is kept; the copy is' : 'Originals are kept; each copy is'} saved as <em>name_compressed</em> next to it. Existing files are never replaced.</div>`}
+      ${_progressHtml('cmp-prog')}
+      <div id="cmp-summary" class="hidden"></div>`;
+
+    const SAVE = 'Save smallest anyway';
+    const overlay = _openModal('compress', title, body, [
+      { label: SAVE, left: true, icon: 'download', onClick: saveSmallest },
+      { label: 'Close', onClick: () => _close(overlay) },
+      { label: 'Compress', primary: true, icon: 'compress', onClick: run },
+    ], { icon: 'compress', subtitle });
+    overlay.querySelector('.modal')?.classList.add('cvt-modal', 'cmp-modal');
+    _btn(overlay, SAVE)?.classList.add('hidden');
+    _wireSegs(overlay);
+
+    const sizes = {};          // path -> bytes (current size)
+    const results = {};        // path -> last bridge result
+    const busy = {};           // path -> status line while running
+    // Size previews (computed in memory by the bridge; nothing is written)
+    const pvPdf = {};          // path -> {sizes: {key: bytes}, smallest, estimate, error}
+    const pvImg = {};          // path -> {[imgKey]: {after, kept}, smallest, error}
+    const jobKeys = {};        // preview job -> image settings key it measured
+    const jobPrefix = _newJob('cpv');
+    let pvSeq = 0;
+    const timers = {};
+
+    const pdfMode = () => overlay.querySelector('input[name="pc-preset"]:checked')?.value || 'ebook';
+    const levelVal = () => parseInt($('pc-level')?.value, 10) || o.level || 12;
+    const pdfKey = () => pdfMode() === 'level' ? 'level-' + _levelIdx(levelVal()) : pdfMode();
+    const imgOpts = () => ({ quality: parseInt($('ic-q')?.value, 10) || 70,
+                             edge: $('ic-edge') ? (parseInt($('ic-edge').value, 10) || 0) : 0,
+                             fmt: $('ic-fmt') ? ($('ic-fmt').value || '') : '' });
+    const imgKey = () => { const x = imgOpts(); return `${x.quality}|${x.edge}|${x.fmt}`; };
+
+    // Predicted size of one PDF for a preset/level key ({bytes, kept, estimate} or null).
+    function pdfPred(p, key) {
+      const v = pvPdf[p], b = v && v.sizes && v.sizes[key];
+      if (b == null) return null;
+      const before = sizes[p] || v.before || 0;
+      const kept = b >= before * 0.99;
+      return { bytes: kept ? before : b, kept, estimate: !!v.estimate };
+    }
+    // Predicted size of one file for the current "No limit" settings.
+    function predicted(p) {
+      if (isPdf(p)) return pdfPred(p, pdfKey());
+      const v = pvImg[p] && pvImg[p][imgKey()];
+      return v ? { bytes: v.kept ? (sizes[p] || v.after) : v.after, kept: !!v.kept, estimate: false } : null;
+    }
+    function smallestOf(p) {
+      const v = isPdf(p) ? pvPdf[p] : pvImg[p];
+      return v && v.smallest != null ? { bytes: v.smallest, estimate: !!v.estimate } : null;
+    }
+    const pvError = p => (isPdf(p) ? pvPdf[p] : pvImg[p])?.error;
+
+    function requestPdf() {
+      if (!pdfs.length) return;
+      const keys = [...PDF_PRESETS.map(x => x[0]), pdfKey()]
+        .filter((k, i, a) => a.indexOf(k) === i)
+        .filter(k => pdfs.some(p => !pvError(p) && !(pvPdf[p] && pvPdf[p].sizes && k in pvPdf[p].sizes)));
+      const needSmall = pdfs.some(p => !pvError(p) && !(pvPdf[p] && pvPdf[p].smallest != null));
+      if (keys.length || needSmall) {
+        const job = `${jobPrefix}-pdf-${++pvSeq}`;
+        SFM.compressPreview(pdfs.filter(p => !pvError(p)), { channel: 'pdf', pdf_keys: keys, smallest: needSmall }, job).catch(() => {});
+      }
+      renderEstimates();
+    }
+    function requestImg() {
+      if (!imgs.length) return;
+      const key = imgKey(), x = imgOpts();
+      const need = imgs.filter(p => !pvError(p) && !(pvImg[p] && pvImg[p][key]));
+      const needSmall = imgs.some(p => !pvError(p) && !(pvImg[p] && pvImg[p].smallest != null));
+      if (need.length || needSmall) {
+        const job = `${jobPrefix}-img-${++pvSeq}`;
+        jobKeys[job] = key;
+        SFM.compressPreview(need.length ? need : imgs.filter(p => !pvError(p)),
+          { channel: 'img', img_quality: x.quality, img_edge: x.edge, img_fmt: x.fmt, smallest: needSmall }, job).catch(() => {});
+      }
+      renderEstimates();
+    }
+    function debounce(name, fn) {
+      clearTimeout(timers[name]);
+      timers[name] = setTimeout(fn, PREVIEW_DEBOUNCE);
+    }
+    const offPreview = SFM.on('compress_preview', ev => {
+      if (!overlay.isConnected) { offPreview(); return; }
+      if (!ev || !String(ev.job || '').startsWith(jobPrefix) || ev.done) return;
+      const p = ev.path;
+      if (isPdf(p)) {
+        const cur = pvPdf[p] || (pvPdf[p] = { sizes: {} });
+        if (!ev.ok) cur.error = ev.error;
+        else {
+          Object.assign(cur.sizes, ev.sizes || {});
+          if (ev.smallest != null) cur.smallest = ev.smallest;
+          cur.estimate = !!ev.estimate; cur.before = ev.before;
+        }
+      } else {
+        const cur = pvImg[p] || (pvImg[p] = {});
+        if (!ev.ok) cur.error = ev.error;
+        else {
+          const key = jobKeys[ev.job];
+          if (key) cur[key] = { after: ev.after, kept: ev.kept_original };
+          if (ev.smallest != null) cur.smallest = ev.smallest;
+        }
+      }
+      if (ev.before != null && sizes[p] == null) sizes[p] = ev.before;
+      renderEstimates();
+    });
+
+    const _delta = (before, after) => before ? ` ${after <= before ? '−' : '+'}${Math.abs(Math.round((before - after) * 100 / before))}%` : '';
+    const measuring = `<span class="spinner cmp-spin"></span>Measuring…`;
+    // Total predicted size for a set of files, or null while any is unknown.
+    function totalFor(list, fn) {
+      let before = 0, after = 0, est = false;
+      for (const p of list) {
+        if (pvError(p)) continue;
+        const v = fn(p); if (!v) return null;
+        before += sizes[p] || 0; after += v.bytes; est = est || v.estimate;
+      }
+      return { before, after, est };
+    }
+    function renderEstimates() {
+      if (!overlay.isConnected) return;
+      // PDF preset cards + custom level: "≈ 340 KB −62%"
+      if (pdfs.length) {
+        [...PDF_PRESETS.map(x => x[0]), 'level'].forEach(k => {
+          const el = $('pc-est-' + k); if (!el) return;
+          if (k === 'level' && pdfMode() !== 'level') { el.innerHTML = ''; return; }
+          const key = k === 'level' ? 'level-' + _levelIdx(levelVal()) : k;
+          const t = totalFor(pdfs, p => pdfPred(p, key));
+          el.innerHTML = t ? _esc(`≈ ${_short(t.after)}${_delta(t.before, t.after)}`) + (t.est ? ' <span class="cmp-est-tag">estimate</span>' : '') : measuring;
+          el.title = t && t.est ? 'Estimated from sample pages (large PDF)' : 'Predicted size, measured in memory';
+          el.classList.toggle('pill-green', !!t && t.after < t.before * 0.99);
+        });
+        const le = $('pc-level-est'), src = $('pc-est-level');
+        if (le && src) le.innerHTML = src.innerHTML;
+      }
+      // Image quality readout: "≈ 128 KB −55%"
+      const ie = $('ic-est');
+      if (ie) {
+        const t = totalFor(imgs, predicted);
+        ie.innerHTML = t ? `≈ ${_esc(_short(t.after))}<span class="text-muted">${_esc(_delta(t.before, t.after))}</span>` : measuring;
+      }
+      // Target cards: how many files can reach each size
+      const allSmall = items.map(p => pvError(p) ? { bytes: 0 } : smallestOf(p));
+      overlay.querySelectorAll('.cmp-target').forEach(card => {
+        const v = card.querySelector('input').value, d = card.querySelector('.cmp-target-desc');
+        if (!/^\d+$/.test(v) || v === '0') return;
+        const tb = parseInt(v, 10) * 1024;
+        if (allSmall.some(x => !x)) { d.textContent = TARGETS.find(t => t[0] === v)[2]; card.classList.remove('is-unreachable'); return; }
+        const ok = items.filter((p, i) => (sizes[p] || 0) <= tb || allSmall[i].bytes <= tb).length;
+        d.textContent = ok === items.length ? (single ? ((sizes[items[0]] || 0) <= tb ? 'Already under' : '✓ Reachable') : '✓ All files') : single ? 'min ≈ ' + _short(allSmall[0].bytes) : `${ok} of ${items.length} files`;
+        card.classList.toggle('is-unreachable', ok < items.length);
+      });
+      if (!Object.keys(results).length) renderRows();
+    }
+
+    // Target in KB (0 = no limit).
+    function targetKb() {
+      const v = overlay.querySelector('input[name="cmp-target"]:checked')?.value || '0';
+      if (v !== 'custom') return parseInt(v, 10) || 0;
+      const n = parseFloat($('cmp-custom')?.value);
+      if (!(n > 0)) return 0;
+      return ($('cmp-unit')?.value === 'MB') ? n * 1024 : n;
+    }
+
+    function rowHtml(p) {
+      const r = results[p], size = sizes[p], tkb = targetKb();
+      const tb = tkb * 1024;
+      const icon = Icons.file({ name: _name(p), ext: _ext(p) }, 16);
+      let cls = '', lead = `<span class="result-icon cmp-ft">${icon}</span>`, sub = '', detail = '';
+      if (busy[p]) {
+        lead = `<span class="result-icon"><span class="spinner"></span></span>`;
+        sub = busy[p];
+        detail = size != null ? _fmtBytes(size) : '';
+      } else if (!r) {
+        sub = isPdf(p) ? 'PDF' : _ext(p).replace('.', '').toUpperCase() + ' image';
+        detail = size == null ? '<span class="text-muted">…</span>' : _fmtBytes(size);
+        if (pvError(p)) { sub += ' · ' + pvError(p); }
+        else if (tb) {
+          const sm = smallestOf(p);
+          if (size != null && size <= tb) detail += `<span class="pill pill-neutral">Already under ${_kbLabel(tkb)}</span>`;
+          else if (!sm) detail += `<span class="pill pill-neutral">${measuring}</span>`;
+          else if (sm.bytes <= tb) detail += `<span class="pill pill-green">${Icons.svg('check', 12)}Reachable</span>`;
+          else detail += `<span class="pill pill-yellow" title="Even the strongest setting stays above ${_kbLabel(tkb)}">min ≈ ${_short(sm.bytes)}</span>`;
+          if (sm && sm.estimate) sub += ' · estimate from sample pages';
+        } else if (size != null) {
+          const pr = predicted(p);
+          if (!pr) detail += `<span class="pill pill-neutral">${measuring}</span>`;
+          else if (pr.kept) detail += `<span class="pill pill-neutral">No smaller copy possible</span>`;
+          else detail = `<span class="size-change">${_fmtBytes(size)}${Icons.svg('arrow-right', 12)}<strong>≈ ${_fmtBytes(pr.bytes)}</strong></span>${_pctPill(size, pr.bytes)}`;
+          if (pr && pr.estimate) sub += ' · estimate from sample pages';
+        }
+      } else if (!r.ok) {
+        cls = 'err';
+        lead = `<span class="result-icon">${Icons.svg('x-circle', 16)}</span>`;
+        sub = r.error || 'Failed';
+      } else {
+        const rt = r.target_bytes ? _kbLabel(r.target_bytes / 1024) : '';
+        const missed = r.target_met === false;
+        const written = !r.kept_original;
+        cls = missed ? 'warn' : written ? 'ok' : 'kept';
+        lead = `<span class="result-icon">${Icons.svg(missed ? 'alert-triangle' : written ? 'check-circle' : 'check', 16)}</span>`;
+        sub = written ? 'Saved as ' + _name(r.out) : '';
+        if (r.format_changed && written && r.target_bytes) sub += ' · saved as JPG to reach the target';
+        else if (r.settings && written) sub += ' · ' + String(r.settings).toLowerCase();
+        if (missed && !written) sub = r.can_save_smallest ? 'Not saved — use “Save smallest anyway” to keep the smallest version' : 'No smaller copy is possible — the original was kept';
+        else if (!written) sub = (r.note || 'Already well compressed').replace(/ — .*$/, '') + ' — original kept';
+        if (written) detail = _sizeChange(r.before, r.after) + _pctPill(r.before, r.after);
+        else if (missed && r.can_save_smallest) detail = `<span class="size-change">${_fmtBytes(r.before)}${Icons.svg('arrow-right', 12)}<span class="text-muted">${_fmtBytes(r.smallest)}</span></span>`;
+        else detail = _fmtBytes(r.before);
+        if (r.target_met === true) detail += `<span class="pill pill-green">${Icons.svg('check', 12)}Under ${rt}</span>`;
+        if (missed) detail += `<span class="pill pill-yellow" title="${_esc(r.note || '')}">${_short(r.smallest || r.after)} — target not reachable</span>`;
+      }
+      return `<div class="result-row ${cls}" data-path="${_esc(p)}">${lead}
+        <span class="result-name cmp-name"><span title="${_esc(p)}">${_esc(_name(p))}</span>${sub ? `<small title="${_esc(sub)}">${_esc(sub)}</small>` : ''}</span>
+        <span class="result-detail">${detail}</span></div>`;
+    }
+    function renderRows() {
+      const box = $('cmp-files'); if (!box) return;
+      box.innerHTML = items.map(rowHtml).join('');
+      const total = items.reduce((a, p) => a + (sizes[p] || 0), 0);
+      const t = $('cmp-total');
+      if (t) {
+        let txt = Object.keys(sizes).length && !single ? 'Total ' + _fmtBytes(total) : '';
+        if (txt && !targetKb() && !Object.keys(results).length) {
+          const pt = totalFor(items, predicted);
+          if (pt) txt += ' → ≈ ' + _fmtBytes(pt.after + items.filter(pvError).reduce((a, p) => a + (sizes[p] || 0), 0));
+        }
+        t.textContent = txt;
+      }
+    }
+    function renderRow(p) {
+      const row = $('cmp-files')?.querySelector(`[data-path="${CSS.escape(p)}"]`);
+      if (row) row.outerHTML = rowHtml(p); else renderRows();
+    }
+
+    function sync() {
+      const v = overlay.querySelector('input[name="cmp-target"]:checked')?.value || '0';
+      const tkb = targetKb();
+      $('cmp-custom-row')?.classList.toggle('hidden', v !== 'custom');
+      $('cmp-quality')?.classList.toggle('hidden', v !== '0');
+      $('pc-level-row')?.classList.toggle('hidden', pdfMode() !== 'level');
+      const lt = $('pc-level-text'); if (lt && $('pc-level')) lt.textContent = _levelText(levelVal());
+      const hint = $('cmp-target-hint');
+      if (hint) hint.textContent = tkb ? `${single ? 'The copy' : 'Every copy'} at or under ${_kbLabel(tkb)}` : '';
+      const note = $('cmp-note');
+      if (note) {
+        const bits = [];
+        if (tkb) {
+          bits.push('Finds the best quality that fits the target.');
+          if (pdfs.length) bits.push('PDF images are downsampled step by step; text stays sharp text.');
+          if (imgs.length) bits.push('Images shrink only if needed; PNG is saved as JPG.');
+        }
+        note.textContent = bits.join(' ');
+      }
+      renderEstimates();
+    }
+    // Changing a setting after a run goes back to showing predictions.
+    function changed() {
+      if (running) return;
+      if (Object.keys(results).length) {
+        items.forEach(p => delete results[p]);
+        $('cmp-summary')?.classList.add('hidden');
+        _btn(overlay, SAVE)?.classList.add('hidden');
+        Dialogs.setBtn(_btn(overlay, 'Compress'), 'Compress', 'compress');
+      }
+      sync();
+    }
+    overlay.querySelectorAll('input[name="cmp-target"]').forEach(r => r.addEventListener('change', () => {
+      changed();
+      if (r.value === 'custom' && r.checked) $('cmp-custom')?.focus();
+    }));
+    $('cmp-custom')?.addEventListener('input', changed);
+    $('cmp-unit')?.addEventListener('change', changed);
+    overlay.querySelectorAll('input[name="pc-preset"]').forEach(r => r.addEventListener('change', () => { changed(); requestPdf(); }));
+    $('pc-level')?.addEventListener('input', () => { changed(); debounce('pdf', requestPdf); });
+    $('ic-q')?.addEventListener('input', () => {
+      const v = $('ic-q-val'); if (v) v.textContent = $('ic-q').value;
+      changed(); debounce('img', requestImg);
+    });
+    $('ic-edge')?.addEventListener('change', () => { changed(); requestImg(); });
+    $('ic-fmt')?.addEventListener('change', () => { changed(); requestImg(); });
+    sync();
+    SFM.fileSizes(items).then(r => {
+      if (r && r.ok) { Object.assign(sizes, r.sizes || {}); renderEstimates(); }
+    }).catch(() => {});
+    requestPdf();
+    requestImg();
+
+    async function compressOne(p, i, opts, saveSmallestFlag) {
+      const prefix = items.length > 1 ? `Compressing ${i + 1} of ${items.length}: ${_name(p)}` : `Compressing ${_name(p)}`;
+      busy[p] = opts.tkb ? `Looking for the best quality under ${_kbLabel(opts.tkb)}…` : 'Compressing…';
+      renderRow(p);
+      _progress('cmp-prog', i, items.length, prefix + '…');
+      let r;
+      try {
+        if (isPdf(p)) {
+          const job = _newJob('cmp');
+          r = await _runJob(job,
+            () => SFM.compressPdfAsync(p, opts.out, opts.preset, opts.tkb, job, saveSmallestFlag),
+            pr => {
+              busy[p] = pr.label || busy[p];
+              renderRow(p);
+              _progress('cmp-prog', i + (pr.total ? Math.min(pr.done / pr.total, 0.95) : 0), items.length, `${prefix} — ${pr.label || ''}`);
+            });
+        } else {
+          r = await SFM.compressImage(p, opts.quality, opts.tkb ? 0 : opts.edge, opts.tkb ? '' : opts.fmt, '', opts.tkb, saveSmallestFlag);
+        }
+      } catch (e) { r = { ok: false, error: String(e) }; }
+      delete busy[p];
+      results[p] = r;
+      if (r && r.ok && r.out) sizes[r.out] = r.after;
+      renderRow(p);
+      return r;
+    }
+
+    function finish(list) {
+      const tkb = targetKb();
+      const vals = items.map(p => results[p]).filter(Boolean);
+      const good = vals.filter(r => r.ok && !r.kept_original);
+      const failed = vals.filter(r => !r.ok).length;
+      const misses = vals.filter(r => r.ok && r.target_met === false);
+      const pending = misses.filter(r => r.kept_original && r.can_save_smallest);
+      const met = vals.filter(r => r.ok && r.target_met === true).length;
+      const before = good.reduce((a, r) => a + r.before, 0), after = good.reduce((a, r) => a + r.after, 0);
+      $('cmp-prog')?.classList.add('hidden');
+      let html;
+      const tl = _kbLabel(tkb);
+      if (failed === vals.length) {
+        html = `<div class="callout error">${Icons.svg('alert-circle', 16)}<div class="callout-body"><span class="callout-title">Compression failed</span><span>See the details above.</span></div></div>`;
+      } else if (tkb && misses.length) {
+        const n = misses.length;
+        html = `<div class="callout warning">${Icons.svg('alert-triangle', 16)}<div class="callout-body">
+          <span class="callout-title">${n === vals.length ? `Could not reach ${tl}` : `${met} of ${vals.length} under ${tl} — ${n} could not reach it`}</span>
+          <span>${pending.length ? (n === 1 && misses[0].note ? _esc(misses[0].note) + '. ' : '') + 'Nothing was saved for ' + (pending.length === 1 ? 'that file' : 'those files') + '. Use <strong>Save smallest anyway</strong> to keep the smallest version, or close to leave ' + (pending.length === 1 ? 'it' : 'them') + ' as ' + (pending.length === 1 ? 'it is' : 'they are') + '.'
+            : misses.some(r => !r.kept_original) ? `The smallest possible version was saved${n > 1 ? ' for each' : ''} — still over ${tl}.`
+            : 'No smaller copy is possible (text and vector content cannot be compressed further), so the original was kept.'}</span>
+          ${good.length ? `<span class="row">${_sizeChange(before, after)}${_pctPill(before, after)}</span>` : ''}</div></div>`;
+      } else if (good.length) {
+        html = `<div class="callout success">${Icons.svg('check-circle', 16)}<div class="callout-body">
+          <span class="callout-title">${tkb ? (met === vals.length ? (vals.length === 1 ? `Under ${tl}` : `All ${vals.length} files under ${tl}`) : `${met} of ${vals.length} under ${tl}`)
+            : good.length === vals.length ? 'Done' : `${good.length} of ${vals.length} files compressed`}</span>
+          <span class="row">${_sizeChange(before, after)}${_pctPill(before, after)}</span></div></div>`;
+      } else {
+        html = `<div class="callout ${tkb ? 'success' : 'warning'}">${Icons.svg(tkb ? 'check-circle' : 'info', 16)}<div class="callout-body">
+          <span class="callout-title">${tkb ? `Already under ${tl}` : 'Already well compressed'}</span><span>No new file was needed, so the original${vals.length > 1 ? 's were' : ' was'} kept.</span></div></div>`;
+      }
+      const sumBox = $('cmp-summary');
+      sumBox.innerHTML = html; sumBox.classList.remove('hidden');
+      const sb = _btn(overlay, SAVE);
+      if (sb) {
+        sb.classList.toggle('hidden', !pending.length);
+        Dialogs.setBtn(sb, pending.length > 1 ? `${SAVE} (${pending.length})` : SAVE, 'download');
+      }
+      Dialogs.setBtn(_btn(overlay, 'Compress'), 'Compress again', 'compress');
+      const fresh = (list || []).filter(r => r && r.ok && !r.kept_original);
+      if (fresh.length) {
+        const last = fresh[fresh.length - 1];
+        App.toast(fresh.length === 1
+          ? `Compressed → <strong>${_esc(_name(last.out))}</strong>: ${_fmtBytes(last.before)} → ${_fmtBytes(last.after)} (${_pct(last.before, last.after)})`
+          : `Compressed ${fresh.length} files: ${_fmtBytes(before)} → ${_fmtBytes(after)} (${_pct(before, after)})`, 'success', 6000);
+        _reveal(last.out);
+      }
+      if (failed) App.toast(`${failed} file(s) failed — see the dialog`, 'error', 6000);
+    }
+
+    let running = false;
+    let lastOpts = null;       // options of the last run (reused by "Save smallest anyway")
+    function readOpts() {
+      const v = overlay.querySelector('input[name="cmp-target"]:checked')?.value || '0';
+      const opts = {
+        tkb: targetKb(),
+        preset: pdfKey(),
+        quality: parseInt($('ic-q')?.value, 10) || o.quality || 70,
+        edge: $('ic-edge') ? (parseInt($('ic-edge').value, 10) || 0) : o.edge,
+        fmt: $('ic-fmt') ? ($('ic-fmt').value || '') : o.fmt,
+        out: '',
+      };
+      _save('compress', { target: v, custom: parseFloat($('cmp-custom')?.value) || o.custom,
+                          unit: $('cmp-unit')?.value || 'KB', preset: pdfMode(), level: levelVal(),
+                          quality: opts.quality, edge: opts.edge, fmt: opts.fmt });
+      return opts;
+    }
+
+    async function runList(list, opts, saveFlag) {
+      running = true;
+      _busy(overlay, ['Compress', 'Close', SAVE], true);
+      App.setStatus('Compressing…', true);
+      $('cmp-summary').classList.add('hidden');
+      const out = [];
+      for (let i = 0; i < list.length; i++) out.push(await compressOne(list[i], items.indexOf(list[i]), opts, saveFlag));
+      running = false;
+      App.setStatus('Ready');
+      _busy(overlay, ['Compress', 'Close', SAVE], false);
+      finish(out);
+    }
+
+    async function run() {
+      if (running) return;
+      const v = overlay.querySelector('input[name="cmp-target"]:checked')?.value || '0';
+      if (v === 'custom' && !targetKb()) { App.toast('Enter a target size, e.g. 300 KB', 'warning'); $('cmp-custom')?.focus(); return; }
+      const opts = readOpts();
+      if (single && pdfs.length) {
+        let outName = ($('pc-out')?.value || '').trim();
+        if (outName && !/\.pdf$/i.test(outName)) outName += '.pdf';
+        if (/[\\/:*?"<>|]/.test(outName)) { App.toast('The file name contains characters Windows does not allow', 'warning'); return; }
+        opts.out = outName ? items[0].replace(/[\\/][^\\/]+$/, '') + '\\' + outName : '';
+      }
+      items.forEach(p => delete results[p]);
+      lastOpts = opts;
+      await runList(items.slice(), opts, false);
+    }
+
+    async function saveSmallest() {
+      if (running || !lastOpts) return;
+      const list = items.filter(p => { const r = results[p]; return r && r.ok && r.target_met === false && r.kept_original && r.can_save_smallest; });
+      if (!list.length) return;
+      await runList(list, lastOpts, true);
+    }
+    return overlay;
+  }
+
+  // Thin wrappers kept for existing callers.
   function openCompressPdf(paths) {
     const items = (Array.isArray(paths) ? paths : [paths]).filter(isPdf);
     if (!items.length) { App.toast('Select PDF file(s) first', 'warning'); return; }
-    const single = items.length === 1;
-    const o = _load('pdfcmp', { preset: 'ebook' });
-    const body = `
-      <div class="field">
-        <span class="field-label">Compression level</span>
-        <div class="option-cards" id="pc-presets" role="radiogroup">
-          ${PDF_PRESETS.map(([k, t, d, fx, tone, ic]) => `
-            <label class="option-card"><input type="radio" name="pc-preset" value="${k}" ${k === o.preset ? 'checked' : ''}>
-              <span class="option-card-icon">${Icons.svg(ic, 16)}</span>
-              <span class="option-card-body"><span class="option-card-title">${t}</span>
-                <span class="option-card-desc">${d}</span>
-                <span class="option-card-meta"><span class="pill ${tone}">${fx}</span></span></span>
-              ${_check()}</label>`).join('')}
-        </div>
-      </div>
-      ${single ? _field('Output file', `<div class="input-group"><span class="input-icon">${Icons.svg('file-pdf', 14)}</span><input id="pc-out" class="input-text" value="${_esc(_stem(items[0]) + '_compressed.pdf')}"></div><div class="field-hint">The original is kept. An existing file is never replaced.</div>`)
-              : `<div class="field-hint">Originals are kept; each copy is saved as <em>name_compressed.pdf</em>.</div>`}
-      ${_progressHtml('pc-prog')}
-      <div id="pc-summary" class="hidden"></div>
-      <div class="result-list hidden" id="pc-results"></div>`;
-    const overlay = _openModal('pdfcmp', single ? 'Compress PDF' : 'Compress PDFs', body, [
-      { label: 'Close', onClick: () => _close(overlay) },
-      { label: 'Compress', primary: true, icon: 'compress', onClick: run },
-    ], { icon: 'compress', subtitle: single ? _name(items[0]) : `${items.length} PDFs` });
-    overlay.querySelector('.modal')?.classList.add('cvt-modal');
-
-    let running = false;
-    async function run() {
-      if (running) return;
-      const preset = overlay.querySelector('input[name="pc-preset"]:checked')?.value || 'ebook';
-      _save('pdfcmp', { preset });
-      let outName = single ? ($('pc-out')?.value || '').trim() : '';
-      if (outName && !/\.pdf$/i.test(outName)) outName += '.pdf';
-      if (/[\\/:*?"<>|]/.test(outName)) { App.toast('The file name contains characters Windows does not allow', 'warning'); return; }
-      running = true;
-      _busy(overlay, ['Compress', 'Close'], true);
-      App.setStatus('Compressing PDF…', true);
-      const resBox = $('pc-results');
-      resBox.innerHTML = ''; resBox.classList.remove('hidden');
-      $('pc-summary').classList.add('hidden');
-      const results = [];
-      for (let i = 0; i < items.length; i++) {
-        const p = items[i];
-        _progress('pc-prog', i, items.length, `Compressing ${i + 1} of ${items.length}: ${_name(p)}…`);
-        const out = outName ? p.replace(/[\\/][^\\/]+$/, '') + '\\' + outName : '';
-        let r;
-        try { r = await SFM.compressPdfQuality(p, preset, out); } catch (e) { r = { ok: false, error: String(e) }; }
-        results.push(r);
-        resBox.insertAdjacentHTML('beforeend', _resultRow(_name(p), r));
-      }
-      running = false;
-      App.setStatus('Ready');
-      _busy(overlay, ['Compress', 'Close'], false);
-      const s = _summary(results);
-      $('pc-prog')?.classList.add('hidden');
-      const sumBox = $('pc-summary');
-      sumBox.innerHTML = _summaryHtml(s, items.length, 'PDF'); sumBox.classList.remove('hidden');
-      Dialogs.setBtn(_btn(overlay, 'Compress'), 'Compress again', 'compress');
-      if (s.good.length) {
-        const last = s.good[s.good.length - 1];
-        App.toast(single
-          ? `Compressed → <strong>${_esc(_name(last.out))}</strong>: ${_fmtBytes(last.before)} → ${_fmtBytes(last.after)} (${_pct(last.before, last.after)})`
-          : `Compressed ${s.good.length} PDF(s): ${_fmtBytes(s.before)} → ${_fmtBytes(s.after)} (${_pct(s.before, s.after)})`, 'success', 6000);
-        _reveal(last.out);
-      }
-      if (s.kept) App.toast(s.kept === 1 && single
-        ? 'This PDF is already well compressed — the original was kept, no new file.'
-        : `${s.kept} PDF(s) were already well compressed — originals kept`, 'info', 6000);
-      if (s.failed) App.toast(`${s.failed} PDF(s) failed — see the dialog`, 'error', 6000);
-    }
+    return openCompress(items);
   }
-
-  // ── 5. Compress image(s) ──────────────────────────────────────────────────
   function openCompressImages(paths) {
     const items = (Array.isArray(paths) ? paths : [paths]).filter(isImage);
     if (!items.length) { App.toast('Select image(s) first', 'warning'); return; }
-    const o = _load('imgcmp', { quality: 70, edge: 1600, fmt: '', target: 0 });
-    const body = `
-      <div class="field-grid">
-        ${_field('Target file size', _select('ic-target', [[0, 'No target — use quality'], [100, 'Under 100 KB'], [200, 'Under 200 KB'], [500, 'Under 500 KB'], [1024, 'Under 1 MB'], [2048, 'Under 2 MB'], ['custom', 'Custom…']], [0, 100, 200, 500, 1024, 2048].includes(o.target) ? o.target : 'custom'))}
-        <div class="field ${[0, 100, 200, 500, 1024, 2048].includes(o.target) ? 'hidden' : ''}" id="ic-custom-row">
-          <label class="field-label" for="ic-custom">Custom target</label>
-          <div class="field-row"><input id="ic-custom" type="number" min="10" step="10" class="input-text" value="${o.target || 300}"><span class="field-suffix">KB</span></div>
-        </div>
-      </div>
-      <div class="field" id="ic-q-row">
-        <div class="section-head"><label class="field-label" for="ic-q">Quality</label><span class="pill pill-neutral" id="ic-q-val">${o.quality}</span></div>
-        <input id="ic-q" type="range" min="10" max="95" step="1" value="${o.quality}" class="cvt-range">
-        <div class="cvt-range-scale"><span>Smaller file</span><span>Better quality</span></div>
-      </div>
-      <div class="field-grid">
-        ${_field('Max size (longest edge)', _select('ic-edge', [[0, 'Original'], [3000, '3000 px'], [2000, '2000 px'], [1600, '1600 px'], [1200, '1200 px'], [1024, '1024 px'], [800, '800 px']], o.edge))}
-        ${_field('Output format', _select('ic-fmt', [['', 'Same as original'], ['jpg', 'JPG'], ['webp', 'WEBP'], ['png', 'PNG']], o.fmt))}
-      </div>
-      ${_noteHtml('ic-note')}
-      ${_progressHtml('ic-prog')}
-      <div id="ic-summary" class="hidden"></div>
-      <div class="result-list hidden" id="ic-results"></div>`;
-    const overlay = _openModal('imgcmp', items.length === 1 ? 'Compress image' : 'Compress images', body, [
-      { label: 'Close', onClick: () => _close(overlay) },
-      { label: 'Compress', primary: true, icon: 'compress', onClick: run },
-    ], { icon: 'compress', subtitle: (items.length === 1 ? _name(items[0]) : `${items.length} images`) + ' · saved as name_compressed' });
-    overlay.querySelector('.modal')?.classList.add('cvt-modal');
-
-    const targetKb = () => {
-      const v = $('ic-target')?.value;
-      if (v === 'custom') return Math.max(10, parseInt($('ic-custom')?.value, 10) || 0);
-      return parseInt(v, 10) || 0;
-    };
-    const sync = () => {
-      const t = $('ic-target')?.value;
-      $('ic-custom-row')?.classList.toggle('hidden', t !== 'custom');
-      const hasTarget = t !== '0';
-      $('ic-q-row')?.classList.toggle('is-dim', hasTarget);
-      const q = $('ic-q'); if (q) q.disabled = hasTarget;
-      const note = $('ic-note');
-      if (note) note.textContent = hasTarget
-        ? 'Finds the best quality that fits under the target (shrinks the image only if needed). PNG output is saved as JPG.'
-        : '';
-    };
-    $('ic-target')?.addEventListener('change', sync);
-    $('ic-q')?.addEventListener('input', () => { const v = $('ic-q-val'); if (v) v.textContent = $('ic-q').value; });
-    sync();
-
-    let running = false;
-    async function run() {
-      if (running) return;
-      const q = parseInt($('ic-q')?.value, 10) || 70;
-      const edge = parseInt($('ic-edge')?.value, 10) || 0;
-      const fmt = $('ic-fmt')?.value || '';
-      const tkb = targetKb();
-      _save('imgcmp', { quality: q, edge, fmt, target: tkb });
-      running = true;
-      _busy(overlay, ['Compress', 'Close'], true);
-      App.setStatus('Compressing image(s)…', true);
-      const resBox = $('ic-results');
-      resBox.innerHTML = ''; resBox.classList.remove('hidden');
-      $('ic-summary').classList.add('hidden');
-      const results = [];
-      for (let i = 0; i < items.length; i++) {
-        _progress('ic-prog', i, items.length, `Compressing ${i + 1} of ${items.length}: ${_name(items[i])}…`);
-        let r;
-        try { r = await SFM.compressImage(items[i], q, edge, fmt, '', tkb); } catch (e) { r = { ok: false, error: String(e) }; }
-        results.push(r);
-        resBox.insertAdjacentHTML('beforeend', _resultRow(_name(items[i]), r));
-      }
-      running = false;
-      App.setStatus('Ready');
-      _busy(overlay, ['Compress', 'Close'], false);
-      const s = _summary(results);
-      const line = s.good.length ? `${_fmtBytes(s.before)} → ${_fmtBytes(s.after)} (${_pct(s.before, s.after)})` : '';
-      $('ic-prog')?.classList.add('hidden');
-      const sumBox = $('ic-summary');
-      sumBox.innerHTML = _summaryHtml(s, items.length, 'image'); sumBox.classList.remove('hidden');
-      Dialogs.setBtn(_btn(overlay, 'Compress'), 'Compress again', 'compress');
-      if (s.good.length) {
-        const last = s.good[s.good.length - 1];
-        App.toast(items.length === 1
-          ? `Compressed → <strong>${_esc(_name(last.out))}</strong>: ${line}`
-          : `Compressed ${s.good.length} image(s): ${line}`, 'success', 6000);
-        if (results.some(r => r.ok && r.target_met === false)) App.toast('Some images could not reach the target size — the smallest version was saved', 'warning', 6000);
-        _reveal(last.out);
-      }
-      if (s.kept) App.toast(`${s.kept} image(s) already well compressed — originals kept`, 'info', 5000);
-      if (s.failed) App.toast(`${s.failed} image(s) failed — see the dialog`, 'error', 6000);
-    }
+    return openCompress(items);
   }
 
   return {
     isImage, isPdf, IMAGE_EXTS,
     openImagesToPdf, quickImageToPdf, openPdfToImages, openConvertImage,
-    openCompressPdf, openCompressImages,
+    openCompress, openCompressPdf, openCompressImages,
   };
 })();
