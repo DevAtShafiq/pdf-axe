@@ -27,6 +27,7 @@ const Details = (() => {
     _setRenameValue(entry.name);
     _showConvertAction(entry);
     _showAiSection(entry);
+    if (window.PdfTools) PdfTools.onDetails(entry);
 
     try {
       const info = await SFM.getFileInfo(entry.path);
@@ -52,6 +53,7 @@ const Details = (() => {
     $('rename-wrap').classList.add('hidden');
     $('quick-actions').classList.add('hidden');
     $('ai-photo-section').classList.add('hidden');
+    if (window.PdfTools) PdfTools.onDetails(null, entries);
   }
 
   // ── Public: clear panel ───────────────────────────────────────────────────

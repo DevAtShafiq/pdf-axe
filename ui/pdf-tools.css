@@ -1,0 +1,130 @@
+/* ============================================================
+   pdf-tools.css — Merge / Split / Extract dialogs and the
+   Arrange page-grid editor (ui/js/pdf-tools.js).
+   Uses the shared tokens from style.css.
+   ============================================================ */
+
+.pt-overlay { z-index: 9500; }
+.pt-modal { width: min(640px, 96vw); }
+.pt-modal.pt-wide { width: min(760px, 96vw); }
+.pt-modal .modal-body { display: flex; flex-direction: column; gap: 12px; }
+
+.pt-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: block; }
+.pt-hint  { font-size: 11px; color: var(--text-muted); }
+.pt-err   { font-size: 12px; color: var(--red); min-height: 16px; }
+.pt-ok    { font-size: 12px; color: var(--green); }
+.pt-row   { display: flex; gap: 8px; align-items: center; }
+.pt-row > .input-text { flex: 1; min-width: 0; }
+.pt-check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+
+/* ── Merge file list ───────────────────────────────────────── */
+.pt-list {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-app); max-height: 42vh; overflow-y: auto; min-height: 60px;
+}
+.pt-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-bottom: 1px solid var(--border); background: var(--bg-app);
+}
+.pt-item:last-child { border-bottom: none; }
+.pt-item.pt-dragging { opacity: .4; }
+.pt-item.pt-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.pt-item.pt-drop-after  { box-shadow: inset 0 -2px 0 var(--accent); }
+.pt-grip { cursor: grab; color: var(--text-muted); padding: 0 2px; user-select: none; }
+.pt-num  { width: 20px; text-align: right; color: var(--text-muted); font-size: 11px; }
+.pt-kind {
+  font-size: 10px; font-weight: 700; padding: 2px 5px; border-radius: 4px;
+  background: var(--red-subtle); color: var(--red); min-width: 30px; text-align: center;
+}
+.pt-kind.img { background: var(--accent-subtle); color: var(--accent); }
+.pt-name { flex: 1; min-width: 0; overflow: hidden; }
+.pt-name div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.pt-name small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); font-size: 11px; }
+.pt-pages { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+.pt-pages.bad { color: var(--red); white-space: normal; max-width: 220px; }
+.pt-mini { padding: 2px 7px !important; font-size: 12px !important; }
+.pt-empty { padding: 18px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
+/* ── Split modes ───────────────────────────────────────────── */
+.pt-modes { display: flex; flex-direction: column; gap: 6px; }
+.pt-mode {
+  display: flex; gap: 10px; align-items: center; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer;
+}
+.pt-mode:hover { background: var(--bg-hover); }
+.pt-mode.on { border-color: var(--accent); background: var(--accent-subtle); }
+.pt-mode .input-text { width: auto; }
+.pt-mode-title { font-size: 13px; min-width: 150px; }
+.pt-preview { font-size: 12px; color: var(--text-secondary); word-break: break-all; }
+
+/* ── Progress ──────────────────────────────────────────────── */
+.pt-progress { display: none; flex-direction: column; gap: 4px; }
+.pt-progress.on { display: flex; }
+.pt-progress .progress-wrap { background: var(--bg-surface-2); }
+
+/* ── Arrange page-grid editor ──────────────────────────────── */
+.pt-org {
+  width: calc(100vw - 20px); height: calc(100vh - 20px);
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-lg);
+}
+.pt-org-bar {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px; flex-wrap: wrap;
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+}
+.pt-org-bar .btn { padding: 4px 10px; font-size: 12px; }
+.pt-org-title { font-size: 13px; font-weight: 600; margin-right: 6px; max-width: 30vw;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+.pt-spacer { flex: 1; }
+.pt-status { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+.pt-grid {
+  flex: 1; overflow: auto; padding: 16px; outline: none; position: relative;
+  background: var(--bg-app);
+  display: flex; flex-wrap: wrap; gap: 18px; align-content: flex-start;
+}
+.pt-tile { position: relative; user-select: none; cursor: grab; }
+.pt-tile.pt-dragging { opacity: .35; }
+.pt-thumb {
+  position: relative; background: #fff; border-radius: 4px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  border: 3px solid transparent; box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.pt-thumb img { max-width: 100%; max-height: 100%; transition: transform .15s ease; }
+.pt-thumb .pt-ph { color: #999; font-size: 11px; }
+.pt-tile.sel .pt-thumb   { border-color: var(--accent); }
+.pt-tile.focus .pt-thumb { outline: 2px dashed var(--accent-hover); outline-offset: 2px; }
+.pt-tile .pt-check-badge {
+  position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 12px; display: none;
+  align-items: center; justify-content: center;
+}
+.pt-tile.sel .pt-check-badge { display: flex; }
+.pt-tile-tools {
+  position: absolute; top: 4px; right: 4px; display: none; gap: 2px;
+}
+.pt-tile:hover .pt-tile-tools { display: flex; }
+.pt-tile-tools button {
+  border: none; border-radius: 4px; width: 22px; height: 22px; cursor: pointer;
+  background: rgba(20,22,26,.85); color: #fff; font-size: 12px; line-height: 22px; padding: 0;
+}
+.pt-tile-tools button:hover { background: var(--accent); }
+.pt-tile-tools button.del:hover { background: var(--red); }
+.pt-cap {
+  text-align: center; font-size: 11px; color: var(--text-secondary); padding-top: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pt-cap .pt-rot { color: var(--orange); }
+.pt-caret {
+  position: absolute; width: 4px; border-radius: 2px; background: var(--accent);
+  box-shadow: 0 0 8px var(--accent); pointer-events: none; display: none; z-index: 2;
+}
+
+.pt-org-foot {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; flex-wrap: wrap;
+  background: var(--bg-surface); border-top: 1px solid var(--border);
+}
+.pt-org-foot .input-text { width: 240px; }
+.pt-org-foot .pt-progress { flex: 1; min-width: 160px; }

@@ -107,19 +107,6 @@ class PdfToolsBridgeMixin:
         except Exception as exc:
             return _err(str(exc))
 
-    def pdf_default_output(self, src: str, suffix: str) -> dict:
-        """Free output path next to *src*: ('a.pdf', '_merged') → 'a_merged.pdf'."""
-        try:
-            return _ok(path=_pt.default_output(src, suffix))
-        except Exception as exc:
-            return _err(str(exc))
-
-    def pdf_unique_path(self, path: str) -> dict:
-        try:
-            return _ok(path=_pt.unique_path(path))
-        except Exception as exc:
-            return _err(str(exc))
-
     def browse_for_pdfs_or_images(self) -> dict:
         """Native multi-select picker for PDFs and images (Merge 'Add files…')."""
         try:
