@@ -65,8 +65,8 @@ def _sha(p):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-@pytest.mark.parametrize("action", ["wear_suit", "white_background", "remove_grain"])
-def test_run_ai_edit_writes_new_file(isolated_env, monkeypatch, action):
+def test_run_ai_edit_writes_new_file(isolated_env, monkeypatch):
+    action = "wear_suit"
     calls: list = []
     monkeypatch.setattr(ape, "_openai_client", lambda: _fake_openai_factory(calls))
     monkeypatch.setenv("OPENAI_API_KEY", FAKE_KEY)
@@ -88,7 +88,7 @@ def test_run_ai_edit_writes_new_file(isolated_env, monkeypatch, action):
     _, data, _ = calls[0]["image"]
     with Image.open(io.BytesIO(data)) as up:
         assert max(up.size) == 1024
-    assert ("mask" in calls[0]) == (action != "remove_grain")
+    assert "mask" in calls[0]  # wear_suit protects the face with a body-only mask
 
 
 def test_second_run_gets_unique_name(isolated_env, monkeypatch):
@@ -103,7 +103,7 @@ def test_second_run_gets_unique_name(isolated_env, monkeypatch):
 
 def test_explicit_api_key_param(isolated_env, monkeypatch):
     monkeypatch.setattr(ape, "_openai_client", lambda: _fake_openai_factory([]))
-    ok, out = ape.run_ai_edit(_make_src(isolated_env), "passport_mode", api_key=FAKE_KEY)
+    ok, out = ape.run_ai_edit(_make_src(isolated_env), "wear_suit", api_key=FAKE_KEY)
     assert ok, out
 
 
@@ -126,5 +126,12 @@ def test_unknown_action(isolated_env, monkeypatch):
 
 def test_actions_list():
     keys = [a["key"] for a in ape.ai_photo_actions()]
-    assert keys[0] == "wear_suit"
-    assert set(keys) >= {"white_background", "passport_mode", "professional_enhance", "remove_grain"}
+    assert keys == ["wear_suit"]
+
+
+@pytest.mark.parametrize("action", ["white_background", "passport_mode",
+                                    "professional_enhance", "remove_grain"])
+def test_removed_actions_are_rejected(isolated_env, monkeypatch, action):
+    monkeypatch.setenv("OPENAI_API_KEY", FAKE_KEY)
+    ok, msg = ape.run_ai_edit(_make_src(isolated_env), action)
+    assert ok is False and "Unknown" in msg

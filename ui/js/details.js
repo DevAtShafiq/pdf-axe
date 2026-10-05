@@ -276,9 +276,7 @@ const Details = (() => {
   // Resolves with the ai_photo_result payload: {ok, out, action} | {ok:false, error}.
   let _aiBusy = false;
   const _AI_LABELS = {
-    wear_suit: 'Wear Suit & Tie', white_background: 'White Background',
-    passport_mode: 'Passport Photo', professional_enhance: 'Professional Enhance',
-    remove_grain: 'Remove Grain',
+    wear_suit: 'Wear Suit & Tie',
   };
 
   function _setAiBusy(on, msg) {

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 AI photo enhancement for the file workspace.
-All actions use OpenAI ``gpt-image-1`` ``images.edit``.
+The only action is "Wear Suit & Tie", using OpenAI ``gpt-image-1`` ``images.edit``.
 """
 
 from __future__ import annotations
@@ -54,51 +54,6 @@ _ACTION_PROMPTS: dict[str, dict] = {
         "background": "opaque",
         "quality": "high",
     },
-    "remove_grain": {
-        "label": "Remove Grain",
-        "prompt": (
-            "Remove all digital noise, grain, and compression artifacts from this image. "
-            "Smooth skin tones naturally. Preserve all sharpness, edges, and fine detail. "
-            "Do NOT change colors, composition, or any facial features."
-        ),
-        "mask_strategy": "full",        # edit everything (grain is everywhere)
-        "background": "opaque",
-        "quality": "high",
-    },
-    "professional_enhance": {
-        "label": "Professional Enhance",
-        "prompt": (
-            "Apply professional portrait retouching: correct exposure, improve contrast, "
-            "reduce skin blemishes slightly, enhance sharpness, balance white balance. "
-            "Make this look like a professional studio portrait. "
-            "Do NOT change facial structure or identity."
-        ),
-        "mask_strategy": "full",
-        "background": "opaque",
-        "quality": "high",
-    },
-    "white_background": {
-        "label": "White Background",
-        "prompt": (
-            "Replace the entire background with a clean solid white background. "
-            "Keep the person completely unchanged — same face, hair, clothing, and body. "
-            "Preserve all hair and edge detail cleanly against the white background."
-        ),
-        "mask_strategy": "background_only",  # protect subject, edit background
-        "background": "opaque",
-        "quality": "high",
-    },
-    "passport_mode": {
-        "label": "Full Passport Mode",
-        "prompt": (
-            "Convert to a professional passport photo: clean white background, "
-            "person centered, professional even lighting, no shadows behind the subject. "
-            "Keep the person's face, hair, and clothing exactly as they are."
-        ),
-        "mask_strategy": "background_only",
-        "background": "opaque",
-        "quality": "high",
-    },
 }
 
 
@@ -144,29 +99,6 @@ def _make_mask_body_only(w: int, h: int) -> "Image":
     return mask
 
 
-def _make_mask_background_only(w: int, h: int) -> "Image":
-    """
-    Protect the central subject area (transparent = locked).
-    Allow editing the background around the edges (white = editable).
-    Uses a simple elliptical subject region heuristic for portrait photos.
-    """
-    from PIL import Image, ImageDraw, ImageFilter
-
-    mask = Image.new("RGBA", (w, h), (255, 255, 255, 255))  # all editable (white)
-    draw = ImageDraw.Draw(mask)
-
-    # Protect an ellipse covering ~60% width × ~85% height, centered
-    # This roughly covers the head + shoulders in a passport-style portrait
-    pad_x = int(w * 0.18)
-    pad_y = int(h * 0.06)
-    bbox = (pad_x, pad_y, w - pad_x, h - pad_y)
-    draw.ellipse(bbox, fill=(0, 0, 0, 0))  # transparent = protected
-
-    # Blur edges so the transition is smooth
-    mask = mask.filter(ImageFilter.GaussianBlur(radius=max(2, min(w, h) // 30)))
-    return mask
-
-
 def _build_mask_for_action(action_name: str, w: int, h: int) -> "Image | None":
     strategy = _ACTION_PROMPTS.get(action_name, {}).get("mask_strategy", "full")
     try:
@@ -174,8 +106,6 @@ def _build_mask_for_action(action_name: str, w: int, h: int) -> "Image | None":
             return None       # no mask = whole image editable
         elif strategy == "body_only":
             return _make_mask_body_only(w, h)
-        elif strategy == "background_only":
-            return _make_mask_background_only(w, h)
     except Exception:
         return None
     return None
