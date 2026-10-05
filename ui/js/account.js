@@ -95,11 +95,11 @@ const Account = (() => {
       ov.className = 'modal-overlay';
       ov.style.zIndex = 9600;
       ov.innerHTML = `
-        <div class="modal" style="width:440px;max-width:96vw" role="dialog">
+        <div class="modal modal-sm" role="dialog">
           <div class="modal-header"><h2 class="modal-title">${esc(title)}</h2>
-            <button class="modal-close" aria-label="Close">&#x2715;</button></div>
+            <button class="modal-close" aria-label="Close">${Icons.svg('x', 16)}</button></div>
           <div class="modal-body">
-            <label class="detail-label">${esc(label)}</label>
+            <label class="field-label">${esc(label)}</label>
             <input class="input-text acct-prompt-input" style="width:100%" value="${esc(value)}">
             ${hint ? `<div class="acct-hint">${esc(hint)}</div>` : ''}
           </div>
@@ -171,50 +171,72 @@ const Account = (() => {
     el.id = 'acct-overlay';
     el.className = 'acct-overlay hidden';
     el.innerHTML = `
-      <div class="acct-card" role="dialog" aria-labelledby="acct-title">
-        <div class="acct-brand">S</div>
-        <h2 id="acct-title" class="acct-title">Welcome</h2>
-        <p class="acct-sub" id="acct-sub">Sign in to your account to continue.</p>
-        <div class="acct-tabs" role="tablist">
-          <button type="button" class="acct-tab active" data-tab="login" role="tab">Sign in</button>
-          <button type="button" class="acct-tab" data-tab="register" role="tab">Create account</button>
-        </div>
-        <form id="acct-form" class="acct-form" autocomplete="on" novalidate>
-          <label class="detail-label" for="acct-email">Email</label>
-          <input id="acct-email" class="input-text" type="email" autocomplete="username" placeholder="you@example.com" required>
-          <div id="acct-email-err" class="acct-field-err hidden"></div>
-          <label class="detail-label" for="acct-password">Password</label>
-          <div class="acct-pw-wrap">
-            <input id="acct-password" class="input-text" type="password" autocomplete="current-password" placeholder="Password" required>
-            <button type="button" class="acct-pw-toggle" id="acct-pw-toggle" title="Show password" aria-label="Show password">👁</button>
+      <div class="acct-shell">
+        <div class="acct-card" role="dialog" aria-labelledby="acct-title">
+          <div class="acct-brand-row">
+            <span class="acct-brand">${Icons.logo(40)}</span>
+            <span class="acct-product">PDF Axe</span>
           </div>
-          <div id="acct-password-err" class="acct-field-err hidden"></div>
-          <div id="acct-confirm-wrap" class="hidden">
-            <label class="detail-label" for="acct-confirm">Confirm password</label>
-            <input id="acct-confirm" class="input-text" type="password" autocomplete="new-password" placeholder="Repeat password">
-            <div id="acct-confirm-err" class="acct-field-err hidden"></div>
-            <div class="acct-hint" id="acct-pw-hint">At least ${MIN_PW} characters.</div>
+          <div class="acct-heading">
+            <h2 id="acct-title" class="acct-title">Welcome back</h2>
+            <p class="acct-sub" id="acct-sub">Sign in to your account to continue.</p>
           </div>
-          <label class="acct-check"><input type="checkbox" id="acct-remember" checked> Keep me signed in on this computer</label>
-          <div id="acct-error" class="acct-error hidden" role="alert"></div>
-          <button id="acct-submit" class="btn btn-primary acct-submit" type="submit">Sign in</button>
-          <div class="acct-hint acct-forgot" id="acct-forgot">Forgot your password? Contact your server administrator to reset it.</div>
-          <div class="acct-hint acct-plan-hint hidden" id="acct-plan-hint"></div>
-        </form>
-        <div id="acct-offline" class="acct-offline hidden">
-          <span>Can't reach the server.</span>
-          <button type="button" class="btn btn-ghost" id="acct-retry">Retry</button>
-          <button type="button" class="btn btn-ghost" id="acct-continue">Continue offline</button>
+          <div class="segmented segmented-block acct-tabs" role="tablist">
+            <button type="button" class="seg-btn acct-tab active" data-tab="login" role="tab">Sign in</button>
+            <button type="button" class="seg-btn acct-tab" data-tab="register" role="tab">Create account</button>
+          </div>
+          <form id="acct-form" class="acct-form" autocomplete="on" novalidate>
+            <div class="field">
+              <label class="field-label" for="acct-email">Email</label>
+              <div class="input-group">
+                <span class="input-icon">${Icons.svg('mail', 16)}</span>
+                <input id="acct-email" class="input-text acct-input" type="email" autocomplete="username" placeholder="you@example.com" required>
+              </div>
+              <div id="acct-email-err" class="acct-field-err field-error hidden"></div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="acct-password">Password</label>
+              <div class="input-group acct-pw-wrap">
+                <span class="input-icon">${Icons.svg('lock', 16)}</span>
+                <input id="acct-password" class="input-text acct-input" type="password" autocomplete="current-password" placeholder="Your password" required>
+                <button type="button" class="icon-btn input-action acct-pw-toggle" id="acct-pw-toggle" title="Show password" aria-label="Show password">${Icons.svg('eye', 16)}</button>
+              </div>
+              <div id="acct-password-err" class="acct-field-err field-error hidden"></div>
+            </div>
+            <div id="acct-confirm-wrap" class="field hidden">
+              <label class="field-label" for="acct-confirm">Confirm password</label>
+              <div class="input-group">
+                <span class="input-icon">${Icons.svg('lock', 16)}</span>
+                <input id="acct-confirm" class="input-text acct-input" type="password" autocomplete="new-password" placeholder="Repeat password">
+              </div>
+              <div id="acct-confirm-err" class="acct-field-err field-error hidden"></div>
+              <div class="acct-hint" id="acct-pw-hint">At least ${MIN_PW} characters.</div>
+            </div>
+            <label class="acct-check check"><input type="checkbox" id="acct-remember" checked> Keep me signed in</label>
+            <div id="acct-error" class="acct-error hidden" role="alert"></div>
+            <button id="acct-submit" class="btn btn-primary btn-lg btn-block acct-submit" type="submit">Sign in</button>
+            <div class="acct-hint acct-forgot" id="acct-forgot">Forgot your password? Ask your administrator to reset it.</div>
+            <div class="acct-hint acct-plan-hint hidden" id="acct-plan-hint"></div>
+          </form>
+          <div id="acct-offline" class="acct-offline hidden">
+            ${Icons.svg('cloud-off', 16)}
+            <span class="flex-1">Can't reach the server.</span>
+            <button type="button" class="btn btn-sm btn-ghost" id="acct-retry">Retry</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="acct-continue">Continue offline</button>
+          </div>
+          <div class="acct-divider"><span>or</span></div>
+          <button type="button" class="btn btn-block acct-skip" id="acct-skip" title="Merge, split, convert, compress and QR tools work without an account">Continue without an account</button>
         </div>
-        <button type="button" class="btn btn-ghost acct-skip" id="acct-skip" title="Free tools work without an account">Use free tools without signing in</button>
         <details class="acct-server" id="acct-server-details">
-          <summary>Server settings</summary>
-          <label class="detail-label" for="acct-server-input">Server address</label>
-          <div class="acct-row">
-            <input id="acct-server-input" class="input-text" placeholder="https://accounts.example.com">
-            <button type="button" class="btn" id="acct-server-save">Save</button>
+          <summary>${Icons.svg('server', 14)}Server settings${Icons.svg('chevron-right', 14)}</summary>
+          <div class="acct-server-body">
+            <label class="field-label" for="acct-server-input">Server address</label>
+            <div class="acct-row">
+              <input id="acct-server-input" class="input-text" placeholder="https://accounts.example.com">
+              <button type="button" class="btn" id="acct-server-save">Save</button>
+            </div>
+            <div id="acct-server-msg" class="acct-hint"></div>
           </div>
-          <div id="acct-server-msg" class="acct-hint"></div>
         </details>
       </div>`;
     document.body.appendChild(el);
@@ -232,7 +254,7 @@ const Account = (() => {
       const show = $('acct-password').type === 'password';
       ['acct-password', 'acct-confirm'].forEach(id => { $(id).type = show ? 'text' : 'password'; });
       const t = $('acct-pw-toggle');
-      t.textContent = show ? '🙈' : '👁';
+      t.innerHTML = Icons.svg(show ? 'eye-off' : 'eye', 16);
       t.title = show ? 'Hide password' : 'Show password';
       t.setAttribute('aria-label', t.title);
     });
@@ -254,7 +276,7 @@ const Account = (() => {
     if (!pw) h.textContent = `At least ${MIN_PW} characters.`;
     else if (pw.length < MIN_PW) h.textContent = `${MIN_PW - pw.length} more character${MIN_PW - pw.length === 1 ? '' : 's'} needed.`;
     else if (cf && cf !== pw) h.textContent = 'Passwords do not match yet.';
-    else h.textContent = '✓ Password length OK.';
+    else h.textContent = 'Password length looks good.';
   }
 
   function fieldError(field, msg) {
@@ -271,7 +293,7 @@ const Account = (() => {
     $('acct-confirm-wrap').classList.toggle('hidden', !reg);
     $('acct-forgot').classList.toggle('hidden', reg);
     $('acct-submit').textContent = reg ? 'Create account' : 'Sign in';
-    $('acct-title').textContent = reg ? 'Create your account' : 'Welcome';
+    $('acct-title').textContent = reg ? 'Create your account' : 'Welcome back';
     $('acct-sub').textContent = reg ? 'Sign up, then choose a monthly plan to unlock cloud storage.' : 'Sign in to your account to continue.';
     $('acct-password').setAttribute('autocomplete', reg ? 'new-password' : 'current-password');
     ['email', 'password', 'confirm'].forEach(f => fieldError(f, ''));
@@ -316,7 +338,8 @@ const Account = (() => {
     const btn = $('acct-submit');
     btn.disabled = true;
     const label = btn.textContent;
-    btn.textContent = reg ? 'Creating account…' : 'Signing in…';
+    btn.classList.add('is-working');
+    btn.innerHTML = `<span class="spinner spinner-on-accent"></span>${reg ? 'Creating account…' : 'Signing in…'}`;
     showAuthError('');
     try {
       const r = reg ? await SFM.accountRegister(email, pw, remember) : await SFM.accountLogin(email, pw, remember);
@@ -338,6 +361,7 @@ const Account = (() => {
       showAuthError(String(e && e.message || e));
     } finally {
       btn.disabled = false;
+      btn.classList.remove('is-working');
       btn.textContent = label;
     }
   }
@@ -378,6 +402,7 @@ const Account = (() => {
   // ── status-bar chip ──────────────────────────────────────────────────────
   const SYNC_LABEL = { syncing: 'Syncing…', idle: 'Synced', paused: 'Sync paused', offline: 'Sync offline', error: 'Sync issue' };
   function renderChip() {
+    renderAvatar();
     const chip = $('acct-chip');
     if (!chip) return;
     if (!st.configured) { chip.style.display = 'none'; return; }
@@ -399,17 +424,127 @@ const Account = (() => {
     chip.title = st.logged_in ? `${label}\nClick to open Account` : 'Click to sign in';
   }
 
+  // ── toolbar avatar + account menu ────────────────────────────────────────
+  function initial() {
+    const e = (st.user && st.user.email) || '';
+    return e ? e.trim()[0].toUpperCase() : '';
+  }
+  function renderAvatar() {
+    const av = $('btn-account-avatar');
+    const btn = $('btn-account');
+    if (!av || !btn) return;
+    if (st.logged_in && initial()) {
+      av.textContent = initial();
+      av.className = 'avatar on';
+      btn.title = `${st.user.email} · ${planState().short}`;
+    } else {
+      av.innerHTML = Icons.svg('user', 14);
+      av.className = 'avatar';
+      btn.title = st.configured ? 'Not signed in' : 'Account';
+    }
+  }
+
+  function closeAccountMenu() {
+    const m = $('acct-menu');
+    if (m) m.remove();
+    const b = $('btn-account');
+    if (b) b.setAttribute('aria-expanded', 'false');
+  }
+
+  function openAccountMenu() {
+    const btn = $('btn-account');
+    if (!btn) return;
+    if ($('acct-menu')) { closeAccountMenu(); return; }
+    const p = planState();
+    const pillCls = p.cls === 'on' ? 'pill-green' : (p.cls === 'warn' ? 'pill-yellow' : 'pill-neutral');
+    let head;
+    if (st.logged_in) {
+      head = `<div class="menu-header">
+          <span class="avatar avatar-md on">${esc(initial())}</span>
+          <div class="acct-menu-id"><div class="acct-menu-email truncate">${esc(st.user && st.user.email)}</div>
+            <span class="pill pill-dot ${pillCls}">${esc(p.short)}</span>${st.offline ? ' <span class="pill pill-neutral">Offline</span>' : ''}</div>
+        </div>`;
+    } else {
+      head = `<div class="menu-header">
+          <span class="avatar avatar-md">${Icons.svg('user', 16)}</span>
+          <div class="acct-menu-id"><div class="acct-menu-email">Not signed in</div>
+            <div class="hint">${st.configured ? 'Sign in for cloud storage and AI tools' : 'Free tools work without an account'}</div></div>
+        </div>`;
+    }
+    const item = (act, icon, label, cls = '') =>
+      `<div class="menu-item ${cls}" role="menuitem" data-act="${act}"><span class="icon">${Icons.svg(icon, 16)}</span><span class="flex-1">${label}</span></div>`;
+    let items = '';
+    if (st.logged_in) {
+      items += item('account', 'user', 'Account &amp; billing');
+      items += item('cloud', 'cloud', 'Cloud storage');
+    } else if (st.configured) {
+      items += item('signin', 'log-in', 'Sign in…');
+      items += item('account', 'user', 'Account');
+    } else {
+      items += item('account', 'user', 'Account');
+    }
+    items += item('settings', 'settings', 'Settings…');
+    if (st.logged_in) items += '<div class="menu-sep"></div>' + item('signout', 'log-out', 'Sign out', 'danger');
+
+    const m = document.createElement('div');
+    m.id = 'acct-menu';
+    m.className = 'menu acct-menu';
+    m.setAttribute('role', 'menu');
+    m.innerHTML = head + '<div class="menu-sep"></div>' + items;
+    document.body.appendChild(m);
+    const r = btn.getBoundingClientRect();
+    m.style.top = (r.bottom + 6) + 'px';
+    m.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+    btn.setAttribute('aria-expanded', 'true');
+
+    m.addEventListener('click', e => {
+      const it = e.target.closest('[data-act]');
+      if (!it) return;
+      closeAccountMenu();
+      const act = it.dataset.act;
+      if (act === 'account') { App.switchPanel('account'); refresh(); if (st.logged_in) loadDevices(); }
+      else if (act === 'cloud') { App.switchPanel('cloud'); renderCloudPanel(); loadCloud(); refreshSyncStatus(); }
+      else if (act === 'settings') Dialogs.openSettings();
+      else if (act === 'signin') { st.overlayDismissed = false; renderOverlay(); }
+      else if (act === 'signout') signOut();
+    });
+    setTimeout(() => {
+      const away = e => {
+        if (!$('acct-menu')) { document.removeEventListener('mousedown', away, true); return; }
+        if (!m.contains(e.target) && !btn.contains(e.target)) { closeAccountMenu(); document.removeEventListener('mousedown', away, true); }
+      };
+      document.addEventListener('mousedown', away, true);
+    }, 0);
+  }
+
   // ── Account panel ────────────────────────────────────────────────────────
-  function serverBlock(id) {
-    return `
-      <div class="acct-section">
-        <div class="detail-section-title">Server address</div>
+  function panelHeader(icon, title, subtitle, right = '') {
+    return `<div class="page-header">
+        <div class="page-header-icon">${Icons.svg(icon, 20)}</div>
+        <div class="flex-1"><h2 class="page-title">${title}</h2>${subtitle ? `<p class="page-subtitle">${subtitle}</p>` : ''}</div>
+        ${right}
+      </div>`;
+  }
+
+  function serverBlock(id, collapsed = true) {
+    const inner = `
         <div class="acct-row">
           <input id="${id}-input" class="input-text" placeholder="https://accounts.example.com" value="${esc(st.server_url)}">
           <button class="btn" id="${id}-save">Save</button>
         </div>
-        <div class="acct-hint" id="${id}-msg"></div>
-      </div>`;
+        <div class="acct-hint" id="${id}-msg"></div>`;
+    if (!collapsed) {
+      return `<div class="card acct-section">
+          <div class="card-title">Server address</div>${inner}</div>`;
+    }
+    return `
+      <details class="acct-advanced" ${st.advOpen ? 'open' : ''}>
+        <summary>${Icons.svg('chevron-right', 14)}Advanced</summary>
+        <div class="card acct-section">
+          <div class="field-label">Account server address</div>${inner}
+          <div class="acct-hint">Only change this if your administrator gives you a new address.</div>
+        </div>
+      </details>`;
   }
   function wireServerBlock(id) {
     const save = $(`${id}-save`);
@@ -418,17 +553,22 @@ const Account = (() => {
 
   function devicesBlock() {
     let inner;
-    if (st.devicesError) inner = `<div class="acct-hint">${esc(st.devicesError)}</div>`;
-    else if (!st.devices) inner = '<div class="acct-hint">Loading…</div>';
-    else if (!st.devices.length) inner = '<div class="acct-hint">No active sign-ins.</div>';
+    if (st.devicesError) inner = `<div class="acct-list-empty">${esc(st.devicesError)}</div>`;
+    else if (!st.devices) inner = '<div class="acct-list-empty"><span class="spinner"></span> Loading…</div>';
+    else if (!st.devices.length) inner = '<div class="acct-list-empty">No active sign-ins.</div>';
     else inner = st.devices.map(d => `
-      <div class="acct-kv acct-device">
-        <span><strong>${esc(d.device || 'Unknown device')}</strong>${d.current ? ' <span class="acct-badge on">This computer</span>' : ''}
-          <br><span class="acct-hint">Signed in ${esc(fmtDate(d.created_at))} · last active ${esc(fmtDateTime(d.last_seen))}</span></span>
-        <button class="btn btn-ghost" data-revoke="${Number(d.id)}" data-current="${d.current ? 1 : 0}">Sign out</button>
+      <div class="acct-device">
+        <span class="acct-device-icon">${Icons.svg('monitor', 18)}</span>
+        <div class="acct-device-main">
+          <div class="acct-device-name">${esc(d.device || 'Unknown device')}${d.current ? ' <span class="pill pill-blue">This computer</span>' : ''}</div>
+          <div class="acct-hint">Signed in ${esc(fmtDate(d.created_at))} · last active ${esc(fmtDateTime(d.last_seen))}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" data-revoke="${Number(d.id)}" data-current="${d.current ? 1 : 0}">Sign out</button>
       </div>`).join('');
-    return `<div class="acct-section"><div class="detail-section-title">Signed-in devices</div>
-      <div class="acct-card-flat">${inner}</div></div>`;
+    return `<div class="acct-section">
+        <div class="section-title">Signed-in devices</div>
+        <div class="card card-flush acct-devices">${inner}</div>
+      </div>`;
   }
 
   async function loadDevices() {
@@ -441,25 +581,35 @@ const Account = (() => {
   function renderAccountPanel() {
     const body = $('acct-panel-body');
     if (!body) return;
-    let html = '<h2 class="acct-h2">👤 Account</h2>';
+    let html = '';
 
     if (!st.loaded) {
-      html += '<p class="acct-muted">Loading…</p>';
+      html += panelHeader('user', 'Account', 'Loading…');
     } else if (!st.configured) {
+      html += panelHeader('user', 'Account', 'Sign-in, the monthly plan and cloud storage');
       html += `
-        <p class="acct-muted">Accounts, the monthly plan and cloud storage need a PDF Axe account server.
-        Everything else in the app works without one.</p>
-        <ol class="acct-steps">
-          <li>Ask your administrator for the server address (for example <code>https://accounts.example.com</code>),
-              or run your own with <code>uvicorn server.app:app --port 8000</code>.</li>
-          <li>Enter it below and click <strong>Save</strong>.</li>
-          <li>Sign in or create an account in the window that appears.</li>
-        </ol>
-        ${serverBlock('acct-srv')}`;
+        <div class="card acct-intro">
+          <div class="card-title">Connect to an account server</div>
+          <p class="acct-muted">Accounts, the monthly plan and cloud storage need a PDF Axe account server.
+          Everything else in the app works without one.</p>
+          <ol class="acct-steps">
+            <li>Ask your administrator for the server address (for example <code>https://accounts.example.com</code>),
+                or run your own with <code>uvicorn server.app:app --port 8000</code>.</li>
+            <li>Enter it below and click <strong>Save</strong>.</li>
+            <li>Sign in or create an account in the window that appears.</li>
+          </ol>
+        </div>
+        ${serverBlock('acct-srv', false)}`;
     } else if (!st.logged_in) {
+      html += panelHeader('user', 'Account', 'You are not signed in');
       html += `
-        <p class="acct-muted">You are not signed in. Free tools keep working; sign in for cloud storage and AI photo tools.</p>
-        <div class="acct-actions"><button class="btn btn-primary" id="acct-show-login">Sign in…</button></div>
+        <div class="card card-row acct-signin-card">
+          <div class="flex-1">
+            <div class="card-title">Sign in to PDF Axe</div>
+            <p class="acct-muted">Free tools keep working. Sign in for cloud storage, auto-sync and AI photo tools.</p>
+          </div>
+          <button class="btn btn-primary" id="acct-show-login">${Icons.svg('log-in', 16)}Sign in…</button>
+        </div>
         ${serverBlock('acct-srv')}`;
     } else {
       const s = sub() || {};
@@ -468,32 +618,48 @@ const Account = (() => {
       const polling = !!st.pollTimer;
       const tip = billingTip(s);
       const hasSub = s.status && !['none', '', 'canceled'].includes(s.status);
+      const conn = st.offline
+        ? '<span class="pill pill-neutral pill-dot">Offline — showing the last known plan</span>'
+        : (st.live ? '<span class="pill pill-green pill-dot">Live</span>' : '<span class="pill pill-neutral pill-dot">Connecting…</span>');
       html += `
-        <div class="acct-card-flat">
-          <div class="acct-kv"><span>Email</span><strong>${esc(st.user && st.user.email)}</strong></div>
-          <div class="acct-kv"><span>Plan</span>
-            <span><span class="acct-badge ${p.cls === 'warn' ? 'warn' : p.cls}">${esc(p.text)}</span>
-            ${s.plan_label && !s.free_plan ? `<span class="acct-muted"> · ${esc(s.plan_label)}</span>` : ''}</span></div>
-          <div class="acct-kv"><span>Connection</span><span>${st.offline ? 'Offline — showing the last known plan' : (st.live ? '<span class="cloud-live on"></span> Live' : '<span class="cloud-live"></span> Connecting…')}</span></div>
+        <div class="acct-profile">
+          <span class="avatar avatar-lg on">${esc(initial())}</span>
+          <div class="flex-1" style="min-width:0">
+            <h2 class="page-title truncate">${esc(st.user && st.user.email)}</h2>
+            <div class="acct-profile-meta">${conn}</div>
+          </div>
+          <button class="btn btn-ghost" id="acct-refresh" title="Refresh">${Icons.svg('refresh', 16)}Refresh</button>
+          <button class="btn" id="acct-signout">${Icons.svg('log-out', 16)}Sign out</button>
         </div>
-        ${s.status === 'past_due' ? `<div class="acct-callout warn">Your last payment didn't go through.
-            ${s.active ? `Paid features keep working until <strong>${esc(fmtDate(s.grace_until))}</strong>.` : 'Paid features are paused.'}
-            Update your payment method to keep your plan.</div>` : ''}
-        ${!active ? `<p class="acct-muted">Subscribe to ${esc(s.plan_label || 'the monthly plan')} to unlock cloud storage, auto-sync and AI photo tools.</p>` : ''}
-        ${polling ? '<p class="acct-hint">Waiting for payment to complete in your browser… this page updates automatically.</p>' : ''}
-        <div class="acct-actions">
-          ${!active && !hasSub && !s.free_plan ? `<button class="btn btn-primary" id="acct-subscribe" ${tip ? `disabled title="${esc(tip)}"` : ''}>Subscribe${s.plan_label ? ' — ' + esc(s.plan_label) : ''}</button>` : ''}
-          ${hasSub && !s.free_plan ? `<button class="btn ${s.status === 'past_due' ? 'btn-primary' : ''}" id="acct-portal" ${tip ? `disabled title="${esc(tip)}"` : ''}>${s.status === 'past_due' ? 'Update payment method' : 'Manage billing'}</button>` : ''}
-          <button class="btn" id="acct-refresh">Refresh</button>
-          <button class="btn btn-danger" id="acct-signout">Sign out</button>
+
+        <div class="card acct-plan">
+          <div class="acct-plan-head">
+            <div class="acct-plan-icon">${Icons.svg('credit-card', 18)}</div>
+            <div class="flex-1">
+              <div class="section-title">Plan</div>
+              <div class="acct-plan-name">${esc(s.free_plan ? 'Free plan' : (s.plan_label || 'Monthly plan'))}</div>
+            </div>
+            <span class="acct-badge ${p.cls === 'warn' ? 'warn' : p.cls}">${esc(p.text)}</span>
+          </div>
+          ${s.status === 'past_due' ? `<div class="acct-callout warn">${Icons.svg('alert-triangle', 16)}<span>Your last payment didn't go through.
+              ${s.active ? `Paid features keep working until <strong>${esc(fmtDate(s.grace_until))}</strong>.` : 'Paid features are paused.'}
+              Update your payment method to keep your plan.</span></div>` : ''}
+          ${!active ? `<p class="acct-muted">Subscribe to ${esc(s.plan_label || 'the monthly plan')} to unlock cloud storage, auto-sync and AI photo tools.</p>` : ''}
+          ${polling ? `<p class="acct-hint acct-polling"><span class="spinner"></span>Waiting for payment to complete in your browser… this page updates automatically.</p>` : ''}
+          <div class="acct-actions">
+            ${!active && !hasSub && !s.free_plan ? `<button class="btn btn-primary" id="acct-subscribe" ${tip ? `disabled title="${esc(tip)}"` : ''}>Subscribe${s.plan_label ? ' — ' + esc(s.plan_label) : ''}</button>` : ''}
+            ${hasSub && !s.free_plan ? `<button class="btn ${s.status === 'past_due' ? 'btn-primary' : ''}" id="acct-portal" ${tip ? `disabled title="${esc(tip)}"` : ''}>${Icons.svg('external-link', 16)}${s.status === 'past_due' ? 'Update payment method' : 'Manage billing'}</button>` : ''}
+          </div>
+          ${tip && !s.free_plan ? `<div class="acct-hint">${esc(tip)}</div>` : ''}
         </div>
-        ${tip && !s.free_plan ? `<div class="acct-hint">${esc(tip)}</div>` : ''}
         ${devicesBlock()}
         ${serverBlock('acct-srv')}`;
     }
     body.innerHTML = html;
 
     wireServerBlock('acct-srv');
+    const adv = body.querySelector('.acct-advanced');
+    if (adv) adv.addEventListener('toggle', () => { st.advOpen = adv.open; });
     const w = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
     w('acct-show-login', () => { st.overlayDismissed = false; renderOverlay(); });
     w('acct-subscribe', subscribe);
@@ -634,19 +800,30 @@ const Account = (() => {
   }
 
   // ── Cloud panel: render ──────────────────────────────────────────────────
+  function cloudHeader(right = '') {
+    const live = st.logged_in
+      ? `<span class="cloud-live-wrap" title="${st.live ? 'Changes from your other devices appear instantly' : 'Live updates not connected — reconnecting automatically'}"><span class="cloud-live ${st.live ? 'on' : ''}"></span>${st.live ? 'Live' : (st.offline ? 'Offline' : 'Reconnecting…')}</span>`
+      : '';
+    return `<div class="cloud-head page-header">
+        <div class="page-header-icon">${Icons.svg('cloud', 20)}</div>
+        <div class="flex-1"><h2 class="page-title acct-h2">Cloud ${live}</h2>
+          <p class="page-subtitle">Your files online, on every computer you sign in to.</p></div>
+        ${right}
+      </div>`;
+  }
+
   function renderCloudPanel() {
     const body = $('cloud-panel-body');
     if (!body) return;
-    const head = `<div class="cloud-head"><h2 class="acct-h2">☁️ Cloud</h2>
-      ${st.logged_in ? `<span class="cloud-live-wrap" title="${st.live ? 'Changes from your other devices appear instantly' : 'Live updates not connected — reconnecting automatically'}"><span class="cloud-live ${st.live ? 'on' : ''}"></span>${st.live ? 'Live' : (st.offline ? 'Offline' : 'Reconnecting…')}</span>` : ''}</div>`;
 
-    if (!st.loaded) { body.innerHTML = head + '<p class="acct-muted">Loading…</p>'; return; }
+    if (!st.loaded) { body.innerHTML = cloudHeader() + '<p class="acct-muted">Loading…</p>'; return; }
     if (!st.configured || !st.logged_in) {
-      body.innerHTML = head + `
+      body.innerHTML = cloudHeader() + `
         <div class="cloud-cta">
-          <div class="cloud-cta-icon">☁️</div>
-          <p>${st.configured ? 'Sign in to use cloud storage.' : 'Connect to an account server to use cloud storage.'}</p>
-          <button class="btn btn-primary" id="cloud-go-account">Open Account</button>
+          <div class="cloud-cta-icon">${Icons.svg('cloud', 26)}</div>
+          <h3>${st.configured ? 'Sign in to use cloud storage' : 'Connect an account server'}</h3>
+          <p>${st.configured ? 'Keep your files safe online and open them on every computer.' : 'Cloud storage needs a PDF Axe account server. Set it up on the Account page.'}</p>
+          <button class="btn btn-primary" id="cloud-go-account">${Icons.svg(st.configured ? 'log-in' : 'user', 16)}${st.configured ? 'Sign in…' : 'Open Account'}</button>
         </div>`;
       $('cloud-go-account').addEventListener('click', () => {
         App.switchPanel('account');
@@ -658,16 +835,16 @@ const Account = (() => {
       const s = sub() || {};
       const tip = billingTip(s);
       const pastDue = s.status === 'past_due';
-      body.innerHTML = head + `
+      body.innerHTML = cloudHeader() + `
         <div class="cloud-cta">
-          <div class="cloud-cta-icon">🔒</div>
+          <div class="cloud-cta-icon">${Icons.svg('lock', 24)}</div>
           <h3>${pastDue ? 'Your plan is paused — payment overdue' : 'Cloud storage is part of the monthly plan'}</h3>
-          <p class="acct-muted">Keep your files safe online, open them on every computer, and auto-sync a folder in real time.</p>
+          <p>Keep your files safe online, open them on every computer, and auto-sync a folder in real time.</p>
           ${pastDue
             ? `<button class="btn btn-primary" id="cloud-subscribe" ${tip ? `disabled title="${esc(tip)}"` : ''}>Update payment method</button>`
             : `<button class="btn btn-primary" id="cloud-subscribe" ${tip ? `disabled title="${esc(tip)}"` : ''}>Subscribe${s.plan_label ? ' — ' + esc(s.plan_label) : ''}</button>`}
           ${tip ? `<p class="acct-hint">${esc(tip)}</p>` : ''}
-          ${st.pollTimer ? '<p class="acct-hint">Waiting for payment to complete…</p>' : ''}
+          ${st.pollTimer ? '<p class="acct-hint acct-polling"><span class="spinner"></span>Waiting for payment to complete…</p>' : ''}
         </div>`;
       $('cloud-subscribe').addEventListener('click', pastDue ? openPortal : subscribe);
       return;
@@ -679,80 +856,86 @@ const Account = (() => {
     const nSel = st.selected.size;
     const { ids: selIds, dirs: selDirs } = selection();
 
+    const emptyBox = (icon, title, text) => `<div class="cloud-empty"><div class="empty-state-icon">${Icons.svg(icon, 24)}</div>
+        <div class="empty-state-title">${title}</div>${text ? `<div class="empty-state-text">${text}</div>` : ''}</div>`;
     let rows, total = 0;
     if (st.listError) rows = `<div class="cloud-empty acct-error">${esc(st.listError)}</div>`;
     else if (trash) {
       total = st.files.length;
       rows = !st.files.length
-        ? `<div class="cloud-empty">${st.listLoading ? 'Loading…' : 'Cloud trash is empty.'}</div>`
-        : st.files.map(f => rowHtml('f:' + f.id, '🗑️', f.path, f.size_str || fmtSize(f.size), f.updated_at)).join('');
+        ? (st.listLoading ? `<div class="cloud-empty"><span class="spinner"></span></div>` : emptyBox('trash', 'Cloud trash is empty', 'Files you move to the cloud trash can be restored here.'))
+        : st.files.map(f => rowHtml('f:' + f.id, Icons.file({ name: f.path }, 16), f.path, f.size_str || fmtSize(f.size), f.updated_at)).join('');
     } else {
       const { folders, files } = cwdItems();
       total = folders.length + files.length;
-      if (!total) rows = `<div class="cloud-empty">${st.listLoading ? 'Loading…'
-        : (st.cwd ? 'This folder is empty.' : 'No files in the cloud yet. Drop files here, use “Upload files…”, or start auto-sync below.')}</div>`;
-      else rows = folders.map(d => rowHtml('d:' + d.path, '📁', d.name, `${fmtSize(d.size)} · ${d.count} file${d.count === 1 ? '' : 's'}`, d.updated_at, true)).join('')
-        + files.map(f => rowHtml('f:' + f.id, '📄', f.name, f.size_str || fmtSize(f.size), f.updated_at)).join('');
+      if (!total) rows = st.listLoading ? `<div class="cloud-empty"><span class="spinner"></span></div>`
+        : (st.cwd ? emptyBox('folder', 'This folder is empty', '')
+                  : emptyBox('cloud-upload', 'No files in the cloud yet', 'Drop files here, use “Upload files”, or start auto-sync below.'));
+      else rows = folders.map(d => rowHtml('d:' + d.path, Icons.file({ is_dir: true }, 16), d.name, `${fmtSize(d.size)} · ${d.count} file${d.count === 1 ? '' : 's'}`, d.updated_at, true)).join('')
+        + files.map(f => rowHtml('f:' + f.id, Icons.file({ name: f.name }, 16), f.name, f.size_str || fmtSize(f.size), f.updated_at)).join('');
     }
     const allSel = total > 0 && nSel === total;
 
-    const crumbs = ['<button class="cloud-crumb" data-cd="">Cloud</button>'];
+    const crumbs = [`<button class="cloud-crumb" data-cd="">${Icons.svg('home', 14)}Cloud</button>`];
     if (!trash && st.cwd) {
       let acc = '';
       st.cwd.split('/').forEach(part => {
         acc = acc ? acc + '/' + part : part;
-        crumbs.push(`<span class="cloud-crumb-sep">›</span><button class="cloud-crumb" data-cd="${esc(acc)}">${esc(part)}</button>`);
+        crumbs.push(`<span class="cloud-crumb-sep">${Icons.svg('chevron-right', 12)}</span><button class="cloud-crumb" data-cd="${esc(acc)}">${esc(part)}</button>`);
       });
     }
 
-    body.innerHTML = head + `
+    const usage = `
       <div class="cloud-usage" title="Files in the cloud trash do not count">
+        <div class="cloud-usage-text"><strong>${u ? esc(u.used_str) : '—'}</strong> <span>of ${u ? esc(u.quota_str) : '—'} used</span></div>
         <div class="cloud-usage-bar"><div class="cloud-usage-fill ${pct > 90 ? 'full' : ''}" style="width:${pct.toFixed(1)}%"></div></div>
-        <div class="acct-hint">${u ? `${esc(u.used_str)} of ${esc(u.quota_str)} used${u.max_upload ? ` · files up to ${esc(u.max_upload_str)}` : ''}` : 'Usage unavailable'}</div>
-      </div>
+        <div class="acct-hint">${u ? (u.max_upload ? `Files up to ${esc(u.max_upload_str)}` : '&nbsp;') : 'Usage unavailable'}</div>
+      </div>`;
 
+    body.innerHTML = cloudHeader(usage) + `
       <div class="cloud-toolbar">
         <div class="cloud-seg">
-          <button class="cloud-seg-btn ${!trash ? 'active' : ''}" data-view="files">Files</button>
-          <button class="cloud-seg-btn ${trash ? 'active' : ''}" data-view="trash">Trash</button>
+          <button class="cloud-seg-btn ${!trash ? 'active' : ''}" data-view="files">${Icons.svg('files', 14)}Files</button>
+          <button class="cloud-seg-btn ${trash ? 'active' : ''}" data-view="trash">${Icons.svg('trash', 14)}Trash</button>
         </div>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
         ${!trash ? `
-          <button class="btn" id="cloud-upload-browse" title="Upload into the folder shown below">⬆ Upload files…</button>
-          <button class="btn" id="cloud-upload-sel" title="Upload the files selected in the Files workspace">⬆ Upload selected</button>
-          <button class="btn" id="cloud-download" ${nSel ? '' : 'disabled'}>⬇ Download${nSel ? ` (${nSel})` : ''}</button>
-          <button class="btn" id="cloud-rename" ${nSel === 1 ? '' : 'disabled'} title="Rename, or type a path with / to move">✏ Rename</button>
-          <button class="btn btn-danger" id="cloud-trash" ${nSel ? '' : 'disabled'} title="Restorable from the Trash tab">Move to cloud trash</button>
+          <button class="btn btn-primary btn-sm" id="cloud-upload-browse" title="Upload into the folder shown below">${Icons.svg('cloud-upload', 14)}Upload files…</button>
+          <button class="btn btn-sm" id="cloud-upload-sel" title="Upload the files selected in the Files workspace">${Icons.svg('upload', 14)}Upload selected</button>
+          <button class="btn btn-sm" id="cloud-download" ${nSel ? '' : 'disabled'}>${Icons.svg('download', 14)}Download${nSel ? ` (${nSel})` : ''}</button>
+          <button class="btn btn-sm" id="cloud-rename" ${nSel === 1 ? '' : 'disabled'} title="Rename, or type a path with / to move">${Icons.svg('pencil', 14)}Rename</button>
+          <button class="btn btn-sm btn-danger" id="cloud-trash" ${nSel ? '' : 'disabled'} title="Restorable from the Trash tab">${Icons.svg('trash', 14)}Move to trash</button>
         ` : `
-          <button class="btn btn-primary" id="cloud-restore" ${selIds.length ? '' : 'disabled'}>↩ Restore${selIds.length ? ` (${selIds.length})` : ''}</button>
+          <button class="btn btn-primary btn-sm" id="cloud-restore" ${selIds.length ? '' : 'disabled'}>${Icons.svg('restore', 14)}Restore${selIds.length ? ` (${selIds.length})` : ''}</button>
         `}
         <span class="flex-1"></span>
-        <button class="btn btn-ghost" id="cloud-refresh" title="Refresh">🔄</button>
+        <button class="icon-btn" id="cloud-refresh" title="Refresh" aria-label="Refresh">${Icons.svg('refresh', 16)}</button>
       </div>
       ${!trash ? `<div class="cloud-crumbs">${crumbs.join('')}</div>` : ''}
       <div id="cloud-transfer"></div>
 
       <div class="cloud-list" id="cloud-drop">
         <div class="cloud-row cloud-row-head">
-          <input type="checkbox" id="cloud-check-all" ${allSel ? 'checked' : ''} ${total ? '' : 'disabled'}>
+          <input type="checkbox" id="cloud-check-all" ${allSel ? 'checked' : ''} ${total ? '' : 'disabled'} aria-label="Select all">
           <span class="cloud-path">${trash ? 'Path' : 'Name'}</span><span class="cloud-size">Size</span><span class="cloud-date">Updated</span>
         </div>
         <div class="cloud-rows">${rows}</div>
-        <div class="cloud-drop-hint">Drop files here to upload to <strong>${esc(st.cwd || 'Cloud')}</strong></div>
+        <div class="cloud-drop-hint"><div>${Icons.svg('cloud-upload', 28)}<div>Drop files to upload to <strong>${esc(st.cwd || 'Cloud')}</strong></div></div></div>
       </div>
 
-      <div class="acct-section" id="cloud-sync-section"></div>`;
+      <div class="card acct-section cloud-sync-card" id="cloud-sync-section"></div>`;
 
     renderTransfer();
     renderSyncSection();
     wireCloud(selIds, selDirs);
   }
 
-  function rowHtml(key, icon, name, size, ts, isDir) {
+  function rowHtml(key, iconHtml, name, size, ts, isDir) {
     const sel = st.selected.has(key);
     return `
       <div class="cloud-row ${sel ? 'sel' : ''} ${isDir ? 'cloud-dir' : ''}" data-key="${esc(key)}">
-        <input type="checkbox" class="cloud-check" data-key="${esc(key)}" ${sel ? 'checked' : ''}>
-        <span class="cloud-path" title="${esc(name)}"><span class="cloud-icon">${icon}</span>${esc(name)}</span>
+        <input type="checkbox" class="cloud-check" data-key="${esc(key)}" ${sel ? 'checked' : ''} aria-label="Select">
+        <span class="cloud-path" title="${esc(name)}"><span class="cloud-icon">${iconHtml}</span><span class="cloud-path-text">${esc(name)}</span></span>
         <span class="cloud-size">${esc(size)}</span>
         <span class="cloud-date">${esc(fmtDateTime(ts))}</span>
       </div>`;
@@ -766,16 +949,22 @@ const Account = (() => {
     if (up) {
       const pct = up.overall_total ? Math.min(100, (up.overall_bytes / up.overall_total) * 100) : 0;
       html += `<div class="cloud-progress">
-        <div class="cloud-progress-text">Uploading ${up.index + 1} of ${up.total}: ${esc(up.name)}
-          <span class="acct-hint">${esc(fmtSize(up.bytes))} / ${esc(fmtSize(up.bytes_total))}</span></div>
-        <div class="cloud-usage-bar"><div class="cloud-usage-fill" style="width:${pct.toFixed(1)}%"></div></div>
-        <button class="btn btn-ghost" id="cloud-upload-cancel">Cancel</button></div>`;
+        <span class="cloud-progress-icon">${Icons.svg('cloud-upload', 18)}</span>
+        <div class="cloud-progress-main">
+          <div class="cloud-progress-text">Uploading ${up.index + 1} of ${up.total}: ${esc(up.name)}
+            <span class="acct-hint">${esc(fmtSize(up.bytes))} / ${esc(fmtSize(up.bytes_total))}</span></div>
+          <div class="cloud-usage-bar"><div class="cloud-usage-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        </div>
+        <button class="btn btn-sm btn-ghost" id="cloud-upload-cancel">Cancel</button></div>`;
     }
     if (dn) {
       const pct = dn.bytes_total ? Math.min(100, (dn.bytes / dn.bytes_total) * 100) : 0;
       html += `<div class="cloud-progress">
-        <div class="cloud-progress-text">Downloading ${dn.index + 1} of ${dn.total}: ${esc(dn.name)}</div>
-        <div class="cloud-usage-bar"><div class="cloud-usage-fill" style="width:${pct.toFixed(1)}%"></div></div></div>`;
+        <span class="cloud-progress-icon">${Icons.svg('cloud-download', 18)}</span>
+        <div class="cloud-progress-main">
+          <div class="cloud-progress-text">Downloading ${dn.index + 1} of ${dn.total}: ${esc(dn.name)}</div>
+          <div class="cloud-usage-bar"><div class="cloud-usage-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        </div></div>`;
     }
     el.innerHTML = html;
     const c = $('cloud-upload-cancel');
@@ -795,30 +984,37 @@ const Account = (() => {
     if (last) {
       if (last.error) lastTxt = `Last sync failed: ${esc(last.error)}`;
       else {
-        const bits = [`↑ ${last.uploaded || 0} uploaded`, `↓ ${last.downloaded || 0} downloaded`];
+        const bits = [`${last.uploaded || 0} uploaded`, `${last.downloaded || 0} downloaded`];
         if (last.conflicts) bits.push(`${last.conflicts} conflict${last.conflicts > 1 ? 's' : ''} (kept both)`);
         if (last.moved_to_review) bits.push(`${last.moved_to_review} removed in the cloud → moved to _to_review`);
         if (last.trashed_remote) bits.push(`${last.trashed_remote} moved to cloud trash`);
         if (last.errors) bits.push(`${last.errors} error${last.errors > 1 ? 's' : ''}`);
         lastTxt = `Last sync ${esc(fmtDateTime(last.time))}: ${bits.join(', ')}`;
-        if (last.held_deletions) lastTxt += `<br><span class="acct-warn-text">⚠ ${last.held_deletions} synced files are missing from this folder, so they were <strong>not</strong> removed from the cloud.</span>`;
+        if (last.held_deletions) lastTxt += `<br><span class="acct-warn-text">${last.held_deletions} synced files are missing from this folder, so they were <strong>not</strong> removed from the cloud.</span>`;
       }
     }
     const [cls, label] = SYNC_STATE_TEXT[s.running ? s.state : 'stopped'] || ['', s.state];
     el.innerHTML = `
-      <div class="detail-section-title">Auto-sync folder
-        <span class="cloud-sync-badge ${cls}">${esc(label)}</span></div>
-      <p class="acct-muted">Two-way sync between a folder on this computer and a cloud folder of the same name, live across your devices.
-        Files removed in the cloud are moved to a <code>_to_review</code> folder here — never deleted. If a file changed on both sides, both copies are kept.</p>
+      <div class="cloud-sync-head">
+        <div class="acct-plan-icon">${Icons.svg('sync', 18)}</div>
+        <div class="flex-1">
+          <div class="card-title">Auto-sync folder <span class="cloud-sync-badge ${cls}">${esc(label)}</span></div>
+          <p class="acct-muted">Two-way sync between a folder on this computer and a cloud folder of the same name, live across your devices.
+            Files removed in the cloud are moved to a <code>_to_review</code> folder here — never deleted. If a file changed on both sides, both copies are kept.</p>
+        </div>
+      </div>
       <div class="acct-row">
-        <input id="cloud-sync-folder" class="input-text" placeholder="D:\\Documents\\Work" value="${esc(s.running ? s.folder : (st.syncDraft || s.folder))}" ${s.running ? 'disabled' : ''}>
+        <div class="input-group flex-1">
+          <span class="input-icon">${Icons.svg('folder', 16)}</span>
+          <input id="cloud-sync-folder" class="input-text" placeholder="D:\\Documents\\Work" value="${esc(s.running ? s.folder : (st.syncDraft || s.folder))}" ${s.running ? 'disabled' : ''}>
+        </div>
         <button class="btn" id="cloud-sync-browse" ${s.running ? 'disabled' : ''}>Browse…</button>
         ${s.running ? `
-          ${s.paused ? '<button class="btn btn-primary" id="cloud-sync-resume">▶ Resume</button>'
-                     : '<button class="btn" id="cloud-sync-pause">⏸ Pause</button>'}
-          <button class="btn" id="cloud-sync-now" ${s.paused ? 'disabled' : ''} title="Sync now">⟳</button>
-          <button class="btn" id="cloud-sync-stop">⏹ Stop</button>`
-        : '<button class="btn btn-primary" id="cloud-sync-start">▶ Start</button>'}
+          ${s.paused ? `<button class="btn btn-primary" id="cloud-sync-resume">${Icons.svg('play', 14)}Resume</button>`
+                     : `<button class="btn" id="cloud-sync-pause">${Icons.svg('pause', 14)}Pause</button>`}
+          <button class="icon-btn" id="cloud-sync-now" ${s.paused ? 'disabled' : ''} title="Sync now" aria-label="Sync now">${Icons.svg('sync', 16)}</button>
+          <button class="btn" id="cloud-sync-stop">${Icons.svg('stop', 14)}Stop</button>`
+        : `<button class="btn btn-primary" id="cloud-sync-start">${Icons.svg('play', 14)}Start sync</button>`}
       </div>
       ${s.running && s.remote_root ? `<div class="acct-hint">Cloud folder: ${esc(s.remote_root)}/</div>` : ''}
       <div class="acct-hint" id="cloud-sync-last">${lastTxt}</div>
@@ -1146,6 +1342,9 @@ const Account = (() => {
     buildOverlay();
     initEvents();
     initDragDrop();
+    const ab = $('btn-account');
+    if (ab) ab.addEventListener('click', openAccountMenu);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAccountMenu(); });
     const chip = $('acct-chip');
     if (chip) chip.addEventListener('click', () => {
       if (!st.logged_in && st.configured) { st.overlayDismissed = false; renderOverlay(); }
