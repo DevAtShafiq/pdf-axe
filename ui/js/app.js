@@ -405,7 +405,14 @@ const App = (() => {
     });
     wire('btn-compress-pdf', () => {
       const p = state.focusedPath || state.selectedPaths[0];
-      if (!p) { toast('Select a PDF first', 'warning'); return; }
+      if (!p) { toast('Select a PDF or image first', 'warning'); return; }
+      // Images selected → image compression; otherwise the original PDF flow.
+      const isImgPath = s => /\.(jpe?g|png|bmp|webp|gif|tiff?)$/i.test(s || '');
+      const sel = (state.selectedPaths || []).filter(isImgPath);
+      if (isImgPath(p)) {
+        Dialogs.openCompressImages(sel.length ? sel : [p]);
+        return;
+      }
       Dialogs.openCompressPdf(p);
     });
     wire('btn-zip',   () => FileTree.zipSelection());

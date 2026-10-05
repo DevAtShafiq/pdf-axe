@@ -8603,6 +8603,190 @@ def adjust_image_save(
         return False, str(exc)
 
 
+# ── Image compression & format conversion ────────────────────────────────────
+
+_IMG_FMT_ALIASES = {
+    "jpg": ("JPEG", ".jpg"), "jpeg": ("JPEG", ".jpg"),
+    "png": ("PNG", ".png"),
+    "webp": ("WEBP", ".webp"),
+    "bmp": ("BMP", ".bmp"),
+    "tif": ("TIFF", ".tiff"), "tiff": ("TIFF", ".tiff"),
+}
+
+
+def _free_image_path(base: str, suffix: str, ext: str) -> str:
+    """Return ``base+suffix+ext``, or ``base+suffix-2+ext``, ``-3``… if taken."""
+    cand = f"{base}{suffix}{ext}"
+    n = 2
+    while os.path.exists(cand):
+        cand = f"{base}{suffix}-{n}{ext}"
+        n += 1
+    return cand
+
+
+def _flatten_alpha(img, bg=(255, 255, 255)):
+    """Convert any mode to RGB, compositing transparency onto a solid background."""
+    Image = get_pillow()
+    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        canvas = Image.new("RGB", rgba.size, bg)
+        canvas.paste(rgba, mask=rgba.split()[-1])
+        return canvas
+    if img.mode != "RGB":
+        return img.convert("RGB")
+    return img
+
+
+def _save_image_as(img, out_path: str, pil_fmt: str, quality: int, dpi=None) -> None:
+    """Save *img* in *pil_fmt* with size-oriented encoder options."""
+    kw = {}
+    if dpi:
+        kw["dpi"] = dpi
+    has_alpha = "A" in img.getbands() or "transparency" in img.info
+    if pil_fmt == "JPEG":
+        img = _flatten_alpha(img)
+        kw.update(quality=int(quality), optimize=True, progressive=True)
+    elif pil_fmt == "WEBP":
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA" if has_alpha else "RGB")
+        kw.update(quality=int(quality), method=6)
+    elif pil_fmt == "PNG":
+        if img.mode not in ("RGB", "RGBA", "L", "LA", "P", "1"):
+            img = img.convert("RGBA" if has_alpha else "RGB")
+        if quality < 60 and img.mode in ("RGB", "RGBA"):
+            # Palette quantization: big savings for screenshots / graphics.
+            colors = max(16, min(256, int(quality * 4)))
+            try:
+                if img.mode == "RGBA":
+                    img = img.quantize(colors=colors, method=2)  # FASTOCTREE keeps alpha
+                else:
+                    img = img.quantize(colors=colors)
+            except Exception:
+                pass
+        kw.update(optimize=True, compress_level=9)
+    elif pil_fmt == "BMP":
+        if img.mode not in ("RGB", "L", "1", "P") or has_alpha:
+            img = _flatten_alpha(img)
+    elif pil_fmt == "TIFF":
+        kw["compression"] = "tiff_lzw"
+    img.save(out_path, format=pil_fmt, **kw)
+
+
+def _load_oriented(path: str):
+    """Open an image, apply its EXIF orientation, return (image, dpi)."""
+    Image = get_pillow()
+    from PIL import ImageOps
+
+    with Image.open(path) as src:
+        dpi = src.info.get("dpi")
+        img = ImageOps.exif_transpose(src)
+        img.load()
+    return img, dpi
+
+
+def compress_image(
+    path: str,
+    quality: int = 70,
+    max_edge: int = 0,
+    fmt: str = "",
+    out_path: str = "",
+) -> tuple:
+    """Re-encode an image to a smaller file. The original is never touched.
+
+    quality  : 1-95 for JPEG/WEBP; PNG is palette-quantized when < 60.
+    max_edge : downscale so the longest edge is <= this (0 = keep size).
+    fmt      : "" keeps the source type, or "jpg"/"webp"/"png".
+    Output defaults to ``<name>_compressed.<ext>`` (auto-numbered ``-2``…).
+    Returns (True, {"out", "before", "after"}) or (False, message).
+    """
+    Image = get_pillow()
+    if not Image:
+        return False, "Pillow not available"
+    try:
+        if not os.path.isfile(path):
+            return False, f"File not found: {path}"
+        quality = max(1, min(95, int(quality or 70)))
+        max_edge = max(0, int(max_edge or 0))
+        base, src_ext = os.path.splitext(path)
+        src_key = src_ext.lower().lstrip(".")
+
+        fmt = (fmt or "").lower().lstrip(".")
+        if fmt:
+            if fmt not in ("jpg", "jpeg", "webp", "png"):
+                return False, f"Unsupported output format: {fmt}"
+            pil_fmt, ext = _IMG_FMT_ALIASES[fmt]
+            if src_key in ("jpg", "jpeg") and pil_fmt == "JPEG":
+                ext = src_ext  # keep .jpeg vs .jpg as the user had it
+        elif src_key in ("jpg", "jpeg", "png", "webp"):
+            pil_fmt, ext = _IMG_FMT_ALIASES[src_key][0], src_ext
+        else:
+            # BMP / TIFF / GIF don't compress meaningfully in place → JPEG
+            pil_fmt, ext = "JPEG", ".jpg"
+
+        img, dpi = _load_oriented(path)
+        if max_edge and max(img.size) > max_edge:
+            img.thumbnail((max_edge, max_edge), Image.LANCZOS)
+
+        if out_path:
+            if os.path.abspath(out_path) == os.path.abspath(path):
+                return False, "Refusing to overwrite the original image"
+        else:
+            out_path = _free_image_path(base, "_compressed", ext)
+
+        _save_image_as(img, out_path, pil_fmt, quality, dpi)
+        return True, {
+            "out": out_path,
+            "before": os.path.getsize(path),
+            "after": os.path.getsize(out_path),
+        }
+    except Exception as exc:
+        return False, str(exc)
+
+
+def compress_images(paths: list, quality: int = 70, max_edge: int = 0, fmt: str = "") -> dict:
+    """Batch :func:`compress_image`. Returns {"results", "before", "after", "saved"}."""
+    results = []
+    before = after = 0
+    for p in paths or []:
+        ok, res = compress_image(p, quality, max_edge, fmt)
+        if ok:
+            before += res["before"]
+            after += res["after"]
+            results.append({"path": p, "ok": True, **res})
+        else:
+            results.append({"path": p, "ok": False, "error": res})
+    return {"results": results, "before": before, "after": after, "saved": before - after}
+
+
+def convert_image(path: str, fmt: str, out_path: str = "") -> tuple:
+    """Convert an image to png/jpg/webp/bmp/tiff. Never overwrites the original.
+
+    Default output is ``<name>.<newext>`` when free, else ``<name>-2.<newext>``…
+    Returns (True, out_path) or (False, message).
+    """
+    Image = get_pillow()
+    if not Image:
+        return False, "Pillow not available"
+    try:
+        key = (fmt or "").lower().lstrip(".")
+        if key not in _IMG_FMT_ALIASES:
+            return False, f"Unsupported format: {fmt}"
+        pil_fmt, ext = _IMG_FMT_ALIASES[key]
+        if not os.path.isfile(path):
+            return False, f"File not found: {path}"
+        img, dpi = _load_oriented(path)
+        if out_path:
+            if os.path.abspath(out_path) == os.path.abspath(path):
+                return False, "Refusing to overwrite the original image"
+        else:
+            base, _ = os.path.splitext(path)
+            out_path = _free_image_path(base, "", ext)
+        _save_image_as(img, out_path, pil_fmt, 92, dpi)
+        return True, out_path
+    except Exception as exc:
+        return False, str(exc)
+
+
 def move_to_folder_root(paths: list, root: str) -> tuple:
     """Move a list of files to the given root folder (top of current workspace)."""
     import shutil
