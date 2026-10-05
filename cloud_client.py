@@ -1,5 +1,5 @@
 """
-cloud_client.py — Desktop-side client for the PDF Axe account server.
+cloud_client.py — Desktop-side client for the Office Axe account server.
 
 Standard library only (urllib), so it adds nothing to the PyInstaller build.
 

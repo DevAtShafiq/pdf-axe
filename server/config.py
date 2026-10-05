@@ -1,5 +1,5 @@
 """
-config.py — Settings for the PDF Axe account server, read from the environment.
+config.py — Settings for the Office Axe account server, read from the environment.
 
 Every value can be set in the process environment or in server/.env
 (KEY=value lines). Nothing secret has a default.

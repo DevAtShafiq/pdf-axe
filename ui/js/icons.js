@@ -1,9 +1,9 @@
 /**
- * icons.js — PDF Axe line-icon set (inline SVG, works offline).
+ * icons.js — Office Axe line-icon set (inline SVG, works offline).
  *
  * Icon geometry adapted from Lucide (https://lucide.dev, ISC License,
  * Copyright (c) Lucide Contributors). A few icons (file-pdf, extract, brand
- * mark) are drawn for PDF Axe in the same style.
+ * mark) are drawn for Office Axe in the same style.
  *
  * Usage
  *   Icons.svg('folder')                 → '<svg …>' string, 16px
@@ -12,7 +12,7 @@
  *   Icons.hydrate(rootEl)               → hydrate placeholders under rootEl now
  *   Icons.fileType('.pdf')              → { icon: 'file-pdf', tone: 'pdf', label: 'PDF' }
  *   Icons.file(entry, 16)               → coloured file-type icon HTML for an entry
- *   Icons.logo(28)                      → the PDF Axe brand mark (filled SVG)
+ *   Icons.logo(28)                      → the Office Axe brand mark (filled SVG)
  *   Icons.names()                       → list of available icon names
  *
  * All icons: viewBox 0 0 24 24, fill none, stroke currentColor, stroke-width
@@ -209,16 +209,20 @@ const Icons = (() => {
     return `<span class="ft ft-${t.tone}">${svg(t.icon, size)}</span>`;
   }
 
-  /** PDF Axe brand mark — a page split by a diagonal cut, on an accent tile. */
+  /** Office Axe brand mark — the page glyph from the official logo. */
   function logo(size = 28) {
     const s = Number(size) || 28;
-    return `<svg class="brand-mark" width="${s}" height="${s}" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      <rect width="32" height="32" rx="8" fill="var(--brand-tile, var(--accent))"/>
-      <path d="M10 6.5h8.2l5.3 5.3V24a1.5 1.5 0 0 1-1.5 1.5H10A1.5 1.5 0 0 1 8.5 24V8A1.5 1.5 0 0 1 10 6.5Z" fill="#fff" fill-opacity=".96"/>
-      <path d="M18.2 6.5v4a1.3 1.3 0 0 0 1.3 1.3h4" fill="none" stroke="var(--brand-tile, var(--accent))" stroke-width="1.4" stroke-linejoin="round"/>
-      <path d="M5.5 22.5 26.5 13" stroke="var(--brand-tile, var(--accent))" stroke-width="2.6" stroke-linecap="round"/>
-      <path d="M11.5 15.2h6M11.5 18.2h3.2" stroke="var(--brand-tile, var(--accent))" stroke-opacity=".55" stroke-width="1.4" stroke-linecap="round"/>
-    </svg>`;
+    return `<img class="brand-mark" src="assets/brand/office-axe-mark.png" width="${s}" height="${s}" alt="" draggable="false">`;
+  }
+
+  /** Full Office Axe logo (wordmark + tagline). Two images; CSS shows the one
+   *  that suits the current theme (navy artwork on light, light artwork on dark). */
+  function wordmark(height = 72) {
+    const h = Number(height) || 72;
+    return `<span class="brand-wordmark" style="height:${h}px">
+      <img class="bw-light" src="assets/brand/office-axe-logo.png" alt="Office Axe — Documents made simple" draggable="false">
+      <img class="bw-dark" src="assets/brand/office-axe-logo-dark.png" alt="Office Axe — Documents made simple" draggable="false">
+    </span>`;
   }
 
   // ── Hydration of <i data-icon="…"> placeholders ──────────────────────
@@ -251,5 +255,5 @@ const Icons = (() => {
 
   function names() { return Object.keys(P).concat(Object.keys(ALIAS)).sort(); }
 
-  return { svg, has, hydrate, fileType, file, logo, names };
+  return { svg, has, hydrate, fileType, file, logo, wordmark, names };
 })();

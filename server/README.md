@@ -1,6 +1,6 @@
-# PDF Axe account server
+# Office Axe account server
 
-A small FastAPI + SQLite service that the PDF Axe desktop app (`cloud_client.py`)
+A small FastAPI + SQLite service that the Office Axe desktop app (`cloud_client.py`)
 signs in to. It provides:
 
 - **Accounts**: email + password registration and sign-in, with per-device session tokens
@@ -85,7 +85,7 @@ About the image:
 ## Stripe setup, step by step
 
 1. **Create the product.** In the Stripe Dashboard go to **Product catalog → Add product**.
-   Name it (for example "PDF Axe Cloud"), then add a **recurring** price with a **monthly**
+   Name it (for example "Office Axe Cloud"), then add a **recurring** price with a **monthly**
    billing period. Copy the Price ID (`price_...`) into `STRIPE_PRICE_ID`.
 2. **Secret key.** Under **Developers → API keys**, copy the secret key (`sk_test_...` while
    testing, `sk_live_...` in production) into `STRIPE_SECRET_KEY`.

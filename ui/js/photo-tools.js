@@ -514,7 +514,7 @@ const AiPhoto = (() => {
       icon: 'lock',
       subtitle: 'Wear suit & tie',
       width: '460px',
-      body: `<p class="ai-dlg-text">AI photo editing is part of the PDF Axe monthly plan.
+      body: `<p class="ai-dlg-text">AI photo editing is part of the Office Axe monthly plan.
                ${login ? 'Sign in to your account, then subscribe from the Account page.'
                        : 'Your account does not have an active subscription.'}</p>
              <ul class="ai-dlg-list">

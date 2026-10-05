@@ -1,5 +1,5 @@
 """
-pdf_tools.py — PDF split / merge / arrange / extract engine for PDF Axe.
+pdf_tools.py — PDF split / merge / arrange / extract engine for Office Axe.
 
 Pure functions on top of PyMuPDF (+ Pillow for images). No UI, no Windows-only
 imports, so it is unit-testable on any OS (see tests/test_pdf_tools.py).

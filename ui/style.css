@@ -1,5 +1,5 @@
 /* ============================================================
-   PDF Axe — design system + application shell
+   Office Axe — design system + application shell
    style.css
 
    Full reference with examples: ui/DESIGN.md
@@ -60,15 +60,15 @@
   --bg-preview:      #0b0d10;
   --bg-hover:        rgba(255,255,255,.045);
   --bg-active:       rgba(255,255,255,.08);
-  --bg-selected:     rgba(94,134,255,.18);
-  --bg-selected-2:   rgba(94,134,255,.09);
+  --bg-selected:     rgba(47,134,255,.18);
+  --bg-selected-2:   rgba(47,134,255,.09);
   --bg-overlay:      rgba(5,6,9,.62);
   --hover-bg:        var(--bg-hover);      /* legacy alias */
 
   /* Borders */
   --border:          rgba(255,255,255,.075);
   --border-strong:   rgba(255,255,255,.13);
-  --border-focus:    #5e86ff;
+  --border-focus:    #2f86ff;
 
   /* Text */
   --text-primary:    #e8eaef;
@@ -78,14 +78,14 @@
   --text-on-accent:  #ffffff;
 
   /* Accent — the single brand colour */
-  --accent:          #5e86ff;
-  --accent-hover:    #7598ff;
-  --accent-active:   #4c73ea;
-  --accent-subtle:   rgba(94,134,255,.14);
-  --accent-muted:    rgba(94,134,255,.18);  /* legacy alias */
-  --accent-text:     #8aa6ff;
-  --accent-ring:     rgba(94,134,255,.40);
-  --brand-tile:      #5e86ff;
+  --accent:          #2f86ff;   /* Office Axe brand blue */
+  --accent-hover:    #4b98ff;
+  --accent-active:   #1f6fe6;
+  --accent-subtle:   rgba(47,134,255,.14);
+  --accent-muted:    rgba(47,134,255,.18);  /* legacy alias */
+  --accent-text:     #6fb0ff;
+  --accent-ring:     rgba(47,134,255,.40);
+  --brand-tile:      #2f86ff;
 
   /* Status */
   --green:           #3ecf8e;
@@ -195,13 +195,13 @@
   --bg-preview:      #e9ebef;
   --bg-hover:        rgba(16,24,40,.045);
   --bg-active:       rgba(16,24,40,.08);
-  --bg-selected:     rgba(51,96,230,.12);
-  --bg-selected-2:   rgba(51,96,230,.06);
+  --bg-selected:     rgba(26,98,232,.12);
+  --bg-selected-2:   rgba(26,98,232,.06);
   --bg-overlay:      rgba(16,20,28,.38);
 
   --border:          rgba(16,24,40,.09);
   --border-strong:   rgba(16,24,40,.16);
-  --border-focus:    #3360e6;
+  --border-focus:    #1a62e8;
 
   --text-primary:    #171a1f;
   --text-secondary:  #484e59;
@@ -209,14 +209,14 @@
   --text-disabled:   #b4b9c2;
   --text-on-accent:  #ffffff;
 
-  --accent:          #3360e6;
-  --accent-hover:    #2a52cf;
-  --accent-active:   #2346b5;
-  --accent-subtle:   rgba(51,96,230,.10);
-  --accent-muted:    rgba(51,96,230,.12);
-  --accent-text:     #2a52cf;
-  --accent-ring:     rgba(51,96,230,.30);
-  --brand-tile:      #3360e6;
+  --accent:          #1a62e8;   /* Office Axe brand blue */
+  --accent-hover:    #1553c9;
+  --accent-active:   #1146ad;
+  --accent-subtle:   rgba(26,98,232,.10);
+  --accent-muted:    rgba(26,98,232,.12);
+  --accent-text:     #1553c9;
+  --accent-ring:     rgba(26,98,232,.30);
+  --brand-tile:      #1a62e8;
 
   --green:           #13804f;
   --green-subtle:    rgba(19,128,79,.10);
@@ -321,7 +321,15 @@ i[data-icon] { font-style: normal; display: inline-flex; align-items: center; ju
   flex-shrink: 0;
   border-radius: var(--radius-lg);
 }
-.sidebar-logo svg { display: block; }
+.sidebar-logo svg, .sidebar-logo img { display: block; }
+.brand-mark { display: block; object-fit: contain; user-select: none; }
+
+/* Full Office Axe logo: navy artwork on light theme, light artwork on dark. */
+.brand-wordmark { display: inline-block; line-height: 0; }
+.brand-wordmark img { height: 100%; width: auto; user-select: none; }
+.brand-wordmark .bw-light { display: none; }
+[data-theme="light"] .brand-wordmark .bw-light { display: inline; }
+[data-theme="light"] .brand-wordmark .bw-dark  { display: none; }
 .sidebar-nav { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); flex: 1; width: 100%; }
 .sidebar-bottom { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: 100%; padding-top: var(--space-2); border-top: 1px solid var(--border); margin: 0 var(--space-2); }
 .sidebar-btn {

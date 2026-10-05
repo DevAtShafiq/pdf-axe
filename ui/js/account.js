@@ -1,7 +1,7 @@
 /**
  * account.js — Sign-in overlay, Account panel, Cloud panel and status-bar chip.
  *
- * Talks to the PDF Axe account server through the bridge (cloud_bridge.py).
+ * Talks to the Office Axe account server through the bridge (cloud_bridge.py).
  * Python pushes:
  *   account_changed, cloud_event {event, data}, cloud_live {connected},
  *   cloud_upload_progress, cloud_upload_done, cloud_download_progress,
@@ -174,8 +174,7 @@ const Account = (() => {
       <div class="acct-shell">
         <div class="acct-card" role="dialog" aria-labelledby="acct-title">
           <div class="acct-brand-row">
-            <span class="acct-brand">${Icons.logo(40)}</span>
-            <span class="acct-product">PDF Axe</span>
+            <span class="acct-brand">${Icons.wordmark(104)}</span>
           </div>
           <div class="acct-heading">
             <h2 id="acct-title" class="acct-title">Welcome back</h2>
@@ -590,7 +589,7 @@ const Account = (() => {
       html += `
         <div class="card acct-intro">
           <div class="card-title">Connect to an account server</div>
-          <p class="acct-muted">Accounts, the monthly plan and cloud storage need a PDF Axe account server.
+          <p class="acct-muted">Accounts, the monthly plan and cloud storage need a Office Axe account server.
           Everything else in the app works without one.</p>
           <ol class="acct-steps">
             <li>Ask your administrator for the server address (for example <code>https://accounts.example.com</code>),
@@ -605,7 +604,7 @@ const Account = (() => {
       html += `
         <div class="card card-row acct-signin-card">
           <div class="flex-1">
-            <div class="card-title">Sign in to PDF Axe</div>
+            <div class="card-title">Sign in to Office Axe</div>
             <p class="acct-muted">Free tools keep working. Sign in for cloud storage, auto-sync and AI photo tools.</p>
           </div>
           <button class="btn btn-primary" id="acct-show-login">${Icons.svg('log-in', 16)}Sign in…</button>
@@ -822,7 +821,7 @@ const Account = (() => {
         <div class="cloud-cta">
           <div class="cloud-cta-icon">${Icons.svg('cloud', 26)}</div>
           <h3>${st.configured ? 'Sign in to use cloud storage' : 'Connect an account server'}</h3>
-          <p>${st.configured ? 'Keep your files safe online and open them on every computer.' : 'Cloud storage needs a PDF Axe account server. Set it up on the Account page.'}</p>
+          <p>${st.configured ? 'Keep your files safe online and open them on every computer.' : 'Cloud storage needs a Office Axe account server. Set it up on the Account page.'}</p>
           <button class="btn btn-primary" id="cloud-go-account">${Icons.svg(st.configured ? 'log-in' : 'user', 16)}${st.configured ? 'Sign in…' : 'Open Account'}</button>
         </div>`;
       $('cloud-go-account').addEventListener('click', () => {

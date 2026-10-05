@@ -1,5 +1,5 @@
 """
-app.py — PDF Axe account server.
+app.py — Office Axe account server.
 
 Provides, for the desktop app:
   • Accounts      POST /auth/register, POST /auth/login, POST /auth/logout, GET /me,
@@ -225,7 +225,7 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
     limiter = RateLimiter()
     login_window = settings.login_window_minutes * 60
 
-    app = FastAPI(title="PDF Axe account server")
+    app = FastAPI(title="Office Axe account server")
     app.state.settings = settings
     app.state.db = db
     app.state.hub = hub
@@ -475,11 +475,11 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
 
     @app.get("/billing/success", response_class=HTMLResponse)
     def billing_success():
-        return _page("Payment complete", "Your subscription is active. You can close this tab and return to PDF Axe.")
+        return _page("Payment complete", "Your subscription is active. You can close this tab and return to Office Axe.")
 
     @app.get("/billing/cancel", response_class=HTMLResponse)
     def billing_cancel():
-        return _page("Checkout cancelled", "No payment was taken. You can close this tab and return to PDF Axe.")
+        return _page("Checkout cancelled", "No payment was taken. You can close this tab and return to Office Axe.")
 
     # ── cloud storage ────────────────────────────────────────────────────────
 
@@ -663,7 +663,7 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
 
 def _page(title: str, text: str) -> str:
     return (
-        "<!doctype html><meta charset=utf-8><title>PDF Axe</title>"
+        "<!doctype html><meta charset=utf-8><title>Office Axe</title>"
         "<body style=\"font-family:system-ui;max-width:480px;margin:80px auto;text-align:center\">"
         f"<h2>{title}</h2><p>{text}</p></body>"
     )

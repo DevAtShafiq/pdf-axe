@@ -2,7 +2,7 @@
 cloud_bridge.py — ACCOUNT / SUBSCRIPTION / CLOUD methods of the JS bridge.
 
 SFMBridge (sfm_bridge.py) inherits CloudBridgeMixin, so every public method
-here is exposed to JS as window.pywebview.api.<name>. It talks to the PDF Axe
+here is exposed to JS as window.pywebview.api.<name>. It talks to the Office Axe
 account server (server/app.py) through cloud_client.py.
 
 The session token is never returned to JS. With "keep me signed in" it is

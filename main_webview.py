@@ -72,7 +72,7 @@ def main() -> None:
 
     # ── create window ─────────────────────────────────────────────────────────
     window = webview.create_window(
-        title      = "PDF Axe",
+        title      = "Office Axe",
         url        = _ui_url(),
         js_api     = bridge,
         width      = 1400,

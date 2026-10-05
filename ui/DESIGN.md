@@ -1,4 +1,4 @@
-# PDF Axe — UI design system
+# Office Axe — UI design system
 
 Calm, professional desktop UI (in the spirit of Linear / VS Code / Fluent 2):
 neutral slate surfaces, **one** accent colour, a 4/8 px spacing grid, line icons.
@@ -176,7 +176,7 @@ Icons.svg('folder')            // '<svg class="i i-folder" width="16" …>'
 Icons.svg('trash', 14, 'text-red')
 Icons.file(entry, 16)          // tinted file-type icon for {is_dir, ext|name}
 Icons.fileType('.pdf')         // { icon:'file-pdf', tone:'pdf', label:'PDF' }
-Icons.logo(32)                 // PDF Axe brand mark
+Icons.logo(32)                 // Office Axe brand mark
 Icons.hydrate(el)              // usually not needed — see below
 ```
 In HTML strings just write `<i data-icon="name" data-size="14"></i>`; a MutationObserver
