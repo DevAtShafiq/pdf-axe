@@ -48,6 +48,12 @@ datas = [
     ("excel_grid.py",          "."),   # imported by student_folder_maker
     ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
     ("media_convert.py",       "."),   # image<->PDF conversion + PDF/image compression
+    ("cloud_bridge.py",        "."),   # account / cloud methods of the JS bridge
+    ("secure_store.py",        "."),   # DPAPI protection of the stored session token
+    ("pdf_tools.py",         "."),
+    ("pdf_tools_bridge.py",  "."),
+    ("qr_scan.py",           "."),
+    ("image_crop.py",        "."),
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -66,6 +72,12 @@ hiddenimports = [
     "main_webview",
     "cloud_client",
     "media_convert",
+    "cloud_bridge",
+    "secure_store",
+    "pdf_tools",
+    "pdf_tools_bridge",
+    "qr_scan",
+    "image_crop",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",

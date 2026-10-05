@@ -253,6 +253,9 @@ def test_client_events_and_sync(live_server, tmp_path):
 
     # Device B: empty folder, same cloud folder name → downloads both
     dev_b = tmp_path / "B" / "Work"
+    with pytest.raises(Exception):          # a missing folder is never silently recreated
+        SyncFolder(other, str(dev_b)).run_once()
+    dev_b.mkdir(parents=True)
     sb = SyncFolder(other, str(dev_b))
     assert sb.run_once()["downloaded"] == 2
     assert (dev_b / "sub" / "two.txt").read_text() == "two"
@@ -264,21 +267,38 @@ def test_client_events_and_sync(live_server, tmp_path):
     assert sa.run_once()["downloaded"] == 1
     assert (dev_a / "one.txt").read_text() == "one-edited"
 
-    # Both sides edit → conflict copy, nothing lost
+    # Both sides edit → keep both: A's edit becomes a "(conflict <device> <date>)" copy
     (dev_a / "one.txt").write_text("A-version")
     (dev_b / "one.txt").write_text("B-version")
     sb.run_once()
     st = sa.run_once()
     assert st["conflicts"] == 1
-    assert (dev_a / "one (cloud copy).txt").read_text() == "B-version"
-    assert (dev_a / "one.txt").read_text() == "A-version"
+    assert (dev_a / "one.txt").read_text() == "B-version"
+    copies = [p for p in dev_a.iterdir() if p.name.startswith("one (conflict ")]
+    assert len(copies) == 1 and copies[0].read_text() == "A-version"
+    assert f"(conflict {c.device} " in copies[0].name
+    # …and the conflict copy reaches the other device too
+    sb.run_once()
+    assert (dev_b / copies[0].name).read_text() == "A-version"
 
-    # A file trashed in the cloud is not re-uploaded from a synced device
+    # A file trashed in the cloud is not re-uploaded; the local copy moves to _to_review/
     two = next(f for f in c.list_files() if f["path"] == "Work/sub/two.txt")
     c.trash(two["id"])
-    sa.run_once()
+    st = sa.run_once()
+    assert st["moved_to_review"] == 1
     assert all(f["path"] != "Work/sub/two.txt" for f in c.list_files())
-    assert (dev_a / "sub" / "two.txt").exists()
+    assert not (dev_a / "sub" / "two.txt").exists()
+    assert (dev_a / "sub" / "_to_review" / "two.txt").read_text() == "two"
+
+    # A file removed locally on B goes to the (restorable) cloud trash…
+    (dev_b / "_to_review").mkdir()
+    os.replace(dev_b / "one.txt", dev_b / "_to_review" / "one.txt")
+    assert sb.run_once()["trashed_remote"] == 1
+    assert any(f["path"] == "Work/one.txt" for f in c.list_files(trashed=True))
+    # …and on A the local copy is moved to _to_review/, never deleted
+    sa.run_once()
+    assert not (dev_a / "one.txt").exists()
+    assert (dev_a / "_to_review" / "one.txt").read_text() == "B-version"
 
     stream.stop()
 

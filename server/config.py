@@ -30,6 +30,13 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    val = os.environ.get(key, "").strip().lower()
+    if not val:
+        return default
+    return val in ("1", "true", "yes", "on")
+
+
 @dataclass
 class Settings:
     # Where the SQLite database and uploaded files live
@@ -53,6 +60,18 @@ class Settings:
     stripe_price_id: str = field(default_factory=lambda: os.environ.get("STRIPE_PRICE_ID", ""))
     # Shown in the app next to the Subscribe button, e.g. "$9.99 / month"
     plan_label: str = field(default_factory=lambda: os.environ.get("SFM_PLAN_LABEL", "Monthly plan"))
+    # Days a past_due subscription (failed renewal payment) keeps working
+    past_due_grace_days: int = field(default_factory=lambda: int(os.environ.get("SFM_PAST_DUE_GRACE_DAYS", "7")))
+    # 1 = every signed-in user gets the paid features without paying
+    # (self-hosted / team servers that do not use Stripe)
+    free_plan: bool = field(default_factory=lambda: _env_bool("SFM_FREE_PLAN"))
+
+    # Sign-in throttling: failed attempts allowed per window, per email and per client IP
+    login_max_attempts: int = field(default_factory=lambda: int(os.environ.get("SFM_LOGIN_MAX_ATTEMPTS", "8")))
+    login_ip_max_attempts: int = field(default_factory=lambda: int(os.environ.get("SFM_LOGIN_IP_MAX_ATTEMPTS", "40")))
+    login_window_minutes: int = field(default_factory=lambda: int(os.environ.get("SFM_LOGIN_WINDOW_MINUTES", "15")))
+    # New accounts allowed per client IP per hour
+    register_per_hour: int = field(default_factory=lambda: int(os.environ.get("SFM_REGISTER_PER_HOUR", "10")))
 
     @property
     def billing_configured(self) -> bool:

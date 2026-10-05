@@ -107,8 +107,13 @@ def test_account_flow_and_cloud(live_server, bridge, tmp_path):
     # Register, token never leaks to JS
     r = b.account_register("bridge@example.com", "password123")
     assert r["ok"], r
-    assert "cloud_token" not in b.get_settings()["settings"]
-    assert b._load_settings()["cloud_token"]
+    safe = b.get_settings()["settings"]
+    assert "cloud_token" not in safe and "cloud_token_enc" not in safe
+    stored = b._load_settings()
+    assert stored["cloud_token_enc"] and not stored.get("cloud_token")
+    if sys.platform == "win32":   # DPAPI: never stored in clear text
+        assert stored["cloud_token_enc"].startswith("dpapi:")
+        assert b._cloud_token() not in stored["cloud_token_enc"]
     assert "account_changed" in _names(b)
 
     st = b.account_get_state()
@@ -202,7 +207,7 @@ def test_account_flow_and_cloud(live_server, bridge, tmp_path):
 
     # Logout stops everything but keeps the sync folder for next sign-in
     assert b.account_logout()["ok"]
-    assert b._load_settings()["cloud_token"] == ""
+    assert b._load_settings()["cloud_token_enc"] == "" and b._cloud_token() == ""
     assert b.cloud_sync_status()["running"] is False
     assert b._load_settings()["cloud_sync_folder"] == str(work)
     assert not b.account_get_state()["logged_in"]
@@ -225,7 +230,7 @@ def test_invalid_token_is_cleared(live_server, bridge):
     b._save_settings({"cloud_token": "not-a-real-token"})
     st = b.account_get_state()
     assert st["ok"] and not st["logged_in"]
-    assert b._load_settings()["cloud_token"] == ""
+    assert b._load_settings()["cloud_token_enc"] == "" and b._cloud_token() == ""
     assert "account_changed" in _names(b)
 
 
