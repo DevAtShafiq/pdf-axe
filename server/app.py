@@ -36,6 +36,7 @@ from pydantic import BaseModel
 from .billing import ACTIVE_STATUSES, BillingError, BillingProvider, make_provider
 from .config import Settings
 from .db import Database
+from .paths import clean_remote_path  # noqa: F401  (re-exported for callers/tests)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PBKDF2_ITERS = 200_000
@@ -73,35 +74,6 @@ def _token_hash(token: str) -> str:
 
 def _bearer(authorization: str) -> str:
     return authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-
-
-_BAD_CHARS = set('<>:"|?*')
-_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
-             *(f"lpt{i}" for i in range(1, 10))}
-
-
-def clean_remote_path(path: str) -> str:
-    """Normalise a cloud path to 'a/b/c.pdf'; reject anything escaping the user's
-    space or that could not be saved as a file name on Windows."""
-    p = (path or "").replace("\\", "/").strip().strip("/")
-    parts = [s for s in p.split("/") if s not in ("", ".")]
-    if not parts:
-        raise HTTPException(400, "Invalid file path")
-    for s in parts:
-        if s == "..":
-            raise HTTPException(400, "Invalid file path")
-        if any(c in _BAD_CHARS or ord(c) < 32 for c in s):
-            raise HTTPException(400, 'Names cannot contain < > : " | ? * or control characters')
-        if s != s.rstrip(" ."):
-            raise HTTPException(400, "Names cannot end with a space or a dot")
-        if s.split(".")[0].lower() in _RESERVED:
-            raise HTTPException(400, f'"{s}" is a reserved name on Windows')
-        if len(s) > 255:
-            raise HTTPException(400, "File name too long")
-    joined = "/".join(parts)
-    if len(joined) > 1000:
-        raise HTTPException(400, "File path too long")
-    return joined
 
 
 # ── sign-in throttling ───────────────────────────────────────────────────────

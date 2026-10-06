@@ -45,6 +45,80 @@ CREATE TABLE IF NOT EXISTS files (
     trashed     INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS files_user_path ON files(user_id, path);
+-- Offices: a shared workspace (and shared drive) for the staff of one office.
+CREATE TABLE IF NOT EXISTS offices (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                TEXT    NOT NULL,
+    owner_id            INTEGER NOT NULL REFERENCES users(id),
+    created_at          REAL    NOT NULL,
+    settings            TEXT    NOT NULL DEFAULT '{}',
+    archived_at         REAL    NOT NULL DEFAULT 0,
+    stripe_customer_id  TEXT,
+    subscription_id     TEXT,
+    subscription_status TEXT    NOT NULL DEFAULT 'none',
+    current_period_end  REAL    NOT NULL DEFAULT 0,
+    past_due_since      REAL    NOT NULL DEFAULT 0,
+    sub_event_ts        REAL    NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS offices_customer ON offices(stripe_customer_id);
+-- A user belongs to at most one office (user_id is the key)
+CREATE TABLE IF NOT EXISTS office_members (
+    user_id     INTEGER PRIMARY KEY REFERENCES users(id),
+    office_id   INTEGER NOT NULL REFERENCES offices(id),
+    role        TEXT    NOT NULL,
+    joined_at   REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS office_members_office ON office_members(office_id);
+CREATE TABLE IF NOT EXISTS office_invites (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    office_id   INTEGER NOT NULL REFERENCES offices(id),
+    code        TEXT    NOT NULL UNIQUE,
+    email       TEXT    NOT NULL DEFAULT '',
+    role        TEXT    NOT NULL,
+    invited_by  INTEGER NOT NULL REFERENCES users(id),
+    created_at  REAL    NOT NULL,
+    expires_at  REAL    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'pending',
+    used_by     INTEGER,
+    used_at     REAL    NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS office_invites_email ON office_invites(email, status);
+-- The office's shared drive: folders and files (content blobs on disk)
+CREATE TABLE IF NOT EXISTS shared_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    office_id   INTEGER NOT NULL REFERENCES offices(id),
+    path        TEXT    NOT NULL,
+    path_key    TEXT    NOT NULL,
+    parent_key  TEXT    NOT NULL,
+    name        TEXT    NOT NULL,
+    depth       INTEGER NOT NULL,
+    is_dir      INTEGER NOT NULL,
+    blob        TEXT    NOT NULL DEFAULT '',
+    size        INTEGER NOT NULL DEFAULT 0,
+    sha256      TEXT    NOT NULL DEFAULT '',
+    created_at  REAL    NOT NULL,
+    created_by  TEXT    NOT NULL DEFAULT '',
+    updated_at  REAL    NOT NULL,
+    updated_by  TEXT    NOT NULL DEFAULT '',
+    trashed     INTEGER NOT NULL DEFAULT 0,
+    trash_root  INTEGER NOT NULL DEFAULT 0,
+    deleted_at  REAL    NOT NULL DEFAULT 0,
+    deleted_by  TEXT    NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS shared_items_live ON shared_items(office_id, path_key) WHERE trashed=0;
+CREATE INDEX IF NOT EXISTS shared_items_parent ON shared_items(office_id, parent_key, trashed);
+CREATE INDEX IF NOT EXISTS shared_items_trash ON shared_items(office_id, trash_root);
+CREATE TABLE IF NOT EXISTS office_activity (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    office_id   INTEGER NOT NULL,
+    ts          REAL    NOT NULL,
+    user_id     INTEGER,
+    email       TEXT    NOT NULL DEFAULT '',
+    action      TEXT    NOT NULL,
+    path        TEXT    NOT NULL DEFAULT '',
+    detail      TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS office_activity_office ON office_activity(office_id, id);
 CREATE TABLE IF NOT EXISTS webhook_events (
     event_id     TEXT PRIMARY KEY,
     event_type   TEXT NOT NULL DEFAULT '',
@@ -129,6 +203,53 @@ class Database:
             args.append(float(event_ts))
         with self.connect() as con:
             con.execute(f"UPDATE users SET {', '.join(sets)} WHERE id=?", (*args, user_id))
+
+    # ── offices (billing + membership lookups; the shared drive is in office.py) ──
+
+    _OFFICE_OF_USER = ("SELECT o.*, m.role AS member_role, m.joined_at AS member_joined_at "
+                       "FROM office_members m JOIN offices o ON o.id=m.office_id WHERE m.user_id=?")
+
+    def office_of_user(self, user_id: int):
+        """The user's office row plus member_role, or None."""
+        with self.connect() as con:
+            return con.execute(self._OFFICE_OF_USER, (user_id,)).fetchone()
+
+    def office_by_id(self, office_id: int):
+        with self.connect() as con:
+            return con.execute("SELECT * FROM offices WHERE id=?", (office_id,)).fetchone()
+
+    def office_by_customer(self, customer_id: str):
+        with self.connect() as con:
+            return con.execute("SELECT * FROM offices WHERE stripe_customer_id=?",
+                               (customer_id,)).fetchone()
+
+    def office_by_subscription(self, subscription_id: str):
+        with self.connect() as con:
+            return con.execute("SELECT * FROM offices WHERE subscription_id=?",
+                               (subscription_id,)).fetchone()
+
+    def office_member_ids(self, office_id: int) -> list[int]:
+        with self.connect() as con:
+            return [int(r["user_id"]) for r in con.execute(
+                "SELECT user_id FROM office_members WHERE office_id=?", (office_id,))]
+
+    def set_office_customer(self, office_id: int, customer_id: str) -> None:
+        with self.connect() as con:
+            con.execute("UPDATE offices SET stripe_customer_id=? WHERE id=?", (customer_id, office_id))
+
+    def set_office_subscription(self, office_id: int, sub_id: str, status: str, period_end: float,
+                                past_due_since: float | None = None,
+                                event_ts: float | None = None) -> None:
+        sets = ["subscription_id=?", "subscription_status=?", "current_period_end=?"]
+        args: list = [sub_id, status, float(period_end or 0)]
+        if past_due_since is not None:
+            sets.append("past_due_since=?")
+            args.append(float(past_due_since))
+        if event_ts is not None:
+            sets.append("sub_event_ts=?")
+            args.append(float(event_ts))
+        with self.connect() as con:
+            con.execute(f"UPDATE offices SET {', '.join(sets)} WHERE id=?", (*args, office_id))
 
     # ── webhook idempotency ──────────────────────────────────────────────────
 
