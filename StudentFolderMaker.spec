@@ -53,6 +53,8 @@ datas = [
     ("secure_store.py",        "."),   # DPAPI protection of the stored session token
     ("pdf_tools.py",         "."),
     ("pdf_tools_bridge.py",  "."),
+    ("annotate.py",          "."),   # annotation engine (PDF + image)
+    ("annotate_bridge.py",   "."),
     ("qr_scan.py",           "."),
     ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
     ("image_crop.py",        "."),
@@ -79,6 +81,8 @@ hiddenimports = [
     "secure_store",
     "pdf_tools",
     "pdf_tools_bridge",
+    "annotate",
+    "annotate_bridge",
     "qr_scan",
     "qr_pick",
     "image_crop",

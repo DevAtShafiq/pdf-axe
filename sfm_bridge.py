@@ -42,6 +42,7 @@ if _HERE not in sys.path:
 import file_ops as _fo
 import media_convert as _mc
 from pdf_tools_bridge import PdfToolsBridgeMixin
+from annotate_bridge import AnnotateBridgeMixin
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ from cloud_bridge import CloudBridgeMixin  # noqa: E402  (account / subscription
 from office_bridge import OfficeBridgeMixin  # noqa: E402  (office + shared drive methods)
 
 
-class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin):
+class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().
