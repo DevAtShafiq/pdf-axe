@@ -717,12 +717,41 @@ const Office = (() => {
     mkdir: ['created folder', 'in'], create: ['created', 'in'], new_student: ['added student', 'in'], add_student: ['added student', 'in'],
     rename: ['renamed', 'in'], move: ['moved', 'to'], trash: ['moved to trash', 'from'], delete: ['moved to trash', 'from'],
     restore: ['restored', 'to'], download: ['downloaded', 'from'], open: ['opened', 'in'],
+    create_folder: ['created folder', 'in'], replace: ['updated', 'in'], purge: ['permanently removed', 'from'],
   };
+  // Office/membership events: whole sentences, no file path.
+  const ROLE_WORD = { owner: 'owner', admin: 'admin', staff: 'staff member' };
+  const OFFICE_EVENT = {
+    office_created:        d => `created the office${d ? ` “${d}”` : ''}`,
+    office_renamed:        d => `renamed the office${d ? ` to “${d}”` : ''}`,
+    member_joined:         d => `joined the office${ROLE_WORD[d] ? ` as ${ROLE_WORD[d]}` : ''}`,
+    member_invited:        d => `invited ${d || 'someone'}`,
+    invite_revoked:        d => `cancelled the invitation${d ? ` for ${d}` : ''}`,
+    member_left:           () => 'left the office',
+    member_removed:        d => `removed ${d || 'a member'} from the office`,
+    role_changed:          d => `changed a role${d ? ` (${d})` : ''}`,
+    ownership_transferred: d => `transferred ownership${d ? ` to ${d}` : ''}`,
+    settings_changed:      () => 'updated the folder settings',
+  };
+  // "8230 bytes" from the server → "8.0 KB"
+  function prettyDetail(d) {
+    const m = /^(\d+) bytes$/.exec(String(d || '').trim());
+    if (!m) return d;
+    const n = Number(m[1]);
+    return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+  }
   function eventHtml(e) {
     const who = isMe(e.user) ? 'You' : personName(e.user) || 'Someone';
     const path = String(e.path || '');
     const name = baseName(path);
     const where = parentOf(path);
+    if (OFFICE_EVENT[e.action]) {
+      return `<div class="ofx-event" title="${esc(fmtDateTime(e.ts))}">
+          <span class="ofx-avatar ofx-avatar-md">${esc(initialOf(e.user))}</span>
+          <div class="ofx-event-main"><div class="ofx-event-text"><strong>${esc(who)}</strong> ${esc(OFFICE_EVENT[e.action](e.detail))}</div><div class="acct-hint">${esc(fmtRel(e.ts))}</div></div>
+        </div>`;
+    }
+    e = Object.assign({}, e, { detail: prettyDetail(e.detail) });
     const [verb, prep] = VERB[e.action] || [String(e.action || 'changed').replace(/_/g, ' '), 'in'];
     let text = `<strong>${esc(who)}</strong> ${esc(verb)}`;
     if (e.action === 'rename') text += ` <span class="ofx-ev-obj">${esc(name)}</span> to <span class="ofx-ev-obj">${esc(e.detail || '')}</span>`;
