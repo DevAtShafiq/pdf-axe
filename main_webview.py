@@ -56,12 +56,68 @@ def _ui_url() -> str:
     return index  # pywebview accepts a filesystem path
 
 
+def _is_app_uri(uri: str) -> bool:
+    """True for the app's own pages (file:// or pywebview's local server)."""
+    u = (uri or "").lower()
+    return (u.startswith("file:") or u.startswith("http://127.0.0.1")
+            or u.startswith("http://localhost") or u.startswith("http://[::1]"))
+
+
+def _allow_media_permissions(window) -> None:
+    """Screen recorder: let the app's own page use the microphone / camera.
+
+    pywebview's EdgeChromium backend does not handle WebView2's
+    PermissionRequested event, so getUserMedia() would show a browser-style
+    "Allow / Block" prompt (or be denied). Granted only for Microphone and
+    Camera, and only for the app's own pages. Screen capture
+    (getDisplayMedia) always shows Windows/WebView2's own source picker.
+    Best effort — the app must start even if this fails.
+    """
+    if getattr(window, "_oa_media_hooked", False):
+        return
+    import logging
+    try:
+        form = window.native
+        wv = getattr(getattr(form, "browser", None), "webview", None)
+        if form is None or wv is None:
+            return
+        from System import Func, Type  # type: ignore
+        from Microsoft.Web.WebView2.Core import (  # type: ignore
+            CoreWebView2PermissionKind as Kind,
+            CoreWebView2PermissionState as State,
+        )
+        kinds = (Kind.Microphone, Kind.Camera)
+
+        def _on_permission(sender, args):
+            try:
+                if args.PermissionKind in kinds and _is_app_uri(str(args.Uri)):
+                    args.State = State.Allow
+                    logging.getLogger("sfm").info("media permission granted: %s", args.PermissionKind)
+            except Exception:
+                pass
+
+        def _hook():
+            core = wv.CoreWebView2
+            if core is not None and not getattr(window, "_oa_media_hooked", False):
+                core.PermissionRequested += _on_permission
+                window._oa_media_hooked = True
+                logging.getLogger("sfm").info("media permission handler installed")
+
+        form.Invoke(Func[Type](_hook))
+    except Exception as exc:  # pragma: no cover - platform specific
+        logging.getLogger("sfm").warning("media permission hook failed: %s", exc)
+
+
 def main() -> None:
     # Helper-process mode: the QR button re-launches this EXE with --qr-pick to
     # show the native "click a QR code" overlay (qr_pick.py). No webview here.
     if "--qr-pick" in sys.argv[1:]:
         import qr_pick
         sys.exit(qr_pick.main())
+    # Screenshot region picker (screen_pick.py), same helper-process pattern.
+    if "--screen-pick" in sys.argv[1:]:
+        import screen_pick
+        sys.exit(screen_pick.main(sys.argv[1:]))
 
     try:
         import webview  # type: ignore
@@ -94,6 +150,7 @@ def main() -> None:
     # ── inject window reference into bridge after DOM is ready ────────────────
     def _on_loaded():
         bridge.set_window(window)
+        _allow_media_permissions(window)
         # Maximise — pywebview exposes this on the window object
         try:
             window.maximize()

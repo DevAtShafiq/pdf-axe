@@ -56,6 +56,8 @@ datas = [
     ("qr_scan.py",           "."),
     ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
     ("image_crop.py",        "."),
+    ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
+    ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -82,6 +84,8 @@ hiddenimports = [
     "qr_scan",
     "qr_pick",
     "image_crop",
+    "recorder_bridge",
+    "screen_pick",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
