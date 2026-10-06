@@ -25,6 +25,7 @@ const Account = (() => {
     authTab: 'login',
     devices: null, devicesError: null,
     // cloud panel
+    cloudArea: null,           // 'office' | 'personal' | null (= automatic)
     cloudView: 'files',        // 'files' | 'trash'
     cwd: '',                   // current cloud folder ('' = root)
     files: [],
@@ -148,6 +149,10 @@ const Account = (() => {
       }
       st.loaded = true;
       renderAll();
+      if (typeof Office !== 'undefined') {
+        if (st.logged_in) Office.loadState();
+        else Office.reset();
+      }
       if (st.logged_in && isActive()) {
         refreshSyncStatus();
         if (panelVisible('cloud')) loadCloud();
@@ -475,7 +480,8 @@ const Account = (() => {
     let items = '';
     if (st.logged_in) {
       items += item('account', 'user', 'Account &amp; billing');
-      items += item('cloud', 'cloud', 'Cloud storage');
+      if (hasOfficeJs()) items += item('office', 'building', 'Office drive');
+      items += item('cloud', 'cloud', hasOfficeJs() ? 'My files (cloud)' : 'Cloud storage');
     } else if (st.configured) {
       items += item('signin', 'log-in', 'Sign in…');
       items += item('account', 'user', 'Account');
@@ -502,7 +508,8 @@ const Account = (() => {
       closeAccountMenu();
       const act = it.dataset.act;
       if (act === 'account') { App.switchPanel('account'); refresh(); if (st.logged_in) loadDevices(); }
-      else if (act === 'cloud') { App.switchPanel('cloud'); renderCloudPanel(); loadCloud(); refreshSyncStatus(); }
+      else if (act === 'office') Office.openDrive();
+      else if (act === 'cloud') { setCloudArea('personal'); App.switchPanel('cloud'); renderCloudPanel(); loadCloud(); refreshSyncStatus(); }
       else if (act === 'settings') Dialogs.openSettings();
       else if (act === 'signin') { st.overlayDismissed = false; renderOverlay(); }
       else if (act === 'signout') signOut();
@@ -651,10 +658,12 @@ const Account = (() => {
           </div>
           ${tip && !s.free_plan ? `<div class="acct-hint">${esc(tip)}</div>` : ''}
         </div>
+        ${hasOfficeJs() ? Office.accountCardHtml() : ''}
         ${devicesBlock()}
         ${serverBlock('acct-srv')}`;
     }
     body.innerHTML = html;
+    if (hasOfficeJs() && st.logged_in) Office.wireAccountCard(body);
 
     wireServerBlock('acct-srv');
     const adv = body.querySelector('.acct-advanced');
@@ -798,14 +807,40 @@ const Account = (() => {
     } catch (e) {}
   }
 
+  // ── Cloud panel: "Office drive | My files" switch ───────────────────────
+  const hasOfficeJs = () => typeof Office !== 'undefined';
+  function cloudArea() {
+    if (!st.logged_in || !hasOfficeJs()) return 'personal';
+    if (st.cloudArea) return st.cloudArea;
+    if (!Office.loaded()) return 'office';
+    return Office.hasOffice() || Office.hasInvites() ? 'office' : 'personal';
+  }
+  function setCloudArea(area) { st.cloudArea = area === 'office' ? 'office' : 'personal'; }
+  function areaSwitchHtml() {
+    if (!st.logged_in || !hasOfficeJs()) return '';
+    const a = cloudArea();
+    return `<div class="ofx-area-bar"><div class="segmented ofx-area-seg" role="tablist" aria-label="Cloud area">
+        <button class="seg-btn ${a === 'office' ? 'active' : ''}" data-area="office" role="tab" aria-selected="${a === 'office'}">${Icons.svg('building', 14)}Office drive</button>
+        <button class="seg-btn ${a === 'personal' ? 'active' : ''}" data-area="personal" role="tab" aria-selected="${a === 'personal'}">${Icons.svg('cloud', 14)}My files</button>
+      </div><span class="acct-hint">${a === 'office' ? 'Shared with everyone in your office' : 'Private to you'}</span></div>`;
+  }
+  function wireAreaSwitch(root) {
+    root.querySelectorAll('.ofx-area-seg [data-area]').forEach(b => b.addEventListener('click', () => {
+      if (cloudArea() === b.dataset.area) return;
+      setCloudArea(b.dataset.area);
+      renderCloudPanel();
+      if (b.dataset.area === 'office') Office.enter(); else { loadCloud(); refreshSyncStatus(); }
+    }));
+  }
+
   // ── Cloud panel: render ──────────────────────────────────────────────────
   function cloudHeader(right = '') {
     const live = st.logged_in
       ? `<span class="cloud-live-wrap" title="${st.live ? 'Changes from your other devices appear instantly' : 'Live updates not connected — reconnecting automatically'}"><span class="cloud-live ${st.live ? 'on' : ''}"></span>${st.live ? 'Live' : (st.offline ? 'Offline' : 'Reconnecting…')}</span>`
       : '';
-    return `<div class="cloud-head page-header">
+    return `${areaSwitchHtml()}<div class="cloud-head page-header">
         <div class="page-header-icon">${Icons.svg('cloud', 20)}</div>
-        <div class="flex-1"><h2 class="page-title acct-h2">Cloud ${live}</h2>
+        <div class="flex-1"><h2 class="page-title acct-h2">${st.logged_in && hasOfficeJs() ? 'My files' : 'Cloud'} ${live}</h2>
           <p class="page-subtitle">Your files online, on every computer you sign in to.</p></div>
         ${right}
       </div>`;
@@ -830,6 +865,7 @@ const Account = (() => {
       });
       return;
     }
+    if (cloudArea() === 'office') { Office.render(body); return; }
     if (!isActive()) {
       const s = sub() || {};
       const tip = billingTip(s);
@@ -846,6 +882,7 @@ const Account = (() => {
           ${st.pollTimer ? '<p class="acct-hint acct-polling"><span class="spinner"></span>Waiting for payment to complete…</p>' : ''}
         </div>`;
       $('cloud-subscribe').addEventListener('click', pastDue ? openPortal : subscribe);
+      wireAreaSwitch(body);
       return;
     }
 
@@ -927,6 +964,7 @@ const Account = (() => {
     renderTransfer();
     renderSyncSection();
     wireCloud(selIds, selDirs);
+    wireAreaSwitch(body);
   }
 
   function rowHtml(key, iconHtml, name, size, ts, isDir) {
@@ -1211,9 +1249,10 @@ const Account = (() => {
     const panel = $('panel-cloud');
     if (panel) {
       let depth = 0;
-      panel.addEventListener('dragenter', e => { if (accepts(e)) { depth++; panel.classList.toggle('cloud-dragging', canUploadHere()); } });
+      panel.addEventListener('dragenter', e => { if (cloudArea() === 'office') return; if (accepts(e)) { depth++; panel.classList.toggle('cloud-dragging', canUploadHere()); } });
       panel.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) panel.classList.remove('cloud-dragging'); });
       panel.addEventListener('dragover', e => {
+        if (cloudArea() === 'office') { if (accepts(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; } return; }
         if (!accepts(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = canUploadHere() ? 'copy' : 'none';
@@ -1221,6 +1260,7 @@ const Account = (() => {
       panel.addEventListener('drop', e => {
         depth = 0;
         panel.classList.remove('cloud-dragging');
+        if (cloudArea() === 'office') { if (accepts(e)) e.preventDefault(); return; }
         if (!accepts(e)) return;
         e.preventDefault();
         if (!canUploadHere()) { toast('Open the Files tab of an active cloud plan to upload', 'warning'); return; }
@@ -1243,6 +1283,7 @@ const Account = (() => {
         e.preventDefault();
         App.switchPanel('cloud');
         renderCloudPanel();
+        if (cloudArea() === 'office' && st.logged_in) { Office.enter(); Office.uploadHere(paths); return; }
         if (!st.logged_in || !isActive()) { toast('Sign in with an active plan to upload to the cloud', 'warning'); return; }
         startUpload(paths);
       });
@@ -1280,6 +1321,7 @@ const Account = (() => {
     SFM.on('cloud_files_dropped', p => {
       const paths = (p && p.paths) || [];
       if (!paths.length) return;
+      if (st.logged_in && cloudArea() === 'office' && panelVisible('cloud')) { Office.filesDropped(paths); return; }
       if (!st.logged_in || !isActive() || st.cloudView !== 'files') {
         toast('Sign in with an active plan and open the Files tab to upload', 'warning'); return;
       }
@@ -1350,7 +1392,10 @@ const Account = (() => {
       else App.switchPanel('account');
     });
     document.querySelectorAll('.sidebar-btn[data-panel="cloud"]').forEach(b =>
-      b.addEventListener('click', () => { renderCloudPanel(); loadCloud(); refreshSyncStatus(); }));
+      b.addEventListener('click', () => {
+        renderCloudPanel();
+        if (cloudArea() === 'office') Office.enter(); else { loadCloud(); refreshSyncStatus(); }
+      }));
     document.querySelectorAll('.sidebar-btn[data-panel="account"]').forEach(b =>
       b.addEventListener('click', () => { refresh(); if (st.logged_in) loadDevices(); }));
     renderAll();
@@ -1360,5 +1405,10 @@ const Account = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  return { refresh, isActive, state: st };
+  return {
+    refresh, isActive, state: st,
+    // used by office.js
+    cloudArea, setCloudArea, areaSwitchHtml, wireAreaSwitch,
+    renderCloud: () => renderCloudPanel(), renderAccount: () => renderAccountPanel(),
+  };
 })();

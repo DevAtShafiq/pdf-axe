@@ -193,9 +193,11 @@ arrow-left-right, qr-code, scan, scan-text, crop, rotate-ccw, rotate-cw, shirt, 
 compare, app-window, sun, moon, settings, user, user-circle, log-out, log-in, mail, lock, key,
 eye, eye-off, cloud, cloud-upload, cloud-download, cloud-off, download, upload, refresh, sync,
 play, pause, stop, server, monitor, credit-card, shield-check, globe, palette, check,
-check-circle, x, x-circle, alert-triangle, alert-circle, info, loader, clock.
+check-circle, x, x-circle, alert-triangle, alert-circle, info, loader, clock,
+graduation-cap, users, user-plus, building, history, flag, crown, ticket.
 Aliases: close, delete, remove, gear, reload, cut, rename, edit, arrange, pdf, warning, error,
-success, more, repeat, suit, ai, qr, open, review, move, theme, account.
+success, more, repeat, suit, ai, qr, open, review, move, theme, account,
+country (globe), program (graduation-cap), student (user), office (building), people (users), activity (history).
 
 Sizes: 16 px default (buttons, menus, lists), 14 px in small buttons/inputs, 20 px in the
 sidebar/page headers, 24–28 px inside empty-state tiles.
