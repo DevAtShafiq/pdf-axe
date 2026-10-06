@@ -51,6 +51,12 @@ class Settings:
     session_days: int = field(default_factory=lambda: int(os.environ.get("SFM_SESSION_DAYS", "30")))
     # Per-user cloud storage quota for subscribers
     storage_quota_mb: int = field(default_factory=lambda: int(os.environ.get("SFM_STORAGE_QUOTA_MB", "5120")))
+    # Shared-drive quota per office (all members together)
+    office_quota_mb: int = field(default_factory=lambda: int(os.environ.get("SFM_OFFICE_QUOTA_MB", "51200")))
+    # Activity-log entries kept per office (older ones are dropped)
+    office_activity_keep: int = field(default_factory=lambda: int(os.environ.get("SFM_OFFICE_ACTIVITY_KEEP", "5000")))
+    # Days an office invite stays valid
+    invite_days: int = field(default_factory=lambda: int(os.environ.get("SFM_INVITE_DAYS", "7")))
     # Largest single upload
     max_upload_mb: int = field(default_factory=lambda: int(os.environ.get("SFM_MAX_UPLOAD_MB", "200")))
 

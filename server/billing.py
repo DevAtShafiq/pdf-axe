@@ -29,6 +29,7 @@ class SubscriptionUpdate:
     user_id: int | None = None    # set when the event carries our own user id
     event_id: str = ""            # provider event id, for idempotency
     event_created: float = 0.0    # provider event time, to ignore stale events
+    office_id: int | None = None  # set when the subscription belongs to an office
 
 
 class BillingError(Exception):
@@ -38,8 +39,9 @@ class BillingError(Exception):
 class BillingProvider:
     name = "none"
 
-    def create_checkout(self, user_id: int, email: str, customer_id: str | None) -> tuple[str, str]:
-        """Return (checkout_url, customer_id)."""
+    def create_checkout(self, user_id: int, email: str, customer_id: str | None,
+                        office_id: int | None = None) -> tuple[str, str]:
+        """Return (checkout_url, customer_id). With office_id the subscription is the office's."""
         raise BillingError("Billing is not configured on this server")
 
     def create_portal(self, customer_id: str) -> str:
@@ -58,17 +60,20 @@ class StripeProvider(BillingProvider):
         self._s = settings
         stripe.api_key = settings.stripe_secret_key
 
-    def create_checkout(self, user_id, email, customer_id):
+    def create_checkout(self, user_id, email, customer_id, office_id=None):
         stripe = self._stripe
+        meta = {"user_id": str(user_id)}
+        if office_id:
+            meta["office_id"] = str(office_id)
         if not customer_id:
-            cust = stripe.Customer.create(email=email, metadata={"user_id": str(user_id)})
+            cust = stripe.Customer.create(email=email, metadata=meta)
             customer_id = cust["id"]
         session = stripe.checkout.Session.create(
             mode="subscription",
             customer=customer_id,
             client_reference_id=str(user_id),
             line_items=[{"price": self._s.stripe_price_id, "quantity": 1}],
-            subscription_data={"metadata": {"user_id": str(user_id)}},
+            subscription_data={"metadata": meta},
             success_url=f"{self._s.public_url}/billing/success",
             cancel_url=f"{self._s.public_url}/billing/cancel",
         )
@@ -129,12 +134,14 @@ def _from_subscription(sub, ref_user_id) -> SubscriptionUpdate:
         items = (sub.get("items") or {}).get("data") or []
         if items:
             period_end = items[0].get("current_period_end")
+    oid = meta.get("office_id")
     return SubscriptionUpdate(
         customer_id=sub.get("customer") or "",
         subscription_id=sub.get("id") or "",
         status=sub.get("status") or "none",
         current_period_end=float(period_end or 0),
         user_id=int(uid) if uid and str(uid).isdigit() else None,
+        office_id=int(oid) if oid and str(oid).isdigit() else None,
     )
 
 
@@ -150,12 +157,14 @@ def _from_failed_invoice(inv) -> SubscriptionUpdate | None:
         return None  # a one-off invoice, not our subscription
     meta = ((inv.get("parent") or {}).get("subscription_details") or {}).get("metadata") or {}
     uid = meta.get("user_id")
+    oid = meta.get("office_id")
     return SubscriptionUpdate(
         customer_id=inv.get("customer") or "",
         subscription_id=str(sub_id),
         status="past_due",
         current_period_end=0.0,
         user_id=int(uid) if uid and str(uid).isdigit() else None,
+        office_id=int(oid) if oid and str(oid).isdigit() else None,
     )
 
 

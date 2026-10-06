@@ -8,6 +8,8 @@ Provides, for the desktop app:
   • Cloud storage GET /files, POST /files, GET /files/{id}/download,
                   POST /files/{id}/move, POST /files/{id}/trash, POST /files/{id}/restore,
                   POST /folders/move, POST /folders/trash, GET /usage
+  • Offices       GET/POST /office, /office/* (members, invites, roles, settings)
+  • Shared drive  /shared/*  (Country → Program → Student tree shared by an office)
   • Live updates  GET /events  (Server-Sent Events, one stream per signed-in device;
                   the session token goes in the Authorization header, never the URL)
 
@@ -35,6 +37,7 @@ from pydantic import BaseModel
 
 from .billing import ACTIVE_STATUSES, BillingError, BillingProvider, make_provider
 from .config import Settings
+from . import office as office_routes
 from .db import Database
 from .paths import clean_remote_path  # noqa: F401  (re-exported for callers/tests)
 
@@ -209,7 +212,7 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
     @app.middleware("http")
     async def _reject_oversized_uploads(request: Request, call_next):
         # Refuse a too-large upload before its body is read and spooled to disk
-        if request.method == "POST" and request.url.path == "/files":
+        if request.method == "POST" and request.url.path in ("/files", "/shared/upload"):
             try:
                 length = int(request.headers.get("content-length") or 0)
             except ValueError:
@@ -246,37 +249,58 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
             raise HTTPException(402, "An active subscription is required")
         return user
 
-    def _grace_until(user) -> float:
-        if user["subscription_status"] != "past_due":
+    # A "plan row" is a users row or an offices row: both carry subscription_status,
+    # current_period_end and past_due_since.
+    def _grace_until(row) -> float:
+        if row["subscription_status"] != "past_due":
             return 0.0
-        since = float(user["past_due_since"] or 0) or time.time()
+        since = float(row["past_due_since"] or 0) or time.time()
         return since + settings.past_due_grace_days * 86400
 
-    def _is_active(user) -> bool:
-        if settings.free_plan:
-            return True
-        status = user["subscription_status"]
+    def _row_active(row) -> bool:
+        status = row["subscription_status"]
         if status == "past_due":
-            return _grace_until(user) > time.time()
+            return _grace_until(row) > time.time()
         if status not in ACTIVE_STATUSES:
             return False
-        end = float(user["current_period_end"] or 0)
+        end = float(row["current_period_end"] or 0)
         # A small grace window covers webhook delays at renewal time
         return end == 0 or end + 3 * 86400 > time.time()
 
+    _UNSET = object()
+
+    def _is_active(user, office=_UNSET) -> bool:
+        """Paid features: free server, the user's own plan, or their office's plan."""
+        if settings.free_plan:
+            return True
+        if _row_active(user):
+            return True
+        if office is _UNSET:
+            office = db.office_of_user(user["id"])
+        return bool(office is not None and _row_active(office))
+
     def _sub_json(user) -> dict:
+        office = db.office_of_user(user["id"])
+        # Members see the office plan, unless only their own (older) plan is active
+        src = office if office is not None and (_row_active(office) or not _row_active(user)) else user
         return {
-            "status": user["subscription_status"],
-            "active": _is_active(user),
-            "current_period_end": user["current_period_end"],
-            "grace_until": _grace_until(user),
+            "status": src["subscription_status"],
+            "active": _is_active(user, office),
+            "current_period_end": src["current_period_end"],
+            "grace_until": _grace_until(src),
             "plan_label": settings.plan_label,
             "billing_available": billing.name != "none",
             "free_plan": bool(settings.free_plan),
+            "source": "office" if src is office else "user",
+            "office_id": office["id"] if office is not None else None,
+            "can_manage_billing": office is None or office["member_role"] == "owner",
         }
 
     def _user_json(user) -> dict:
-        return {"id": user["id"], "email": user["email"], "subscription": _sub_json(user)}
+        office = db.office_of_user(user["id"])
+        return {"id": user["id"], "email": user["email"], "subscription": _sub_json(user),
+                "office": ({"id": office["id"], "name": office["name"], "role": office["member_role"]}
+                           if office is not None else None)}
 
     def _file_json(row) -> dict:
         return {
@@ -380,6 +404,20 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
     def checkout(user=Depends(current_user)):
         if settings.free_plan:
             raise HTTPException(400, "This server includes every feature for free")
+        office = db.office_of_user(user["id"])
+        if office is not None:   # the plan belongs to the office; its owner pays
+            if office["member_role"] != "owner":
+                raise HTTPException(403, "Only the office owner can manage the office subscription")
+            if office["subscription_id"] and office["subscription_status"] in _HAS_SUBSCRIPTION:
+                raise HTTPException(409, "The office already has a subscription. Use Manage billing to change it.")
+            try:
+                url, customer_id = billing.create_checkout(user["id"], user["email"],
+                                                           office["stripe_customer_id"], office_id=office["id"])
+            except BillingError as exc:
+                raise HTTPException(503, str(exc))
+            if customer_id and customer_id != office["stripe_customer_id"]:
+                db.set_office_customer(office["id"], customer_id)
+            return {"url": url}
         if user["subscription_id"] and user["subscription_status"] in _HAS_SUBSCRIPTION:
             raise HTTPException(409, "You already have a subscription. Use Manage billing to change it.")
         try:
@@ -392,6 +430,14 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
 
     @app.post("/billing/portal")
     def portal(user=Depends(current_user)):
+        office = db.office_of_user(user["id"])
+        if office is not None and office["stripe_customer_id"]:
+            if office["member_role"] != "owner":
+                raise HTTPException(403, "Only the office owner can manage the office subscription")
+            try:
+                return {"url": billing.create_portal(office["stripe_customer_id"])}
+            except BillingError as exc:
+                raise HTTPException(503, str(exc))
         if not user["stripe_customer_id"]:
             raise HTTPException(400, "No subscription to manage yet")
         try:
@@ -414,6 +460,13 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
     def _apply_update(upd) -> dict:
         if upd.event_id and db.webhook_seen(upd.event_id):
             return {"ok": True, "duplicate": True}
+        office = db.office_by_id(upd.office_id) if getattr(upd, "office_id", None) else None
+        if office is None and upd.customer_id:
+            office = db.office_by_customer(upd.customer_id)
+        if office is None and upd.subscription_id:
+            office = db.office_by_subscription(upd.subscription_id)
+        if office is not None:
+            return _apply_office_update(upd, office)
         user = db.user_by_id(upd.user_id) if upd.user_id else None
         if user is None and upd.customer_id:
             user = db.user_by_customer(upd.customer_id)
@@ -444,6 +497,35 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
             db.record_webhook_event(upd.event_id, upd.status)
         hub.publish(user["id"], "subscription_updated", _sub_json(db.user_by_id(user["id"])))
         return {"ok": True}
+
+    def _apply_office_update(upd, office) -> dict:
+        if upd.event_created and float(office["sub_event_ts"] or 0) > upd.event_created:
+            if upd.event_id:
+                db.record_webhook_event(upd.event_id, upd.status)
+            return {"ok": True, "stale": True}
+        if upd.customer_id and not office["stripe_customer_id"]:
+            db.set_office_customer(office["id"], upd.customer_id)
+        if upd.status == "past_due":
+            already = office["subscription_status"] == "past_due" and float(office["past_due_since"] or 0)
+            past_due_since = float(office["past_due_since"]) if already else time.time()
+        else:
+            past_due_since = 0.0
+        db.set_office_subscription(
+            office["id"],
+            upd.subscription_id or office["subscription_id"] or "",
+            upd.status,
+            upd.current_period_end or float(office["current_period_end"] or 0),
+            past_due_since=past_due_since,
+            event_ts=upd.event_created or None,
+        )
+        if upd.event_id:
+            db.record_webhook_event(upd.event_id, upd.status)
+        for uid in db.office_member_ids(office["id"]):
+            member = db.user_by_id(uid)
+            if member is not None:
+                hub.publish(uid, "subscription_updated", _sub_json(member))
+                hub.publish(uid, "office_changed", {"office_id": office["id"], "reason": "plan"})
+        return {"ok": True, "office_id": office["id"]}
 
     @app.get("/billing/success", response_class=HTMLResponse)
     def billing_success():
@@ -588,6 +670,12 @@ def create_app(settings: Settings | None = None, billing: BillingProvider | None
         if rows:
             hub.publish(user["id"], "folder_trashed", {"path": folder, "count": len(rows)})
         return {"trashed": len(rows)}
+
+    # ── offices + shared drive (server/office.py) ────────────────────────────
+
+    office_routes.install(app, settings=settings, db=db, hub=hub, limiter=limiter, billing=billing,
+                          current_user=current_user, is_active=_is_active, row_active=_row_active,
+                          grace_until=_grace_until, sub_json=_sub_json)
 
     # ── live updates (SSE) ───────────────────────────────────────────────────
 

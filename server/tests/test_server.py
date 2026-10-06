@@ -25,7 +25,9 @@ class FakeBilling(BillingProvider):
     """Stands in for Stripe: checkout returns a fake URL, webhooks are JSON."""
     name = "fake"
 
-    def create_checkout(self, user_id, email, customer_id):
+    def create_checkout(self, user_id, email, customer_id, office_id=None):
+        if office_id:
+            return f"https://pay.example/checkout/office/{office_id}", customer_id or f"cus_office_{office_id}"
         return f"https://pay.example/checkout/{user_id}", customer_id or f"cus_{user_id}"
 
     def create_portal(self, customer_id):
