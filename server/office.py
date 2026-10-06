@@ -705,7 +705,9 @@ def install(app, *, settings, db, hub, limiter, billing, current_user, is_active
                 raise HTTPException(403, "Only the owner can remove an admin")
             con.execute("DELETE FROM office_members WHERE user_id=?", (user_id,))
             log(con, office["id"], user, "member_removed", "", t["email"])
-        office_changed(office["id"], "member_removed", also=[user_id])
+        office_changed(office["id"], "member_removed")
+        # The removed person is told separately (they are no longer a member)
+        hub.publish(user_id, "office_changed", {"office_id": office["id"], "reason": "removed"})
         hub.publish(user_id, "subscription_updated", sub_json(db.user_by_id(user_id)))
         return {"ok": True}
 

@@ -14,7 +14,10 @@ Every method returns {"ok": True, ...} or {"ok": False, "error": "<readable text
 (need_login / need_subscription / offline / status flags as in cloud_bridge).
 
 Events pushed to JS:
-  office_changed            {office_id, reason}          membership / settings / plan changed
+  office_changed            {office_id, reason}          membership / settings / plan changed;
+                            reason: created, renamed, member_joined, member_left, member_removed,
+                            removed (sent to the person who was removed), role_changed, owner_changed,
+                            invite_created, invite_revoked, invite_declined, settings, plan
   shared_changed            {office_id, paths, actor, action}   something changed in the shared drive
   shared_upload_progress    {job_id, file, index, total, bytes, total_bytes, file_bytes, file_total}
                             bytes/total_bytes = the whole job; file_bytes/file_total = current file

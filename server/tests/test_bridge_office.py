@@ -210,6 +210,7 @@ def test_office_bridge_flow(live_server, make_bridge, tmp_path):
     _ok(owner.office_transfer(sid))
     assert _ok(owner.office_get_state())["office"]["role"] == "admin"
     _ok(staff.office_remove_member(ms[0]["user_id"]))
+    assert _wait(lambda: any(p.get("reason") == "removed" for p in _events(owner, "office_changed")))
     st = _ok(owner.office_get_state())
     assert st["office"] is None
     r = owner.shared_list()
