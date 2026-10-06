@@ -4,7 +4,8 @@ cloud_client.py — Desktop-side client for the Office Axe account server.
 Standard library only (urllib), so it adds nothing to the PyInstaller build.
 
   CloudClient   accounts, devices, subscription links, cloud file operations
-                (streamed uploads/downloads with progress callbacks)
+                (streamed uploads/downloads with progress callbacks), plus
+                office membership and the office shared drive (office_*/shared_*)
   EventStream   background Server-Sent-Events listener (live updates); the
                 session token travels in the Authorization header
   SyncFolder    two-way sync of a local folder with a cloud folder. It never
@@ -200,16 +201,19 @@ class CloudClient:
 
     def upload(self, local_path: str, remote_path: str, base_sha256: str = "",
                progress: Progress | None = None) -> dict:
+        fields = {"path": remote_path}
+        if base_sha256:
+            fields["base_sha256"] = base_sha256
+        return self._upload_multipart("/files", local_path, fields, progress)["file"]
+
+    def _upload_multipart(self, endpoint: str, local_path: str, fields: dict,
+                          progress: Progress | None = None) -> dict:
         boundary = uuid.uuid4().hex
         fname = os.path.basename(local_path)
         ctype = mimetypes.guess_type(fname)[0] or "application/octet-stream"
-        head = (
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n"
-            f"{remote_path}\r\n"
-        )
-        if base_sha256:
-            head += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"base_sha256\"\r\n\r\n"
-                     f"{base_sha256}\r\n")
+        head = "".join(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n"
+            for k, v in fields.items())
         head += (
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
             f"filename=\"{urllib.parse.quote(fname)}\"\r\nContent-Type: {ctype}\r\n\r\n"
@@ -219,19 +223,26 @@ class CloudClient:
         headers = {"Content-Type": f"multipart/form-data; boundary={boundary}",
                    "Content-Length": str(body.total)}
         try:
-            with self._open("POST", "/files", body, headers, timeout=max(self.timeout, 600)) as resp:
-                return json.loads(resp.read().decode("utf-8"))["file"]
+            with self._open("POST", endpoint, body, headers, timeout=max(self.timeout, 600)) as resp:
+                return json.loads(resp.read().decode("utf-8"))
         finally:
             body.close()
 
     def download(self, file_id: int, dest_path: str, progress: Progress | None = None) -> str:
         """Download to dest_path via a temp file, so a failed transfer never
         leaves a half-written file in place."""
+        return self._download_to(f"/files/{int(file_id)}/download", dest_path, progress)
+
+    def _download_to(self, url_path: str, dest_path: str, progress: Progress | None = None,
+                     overwrite: bool = True) -> str:
+        """Stream url_path into dest_path via a .part file. With overwrite=False an
+        existing dest_path is never replaced: the file lands as 'name (2).ext'.
+        Returns the path written."""
         d = os.path.dirname(dest_path)
         if d:
             os.makedirs(d, exist_ok=True)
         tmp = f"{dest_path}.{uuid.uuid4().hex[:8]}.part"
-        with self._open("GET", f"/files/{int(file_id)}/download", timeout=max(self.timeout, 600)) as resp:
+        with self._open("GET", url_path, timeout=max(self.timeout, 600)) as resp:
             try:
                 total = int(resp.headers.get("Content-Length") or 0)
             except (TypeError, ValueError):
@@ -249,8 +260,146 @@ class CloudClient:
                             progress(done, total or done)
                         except Exception:
                             pass
-        os.replace(tmp, dest_path)
-        return dest_path
+        if overwrite:
+            os.replace(tmp, dest_path)
+            return dest_path
+        return place_without_overwrite(tmp, dest_path)
+
+    # ── offices ──────────────────────────────────────────────────────────────
+
+    def office_state(self) -> dict:
+        return self._json("GET", "/office")
+
+    def office_create(self, name: str) -> dict:
+        return self._json("POST", "/office", {"name": name})["office"]
+
+    def office_rename(self, name: str) -> dict:
+        return self._json("POST", "/office/rename", {"name": name})["office"]
+
+    def office_join(self, code: str) -> dict:
+        return self._json("POST", "/office/join", {"code": code})["office"]
+
+    def office_accept_invite(self, invite_id: int) -> dict:
+        return self._json("POST", f"/office/invites/{int(invite_id)}/accept")["office"]
+
+    def office_decline_invite(self, invite_id: int) -> None:
+        self._json("POST", f"/office/invites/{int(invite_id)}/decline")
+
+    def office_leave(self) -> None:
+        self._json("POST", "/office/leave")
+
+    def office_transfer(self, user_id: int) -> dict:
+        return self._json("POST", "/office/transfer", {"user_id": int(user_id)})["office"]
+
+    def office_members(self) -> list[dict]:
+        return self._json("GET", "/office/members")["members"]
+
+    def office_invite(self, email: str, role: str) -> dict:
+        return self._json("POST", "/office/invites", {"email": email, "role": role})["invite"]
+
+    def office_invites(self) -> list[dict]:
+        return self._json("GET", "/office/invites")["invites"]
+
+    def office_revoke_invite(self, invite_id: int) -> None:
+        self._json("POST", f"/office/invites/{int(invite_id)}/revoke")
+
+    def office_set_role(self, user_id: int, role: str) -> None:
+        self._json("POST", f"/office/members/{int(user_id)}/role", {"role": role})
+
+    def office_remove_member(self, user_id: int) -> None:
+        self._json("POST", f"/office/members/{int(user_id)}/remove")
+
+    def office_settings(self) -> dict:
+        return self._json("GET", "/office/settings")["settings"]
+
+    def office_set_settings(self, settings: dict) -> dict:
+        return self._json("POST", "/office/settings", {"settings": settings})["settings"]
+
+    # ── office shared drive ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _q(**params) -> str:
+        return "?" + urllib.parse.urlencode(params)
+
+    def shared_list(self, path: str = "") -> dict:
+        return self._json("GET", "/shared/list" + self._q(path=path))
+
+    def shared_tree(self, path: str = "") -> list[dict]:
+        return self._json("GET", "/shared/tree" + self._q(path=path))["items"]
+
+    def shared_mkdir(self, parent: str, name: str) -> dict:
+        return self._json("POST", "/shared/mkdir", {"parent": parent, "name": name})
+
+    def shared_ensure_dir(self, path: str) -> dict:
+        return self._json("POST", "/shared/ensure-dir", {"path": path})
+
+    def shared_new_student(self, country: str, program: str, student: str) -> dict:
+        return self._json("POST", "/shared/new-student",
+                          {"country": country, "program": program, "student": student})
+
+    def shared_upload(self, local_path: str, remote_path: str, on_conflict: str = "rename",
+                      base_sha256: str = "", progress: Progress | None = None) -> dict:
+        fields = {"path": remote_path, "on_conflict": on_conflict}
+        if base_sha256:
+            fields["base_sha256"] = base_sha256
+        return self._upload_multipart("/shared/upload", local_path, fields, progress)
+
+    def shared_download(self, remote_path: str, dest_path: str, progress: Progress | None = None,
+                        overwrite: bool = False) -> str:
+        return self._download_to("/shared/download" + self._q(path=remote_path), dest_path,
+                                 progress, overwrite=overwrite)
+
+    def shared_rename(self, path: str, new_name: str) -> dict:
+        return self._json("POST", "/shared/rename", {"path": path, "new_name": new_name})
+
+    def shared_move(self, paths: list, dest: str) -> dict:
+        return self._json("POST", "/shared/move", {"paths": list(paths), "dest": dest})
+
+    def shared_trash(self, paths: list) -> dict:
+        return self._json("POST", "/shared/trash", {"paths": list(paths)})
+
+    def shared_trash_list(self) -> list[dict]:
+        return self._json("GET", "/shared/trash")["items"]
+
+    def shared_restore(self, ids: list) -> dict:
+        return self._json("POST", "/shared/restore", {"ids": [int(i) for i in ids]})
+
+    def shared_purge(self, ids: list) -> dict:
+        return self._json("POST", "/shared/purge", {"ids": [int(i) for i in ids]})
+
+    def shared_search(self, query: str) -> list[dict]:
+        return self._json("GET", "/shared/search" + self._q(q=query))["items"]
+
+    def shared_activity(self, limit: int = 50) -> list[dict]:
+        return self._json("GET", "/shared/activity" + self._q(limit=int(limit)))["events"]
+
+    def shared_usage(self) -> dict:
+        return self._json("GET", "/shared/usage")
+
+
+def unique_path(path: str) -> str:
+    """'a.pdf' → 'a (2).pdf', 'a (3).pdf', … — the first name not in use."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(f"{stem} ({n}){ext}"):
+        n += 1
+    return f"{stem} ({n}){ext}"
+
+
+def place_without_overwrite(src: str, dest: str) -> str:
+    """Move src to dest, or to 'dest (2)…' when dest exists. Never replaces a file."""
+    for _ in range(1000):
+        target = unique_path(dest)
+        if os.path.exists(target):
+            continue
+        try:
+            os.rename(src, target)   # on Windows rename refuses to replace an existing file
+            return target
+        except FileExistsError:
+            continue                 # another writer took the name meanwhile: try the next one
+    raise OSError(f"Could not find a free name for {dest}")
 
     def trash(self, file_id: int) -> dict:
         return self._json("POST", f"/files/{int(file_id)}/trash")["file"]
