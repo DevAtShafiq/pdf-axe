@@ -426,3 +426,71 @@ def test_pdf_owner_only_restrictions(tmp_path):
     d = fitz.open(u["out_path"])
     assert "hello pdf" in d[0].get_text() and not (d.metadata or {}).get("encryption")
     d.close()
+
+
+# ── bridge (archive_bridge.ArchiveBridgeMixin) ───────────────────────────────
+
+class _Bridge:
+    def __init__(self):
+        import threading
+        from archive_bridge import ArchiveBridgeMixin
+
+        events, done = [], threading.Event()
+
+        class B(ArchiveBridgeMixin):
+            def _emit(self, ev, payload=None):
+                events.append((ev, payload))
+                if ev == "archive_done":
+                    done.set()
+
+        self.b, self.events, self.done = B(), events, done
+
+    def wait(self):
+        assert self.done.wait(10)
+        self.done.clear()
+        return [p for e, p in self.events if e == "archive_done"][-1]
+
+
+def test_bridge_zip_and_extract_events(tmp_path):
+    br = _Bridge()
+    src = _tree(tmp_path)
+    r = br.b.zip_paths([str(src)], "", "", "job1")
+    assert r["ok"] and r["job_id"] == "job1"
+    d = br.wait()
+    assert d["ok"] and d["job_id"] == "job1" and d["out_path"].endswith("Docs.zip")
+    assert any(e == "archive_progress" and p["job_id"] == "job1" for e, p in br.events)
+    r = br.b.zip_extract(d["out_path"], str(tmp_path / "x"), "", None, "job2")
+    assert r["ok"]
+    d2 = br.wait()
+    assert d2["ok"] and os.path.isdir(d2["out_path"])
+    caps = br.b.archive_capabilities()
+    assert caps["ok"] and caps["zip_password"] == at.HAVE_PYZIPPER
+
+
+def test_bridge_extract_password_codes(tmp_path):
+    br = _Bridge()
+    z = _raw_zip(tmp_path / "p.zip", [(b"s.txt", b"x", True)], password=b"pw")
+    assert br.b.zip_extract(str(z))["code"] == "need_password"
+    assert br.b.zip_extract(str(z), "", "bad")["code"] == "wrong_password"
+    assert br.b.zip_extract(str(z), "", "pw", None, "j")["ok"]
+    assert br.wait()["ok"]
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"nope")
+    assert br.b.zip_list(str(bad))["code"] == "not_zip"
+
+
+def test_bridge_pdf_password_and_preview_unlock(tmp_path):
+    import file_ops
+    br = _Bridge()
+    src = _pdf(tmp_path / "c.pdf")
+    r = br.b.pdf_set_password(str(src), "pw", "", {"print": True})
+    assert r["ok"] and r["out_path"].endswith("c_protected.pdf")
+    assert br.b.pdf_is_encrypted(r["out_path"])["needs_password"] is True
+    assert br.b.pdf_unlock_preview(r["out_path"], "bad")["code"] == "wrong_password"
+    u = br.b.pdf_unlock_preview(r["out_path"], "pw")
+    assert u["ok"] and u["pages"] == 2
+    assert file_ops.pil_image_for_pdf_page(r["out_path"], 0, 200, 200) is not None
+    file_ops.release_pdf_handles_for_paths((r["out_path"],))
+    rm = br.b.pdf_remove_password(r["out_path"], "pw")
+    assert rm["ok"] and rm["out_path"].endswith("c_unlocked.pdf")
+    assert br.b.pdf_remove_password(r["out_path"], "x")["code"] == "wrong_password"
