@@ -15,3 +15,5 @@ server/data/
 server/.env
 .pytest_cache/
 .claude/worktrees/
+deploy/.env
+deploy/backups/

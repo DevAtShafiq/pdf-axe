@@ -1,4 +1,4 @@
-# PDF Axe account server
+# Office Axe account server
 #
 # Build from the REPOSITORY ROOT (the image needs the `server` package path):
 #   docker build -f server/Dockerfile -t pdfaxe-server .
@@ -20,7 +20,7 @@ COPY server/requirements.txt /app/server/requirements.txt
 RUN pip install -r /app/server/requirements.txt
 
 # Only the server package's code: no tests, no local .env, no local data.
-COPY server/__init__.py server/app.py server/billing.py server/config.py server/db.py /app/server/
+COPY server/*.py /app/server/
 
 RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin pdfaxe \
  && mkdir -p /data/storage \
