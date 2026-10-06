@@ -1,0 +1,13 @@
+{$OFFICE_AXE_DOMAIN} {
+	encode gzip
+
+	# Uploads up to SFM_MAX_UPLOAD_MB (200 MB by default) plus form framing
+	request_body {
+		max_size 210MB
+	}
+
+	reverse_proxy server:8000 {
+		# Live updates (/events) must reach the app as soon as they are sent
+		flush_interval -1
+	}
+}
