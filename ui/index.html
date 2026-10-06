@@ -4,6 +4,35 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Office Axe</title>
+<script>
+  // pywebview's local file server can drop a few of the ~25 parallel requests
+  // on a cold start, leaving the page without icons/styles. If any script or
+  // stylesheet fails (or the core modules are missing), reload — at most 3x.
+  (function () {
+    var failed = false;
+    window.addEventListener('error', function (e) {
+      var t = e.target;
+      if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) failed = true;
+    }, true);
+    window.addEventListener('load', function () {
+      var bad = failed || typeof Icons === 'undefined' || typeof SFM === 'undefined' ||
+                typeof App === 'undefined' || typeof FileTree === 'undefined';
+      if (!bad) {
+        for (var i = 0; i < document.styleSheets.length; i++) {
+          try { if (!document.styleSheets[i].cssRules.length) bad = true; } catch (err) { bad = true; }
+        }
+      }
+      var n = 0;
+      try { n = +(sessionStorage.getItem('oxAssetRetry') || 0); } catch (err) {}
+      if (bad && n < 3) {
+        try { sessionStorage.setItem('oxAssetRetry', String(n + 1)); } catch (err) {}
+        setTimeout(function () { location.reload(); }, 150 * (n + 1));
+      } else if (!bad) {
+        try { sessionStorage.removeItem('oxAssetRetry'); } catch (err) {}
+      }
+    });
+  })();
+</script>
 <link rel="icon" type="image/png" href="assets/brand/office-axe-mark.png">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="rename-templates.css">
