@@ -629,7 +629,7 @@ const Office = (() => {
       return `<div class="ofx-result ${i === 0 ? 'first' : ''}" data-result="${esc(it.path)}" data-dir="${it.is_dir ? 1 : 0}" tabindex="-1">
           <span class="ofx-result-icon">${itemIcon(it)}</span>
           <div class="ofx-result-main">
-            <div class="ofx-result-name">${hl(it.name, q)} ${lv ? levelPill(lv) : ''}</div>
+            <div class="ofx-result-name"><span class="truncate">${hl(it.name, q)}</span>${lv ? levelPill(lv) : ''}</div>
             <div class="ofx-result-path">${Icons.svg('building', 11)}${esc(st.office.name)}${where ? ' › ' + esc(crumbText(where)) : ''}</div>
           </div>
           <span class="ofx-date">${esc(fmtRel(it.updated_at))}</span>
