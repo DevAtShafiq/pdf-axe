@@ -82,6 +82,8 @@ hiddenimports = [
     "qr_scan",
     "qr_pick",
     "image_crop",
+    "archive_tools",
+    "archive_bridge",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
@@ -107,6 +109,13 @@ hiddenimports = [
     "openpyxl.utils",
     # ── ZIP / network ────────────────────────────────────────────────────────
     "zipfile",
+    "pyzipper",
+    "Cryptodome",
+    "Cryptodome.Cipher.AES",
+    "Cryptodome.Protocol.KDF",
+    "Cryptodome.Hash.HMAC",
+    "Cryptodome.Hash.SHA1",
+    "Cryptodome.Util.Counter",
     "urllib.request",
     "urllib.parse",
     "urllib.error",
