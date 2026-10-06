@@ -421,9 +421,7 @@ def test_isolation_and_traversal(c):
 
 
 def test_quota_and_upload_limit(tmp_path):
-    c = _client(tmp_path, free_plan=True)
-    c.app.state.settings.office_quota_mb = 0   # informational only; quota is fixed at create time
-    c = _client(tmp_path / "q", free_plan=True, office_quota_mb=1, max_upload_mb=1)
+    c = _client(tmp_path, free_plan=True, office_quota_mb=1, max_upload_mb=1)
     t = _register(c, "q@example.com")
     _office(c, t)
     ok(c.post("/shared/new-student", json={"country": "C", "program": "P", "student": "S"}, headers=_auth(t)))
