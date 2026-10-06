@@ -21,6 +21,7 @@ Events pushed to JS:
   cloud_sync_done        {folder, uploaded, downloaded, conflicts, moved_to_review, …, time}
   cloud_sync_log         {log}
   cloud_files_dropped    {paths}                   files dropped from Explorer onto the Cloud panel
+  (office_changed / shared_changed and the shared_* job events: see office_bridge.py)
 """
 from __future__ import annotations
 
@@ -174,6 +175,12 @@ class CloudBridgeMixin:
 
     def _cloud_on_event(self, name: str, data) -> None:
         self._emit("cloud_event", {"event": name, "data": data})
+        hook = getattr(self, "_office_on_event", None)
+        if hook is not None:   # office_bridge.OfficeBridgeMixin: office_changed / shared_changed
+            try:
+                hook(name, data)
+            except Exception as exc:
+                _log.error("office event %s: %s", name, exc)
         if name == "subscription_updated":
             if isinstance(data, dict):
                 base = self._cloud_user_cache if isinstance(self._cloud_user_cache, dict) else {}

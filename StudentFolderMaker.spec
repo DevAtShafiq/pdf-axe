@@ -49,6 +49,7 @@ datas = [
     ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
     ("media_convert.py",       "."),   # image<->PDF conversion + PDF/image compression
     ("cloud_bridge.py",        "."),   # account / cloud methods of the JS bridge
+    ("office_bridge.py",       "."),   # office + shared drive methods of the JS bridge
     ("secure_store.py",        "."),   # DPAPI protection of the stored session token
     ("pdf_tools.py",         "."),
     ("pdf_tools_bridge.py",  "."),
@@ -74,6 +75,7 @@ hiddenimports = [
     "cloud_client",
     "media_convert",
     "cloud_bridge",
+    "office_bridge",
     "secure_store",
     "pdf_tools",
     "pdf_tools_bridge",
