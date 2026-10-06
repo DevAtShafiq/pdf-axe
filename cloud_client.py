@@ -376,6 +376,21 @@ class CloudClient:
     def shared_usage(self) -> dict:
         return self._json("GET", "/shared/usage")
 
+    def trash(self, file_id: int) -> dict:
+        return self._json("POST", f"/files/{int(file_id)}/trash")["file"]
+
+    def restore(self, file_id: int) -> dict:
+        return self._json("POST", f"/files/{int(file_id)}/restore")["file"]
+
+    def move(self, file_id: int, new_path: str) -> dict:
+        return self._json("POST", f"/files/{int(file_id)}/move", {"path": new_path})["file"]
+
+    def move_folder(self, path: str, new_path: str) -> int:
+        return int(self._json("POST", "/folders/move", {"path": path, "new_path": new_path})["moved"])
+
+    def trash_folder(self, path: str) -> int:
+        return int(self._json("POST", "/folders/trash", {"path": path})["trashed"])
+
 
 def unique_path(path: str) -> str:
     """'a.pdf' → 'a (2).pdf', 'a (3).pdf', … — the first name not in use."""
@@ -400,21 +415,6 @@ def place_without_overwrite(src: str, dest: str) -> str:
         except FileExistsError:
             continue                 # another writer took the name meanwhile: try the next one
     raise OSError(f"Could not find a free name for {dest}")
-
-    def trash(self, file_id: int) -> dict:
-        return self._json("POST", f"/files/{int(file_id)}/trash")["file"]
-
-    def restore(self, file_id: int) -> dict:
-        return self._json("POST", f"/files/{int(file_id)}/restore")["file"]
-
-    def move(self, file_id: int, new_path: str) -> dict:
-        return self._json("POST", f"/files/{int(file_id)}/move", {"path": new_path})["file"]
-
-    def move_folder(self, path: str, new_path: str) -> int:
-        return int(self._json("POST", "/folders/move", {"path": path, "new_path": new_path})["moved"])
-
-    def trash_folder(self, path: str) -> int:
-        return int(self._json("POST", "/folders/trash", {"path": path})["trashed"])
 
 
 # ── live updates ─────────────────────────────────────────────────────────────
