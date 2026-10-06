@@ -1529,13 +1529,20 @@ class SFMBridge(PdfToolsBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin):
             pass
         return {}
 
+    _SETTINGS_LOCK = threading.Lock()
+
     def _save_settings(self, data: dict) -> None:
         import json as _json
-        existing = self._load_settings()
-        existing.update(data)
-        open(self._SETTINGS_FILE, "w", encoding="utf-8").write(
-            _json.dumps(existing, indent=2, ensure_ascii=False)
-        )
+        # Background threads (live events, sync) save too: serialise the
+        # read-modify-write, and write a temp file then swap it in so a reader
+        # never sees a half-written (empty) settings file.
+        with self._SETTINGS_LOCK:
+            existing = self._load_settings()
+            existing.update(data)
+            tmp = f"{self._SETTINGS_FILE}.{os.getpid()}.{threading.get_ident()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(_json.dumps(existing, indent=2, ensure_ascii=False))
+            os.replace(tmp, self._SETTINGS_FILE)
 
     def get_settings(self) -> dict:
         try:
