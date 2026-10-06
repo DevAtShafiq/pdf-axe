@@ -484,6 +484,27 @@ const Office = (() => {
     else if (!items.length) body = emptyHtml(d);
     else body = items.map(rowHtml).join('');
 
+    const selbar = selbarHtml(items, childLevel);
+
+    el.innerHTML = `
+      <div class="ofx-main-head">
+        <nav class="ofx-crumbs" aria-label="Location">${crumbsHtml(st.cwd)}</nav>
+        <div class="ofx-selbar">${selbar}</div>
+      </div>
+      <div class="ofx-list" id="ofx-list" data-drop-dir="${esc(st.cwd)}" tabindex="0">
+        <div class="ofx-row ofx-row-head">
+          <span>Name</span><span>Type</span><span class="ofx-num">Items / size</span><span>Updated</span><span>Updated by</span>
+        </div>
+        <div class="ofx-rows" id="ofx-rows">${body}</div>
+        <div class="ofx-drop-hint"><div>${Icons.svg('cloud-upload', 28)}<div id="ofx-drop-text">Drop to upload</div></div></div>
+      </div>
+      <div class="ofx-foot">${footHint(d)}</div>`;
+    const r2 = $('ofx-rows');
+    if (r2) r2.scrollTop = scroll;
+    if (st.renaming) beginInlineRename(st.renaming, true);
+  }
+
+  function selbarHtml(items, childLevel) {
     const sel = selectedItems();
     const n = sel.length;
     let selbar;
@@ -508,22 +529,15 @@ const Office = (() => {
       selbar = `<span class="acct-hint">${bits.join(' · ')}</span>`;
     }
 
-    el.innerHTML = `
-      <div class="ofx-main-head">
-        <nav class="ofx-crumbs" aria-label="Location">${crumbsHtml(st.cwd)}</nav>
-        <div class="ofx-selbar">${selbar}</div>
-      </div>
-      <div class="ofx-list" id="ofx-list" data-drop-dir="${esc(st.cwd)}" tabindex="0">
-        <div class="ofx-row ofx-row-head">
-          <span>Name</span><span>Type</span><span class="ofx-num">Items / size</span><span>Updated</span><span>Updated by</span>
-        </div>
-        <div class="ofx-rows" id="ofx-rows">${body}</div>
-        <div class="ofx-drop-hint"><div>${Icons.svg('cloud-upload', 28)}<div id="ofx-drop-text">Drop to upload</div></div></div>
-      </div>
-      <div class="ofx-foot">${footHint(d)}</div>`;
-    const r2 = $('ofx-rows');
-    if (r2) r2.scrollTop = scroll;
-    if (st.renaming) beginInlineRename(st.renaming, true);
+    return selbar;
+  }
+  // Selection changed: update rows and the selection bar in place, so a
+  // double-click still lands on the same row element.
+  function refreshSelection() {
+    if (st.query || st.view !== 'drive') { renderMain(); return; }
+    document.querySelectorAll('#ofx-rows .ofx-row[data-path]').forEach(r => r.classList.toggle('sel', st.selected.has(r.dataset.path)));
+    const bar = document.querySelector('#ofx-main .ofx-selbar');
+    if (bar) bar.innerHTML = selbarHtml(cwdItems(), DEPTH_LEVEL[depth(st.cwd) + 1]);
   }
 
   function footHint(d) {
@@ -1226,7 +1240,7 @@ const Office = (() => {
       }
       const row = e.target.closest('.ofx-row[data-path]');
       if (row) { clickRow(row.dataset.path, e); return; }
-      if (e.target.closest('#ofx-rows') && !e.ctrlKey && !e.shiftKey && st.selected.size) { st.selected.clear(); renderMain(); }
+      if (e.target.closest('#ofx-rows') && !e.ctrlKey && !e.shiftKey && st.selected.size) { st.selected.clear(); refreshSelection(); }
     });
     layout.addEventListener('dblclick', e => {
       const row = e.target.closest('.ofx-row[data-path]');
@@ -1247,7 +1261,7 @@ const Office = (() => {
         return;
       }
       if (row) {
-        if (!st.selected.has(row.dataset.path)) { st.selected = new Set([row.dataset.path]); st.anchor = row.dataset.path; renderMain(); }
+        if (!st.selected.has(row.dataset.path)) { st.selected = new Set([row.dataset.path]); st.anchor = row.dataset.path; refreshSelection(); }
         rowMenu(e.clientX, e.clientY);
       } else bgMenu(e.clientX, e.clientY);
     });
@@ -1273,7 +1287,7 @@ const Office = (() => {
       if (st.selected.has(path)) st.selected.delete(path); else st.selected.add(path);
       st.anchor = path;
     } else { st.selected = new Set([path]); st.anchor = path; }
-    renderMain();
+    refreshSelection();
     focusList();
   }
 
@@ -1309,7 +1323,7 @@ const Office = (() => {
       case 'rename': { const s = selectedItems(); if (s.length === 1) beginInlineRename(s[0].path); break; }
       case 'move': openMoveDialog(selectedItems().map(i => i.path)); break;
       case 'trash': trashPaths(selectedItems().map(i => i.path)); break;
-      case 'clear-sel': st.selected.clear(); renderMain(); break;
+      case 'clear-sel': st.selected.clear(); refreshSelection(); break;
       case 'clear-search': clearSearch(); break;
       case 'subscribe': subscribeOffice(); break;
       default: onManageAction(act, el);
@@ -1412,7 +1426,7 @@ const Office = (() => {
     if (ctrl && e.key.toLowerCase() === 'f') { e.preventDefault(); e.stopPropagation(); const s = $('ofx-search'); if (s) { s.focus(); s.select(); } return; }
     if (typing) return;
     const swallow = () => { e.preventDefault(); e.stopPropagation(); };
-    if (e.key === 'Escape') { closeMenu(); if (st.selected.size) { st.selected.clear(); renderMain(); } return; }
+    if (e.key === 'Escape') { closeMenu(); if (st.selected.size) { st.selected.clear(); refreshSelection(); } return; }
     if (e.key === 'F5') { swallow(); refreshAll(); return; }
     if (st.view === 'trash') {
       if (['Delete', 'F2'].includes(e.key) || (ctrl && 'acxv'.includes(e.key.toLowerCase()))) swallow();
@@ -1423,7 +1437,7 @@ const Office = (() => {
     if (e.key === 'F2') { swallow(); if (sel.length === 1 && canModify(sel[0].path)) beginInlineRename(sel[0].path); return; }
     if (e.key === 'Enter') { swallow(); if (sel.length === 1) openPath(sel[0]); return; }
     if (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowUp')) { swallow(); if (st.cwd) navigate(parentOf(st.cwd), st.cwd); return; }
-    if (ctrl && e.key.toLowerCase() === 'a') { swallow(); st.selected = new Set(cwdItems().map(i => i.path)); renderMain(); return; }
+    if (ctrl && e.key.toLowerCase() === 'a') { swallow(); st.selected = new Set(cwdItems().map(i => i.path)); refreshSelection(); return; }
     if (ctrl && 'cxvz'.includes(e.key.toLowerCase())) { swallow(); return; }   // never touch the local file list from here
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       swallow();
@@ -1434,7 +1448,7 @@ const Office = (() => {
       const p = items[next].path;
       if (e.shiftKey && st.anchor) st.selected.add(p); else st.selected = new Set([p]);
       st.anchor = p;
-      renderMain();
+      refreshSelection();
       const row = document.querySelector(`#ofx-rows .ofx-row[data-path="${cssq(p)}"]`);
       if (row) row.scrollIntoView({ block: 'nearest' });
     }
