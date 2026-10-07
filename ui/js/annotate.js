@@ -203,8 +203,8 @@ var Annotate = (() => {
             <div class="field-row"><input class="input-text an-name" id="an-name" aria-label="File name"><span class="field-suffix" id="an-ext">.pdf in</span></div>
             <div class="field-row"><input class="input-text an-dir" id="an-dir" aria-label="Folder"><button class="btn" id="an-browse">Browse…</button></div>
           </div>
-          <label class="switch an-flatten" id="an-flatten-wrap" title="Bake the annotations into the page so they can no longer be edited or removed">
-            <input type="checkbox" id="an-flatten"><span class="switch-track"></span>Flatten</label>
+          <label class="switch an-flatten" id="an-flatten-wrap" title="Off (recommended): annotations and signatures stay editable. On: merge them into the page so they can no longer be moved or removed. Either way the PDF stays a real PDF — text stays selectable and copyable, form fields keep working.">
+            <input type="checkbox" id="an-flatten"><span class="switch-track"></span>Lock annotations</label>
           <div class="an-progress progress-block"><div class="progress-wrap"><div class="progress-bar indeterminate"></div></div><div class="progress-label">Saving…</div></div>
           <span class="an-spacer"></span>
           <button class="btn" id="an-close">Close</button>
@@ -1349,7 +1349,6 @@ var Annotate = (() => {
             message: `Save the annotations into “${baseOf(path)}”?`,
             detail: 'The current version is first copied to the “_to_review” folder next to it, so nothing is lost.' }))) return;
       const flatten = doc.kind === 'pdf' && $('#an-flatten').checked;
-      store('flatten', flatten ? '1' : '0');
       setBusy(true);
       App.setStatus('Saving annotations…', true);
       const payload = anns.map(a => { const c = { ...a }; delete c.excerpt; return c; });
@@ -1406,7 +1405,9 @@ var Annotate = (() => {
     $('#an-ext').textContent = ext + ' in';
     $('#an-dir').value = dirOf(path);
     $('#an-flatten-wrap').classList.toggle('hidden', r.kind !== 'pdf');
-    $('#an-flatten').checked = store('flatten') === '1';
+    // Always start unlocked: never carry "lock" over from an earlier session,
+    // so signing a PDF never merges anything into the page by surprise.
+    $('#an-flatten').checked = false;
     if (r.kind === 'image') {
       const red = ov.querySelector('[data-tool="redact"]'); if (red) red.classList.add('hidden');
     }
