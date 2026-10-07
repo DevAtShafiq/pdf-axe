@@ -531,9 +531,13 @@ var PdfEdit = (() => {
       renderPage(e.page);
       positionEditor();
       syncToolbar();
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-      if (s.kind === 'block') ta.select();
+      const focusIt = () => {
+        if (!editing || editing.ta !== ta || document.activeElement === ta) return;
+        ta.focus();
+        if (s.kind === 'block') ta.select(); else ta.setSelectionRange(ta.value.length, ta.value.length);
+      };
+      focusIt();
+      setTimeout(focusIt, 0);       // the click that opened the editor may still move focus
     }
     function positionEditor() {
       if (!editing) return;
@@ -560,7 +564,7 @@ var PdfEdit = (() => {
           if (!val.trim()) setOv(ed.key, { text: blockOf(ed.key).text, deleted: true });
           else setOv(ed.key, { text: val });
         } else {
-          pushUndo();
+          if (ed.before !== '') pushUndo();     // a brand-new box was snapshotted when it was created
           const a = model.adds.find(x => x.id === ed.key);
           if (a) { if (!val.trim()) { model.adds = model.adds.filter(x => x !== a); sel = null; } else a.text = val; }
         }
@@ -659,6 +663,7 @@ var PdfEdit = (() => {
       commitEdit();
       view.focus({ preventScroll: true });
       if (mode === 'add') {
+        e.preventDefault();          // keep focus in the new text box (no mousedown focus change)
         const size = parseFloat(store('add.size')) || 12;
         const a = { id: 'add' + Date.now().toString(36) + (++_uid), page: p, text: '',
                     font: store('add.font') || 'Arial', size, color: store('add.color') || '#000000',
@@ -856,7 +861,8 @@ var PdfEdit = (() => {
     const onResize = () => { if (info) visiblePages().forEach(wantPage); };
     window.addEventListener('resize', onResize);
 
-    _open = { focus: () => view.focus(), path };
+    _open = { focus: () => view.focus(), path,
+              state: () => ({ src, model: JSON.parse(snap()), undo: undoStack.length, redo: redoStack.length, sel, mode, editing: !!editing }) };
 
     // ── load (also after Save: re-render from the output) ──────────────────
     async function load(file, keepPage = 0) {
@@ -928,5 +934,5 @@ var PdfEdit = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _init);
   else _init();
 
-  return { open, canEdit: isPdf, isOpen: () => !!_open };
+  return { open, canEdit: isPdf, isOpen: () => !!_open, _state: () => (_open && _open.state ? _open.state() : null) };
 })();
