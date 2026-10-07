@@ -158,6 +158,8 @@ def pdf_text_layer(path: str, page_index: int) -> dict:
     → {width, height, rotation, lines, words, has_text, scanned}
     """
     page_index = int(page_index)
+    if not os.path.isfile(path):
+        raise PreviewError(f"File not found: {os.path.basename(path)}", "not_found")
     key = _file_sig(path) + (page_index,)
     with _TL_LOCK:
         hit = _TL_CACHE.get(key)
@@ -917,7 +919,10 @@ def _format_number(value: float, fmt: str) -> str:
             v = v / 1000
             int_part = int_part[:-1]
         grouping = "," in int_part
-        body = f"{v:,.{dec}f}" if grouping else f"{v:.{dec}f}"
+        # Excel rounds half away from zero (Python's format rounds half to even)
+        from decimal import Decimal, ROUND_HALF_UP
+        q = Decimal(repr(float(v))).quantize(Decimal(1).scaleb(-dec), rounding=ROUND_HALF_UP)
+        body = f"{q:,.{dec}f}" if grouping else f"{q:.{dec}f}"
         if dec > min_dec and "." in body:
             body = body.rstrip("0")
             if len(body.split(".")[1]) < min_dec:
