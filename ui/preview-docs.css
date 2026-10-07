@@ -50,8 +50,8 @@
   cursor: text;
 }
 .pdf-text-layer > br { user-select: text; }
-.pdf-text-layer ::selection,
-.pdf-text-layer::selection { background: color-mix(in srgb, var(--accent) 34%, transparent); color: transparent; }
+.pdf-text-layer > span::selection { background: color-mix(in srgb, var(--accent) 34%, transparent); color: transparent; }
+.pdf-text-layer::selection { background: transparent; color: transparent; }   /* in-flow spaces / <br>s */
 
 /* Drag-to-pan outside the words */
 #pdf-canvas-wrap.is-panning,
