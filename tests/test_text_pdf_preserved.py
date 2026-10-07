@@ -105,3 +105,26 @@ def test_password_keeps_text_and_fields(form_pdf):
     _assert_text_pdf(r["out_path"], password="pw123")
     u = at.pdf_remove_password(r["out_path"], "pw123")
     _assert_text_pdf(u["out_path"])
+
+
+def _photo_jpeg():
+    im = Image.new("RGB", (350, 450), (40, 90, 160))
+    ImageDraw.Draw(im).ellipse([100, 80, 250, 260], fill=(230, 200, 170))
+    b = io.BytesIO()
+    im.save(b, "JPEG", quality=90)
+    return "data:image/jpeg;base64," + base64.b64encode(b.getvalue()).decode()
+
+
+def test_photo_on_form_keeps_text_and_fields(form_pdf):
+    """Attaching a photo onto a form (e.g. a passport photo in its box)."""
+    anns = [dict(type="photo", page=0, rect=[400, 120, 500, 248], image=_photo_jpeg(), text="me.jpg"),
+            dict(type="signature", page=0, rect=[300, 680, 460, 740], image=_sig())]
+    r = annotate.save(form_pdf, anns)
+    _assert_text_pdf(r["out_path"])
+    loaded = annotate.load(r["out_path"])["annotations"]
+    photo = [a for a in loaded if a["type"] == "photo"]
+    assert len(photo) == 1 and photo[0]["image"].startswith("data:image/")
+    assert [round(v) for v in photo[0]["rect"]] == [400, 120, 500, 248]
+    # The photo is visible on the rendered page (blue pixels inside its box).
+    pix = pymupdf.open(r["out_path"])[0].get_pixmap(clip=pymupdf.Rect(405, 125, 495, 140))
+    assert pix.samples[2] > 120 and pix.samples[0] < 120

@@ -178,6 +178,8 @@ const SFM = (() => {
     annotSignatures:     ()                        => call('annot_signatures'),
     annotSignatureSave:  (dataUrl)                 => call('annot_signature_save', dataUrl),
     annotSignatureForget:(index)                   => call('annot_signature_forget', index),
+    annotPickPhoto:      ()                        => call('annot_pick_photo'),
+    annotPhotoLoad:      (path, maxDim=1600)       => call('annot_photo_load', path, maxDim),
     // Image
     cropImage:           (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),

@@ -388,8 +388,8 @@ def _read_annot(doc, page, annot, mat) -> dict | None:
     elif code == fitz.PDF_ANNOT_TEXT:
         a["type"] = "note"
         a["fill"] = None
-    elif code == fitz.PDF_ANNOT_STAMP and kind == "signature":
-        a["type"] = "signature"
+    elif code == fitz.PDF_ANNOT_STAMP and kind in ("signature", "photo"):
+        a["type"] = kind
         a["image"] = _annot_png(annot)
     elif code == fitz.PDF_ANNOT_REDACT:
         a["type"] = "redact"
@@ -665,7 +665,7 @@ def _write_annot(doc, page, a: dict, default_author: str):
         pt = _derot_pt(page, rect[0], rect[1])
         annot = page.add_text_annot(pt, text, icon="Comment")
         annot.set_colors(stroke=color)
-    elif t == "signature":
+    elif t in ("signature", "photo"):
         r = _derot(page, rect)
         if r.is_empty:
             return None
@@ -692,9 +692,9 @@ def _write_annot(doc, page, a: dict, default_author: str):
             "modDate": pdf_date(a.get("modified"))}
     if t == "stamp":
         info["subject"] = STAMP_SUBJECT
-    elif t == "signature":
-        info["subject"] = "Signature"
-        info["content"] = text or "Signature"
+    elif t in ("signature", "photo"):
+        info["subject"] = "Signature" if t == "signature" else "Photo"
+        info["content"] = text or info["subject"]
     try:
         annot.set_info(**info)
     except Exception:
@@ -715,7 +715,7 @@ def _write_annot(doc, page, a: dict, default_author: str):
                          fill_color=None if t == "stamp" else fill, opacity=opacity)
         except Exception:
             pass
-    if t in ("rect", "ellipse", "cover", "text", "stamp", "signature", "redact"):
+    if t in ("rect", "ellipse", "cover", "text", "stamp", "signature", "photo", "redact"):
         # MuPDF grows /Rect by the border width; remember both so a reload
         # gives back exactly what the user drew (and follows moves elsewhere).
         try:
@@ -861,7 +861,7 @@ def render_image(source: str, anns: list):
             for k in (0.25, 0.45):
                 d.line([(x + s * 0.2, y + s * k * 1.2), (x + s * 0.8, y + s * k * 1.2)],
                        fill=(255, 255, 255, 255), width=max(1, int(s * 0.07)))
-        elif t == "signature":
+        elif t in ("signature", "photo"):
             try:
                 sig = Image.open(io.BytesIO(_decode_data_url(a.get("image") or ""))).convert("RGBA")
             except Exception:

@@ -76,6 +76,7 @@ var Annotate = (() => {
     { id: 'note',      icon: 'message-square',label: 'Comment',       key: 'C', hint: 'Click to pin a sticky-note comment' },
     { id: 'stamp',     icon: 'stamp',         label: 'Stamp',         key: '',  hint: 'Click on the page to place the stamp', menu: true },
     { id: 'signature', icon: 'signature',     label: 'Signature',     key: 'G', hint: 'Click on the page to place your signature' },
+    { id: 'photo',     icon: 'image',         label: 'Photo',         key: 'I', hint: 'Drag a box (e.g. the form’s photo box) to fit the photo into it, or click to place it' },
     { sep: true },
     { id: 'cover',     icon: 'cover',         label: 'Cover box',     key: 'X', hint: 'Drag to cover an area with a white or black box (the content stays underneath)' },
     { id: 'redact',    icon: 'redact',        label: 'Redact (removes content)', key: '', hint: 'Drag over content to remove it permanently when you save', danger: true },
@@ -85,16 +86,16 @@ var Annotate = (() => {
   const TYPE_LABEL = {
     highlight: 'Highlight', underline: 'Underline', strikeout: 'Strikeout', squiggly: 'Squiggly',
     ink: 'Drawing', rect: 'Rectangle', ellipse: 'Ellipse', arrow: 'Arrow', line: 'Line',
-    text: 'Text box', note: 'Comment', stamp: 'Stamp', signature: 'Signature', cover: 'Cover box',
+    text: 'Text box', note: 'Comment', stamp: 'Stamp', signature: 'Signature', photo: 'Photo', cover: 'Cover box',
     redact: 'Redaction', other: 'Annotation',
   };
   const TYPE_ICON = {
     highlight: 'highlighter', underline: 'underline', strikeout: 'strikethrough', squiggly: 'squiggly',
     ink: 'pen', rect: 'square', ellipse: 'circle', arrow: 'arrow-up-right', line: 'line', text: 'type',
-    note: 'message-square', stamp: 'stamp', signature: 'signature', cover: 'cover', redact: 'redact', other: 'file',
+    note: 'message-square', stamp: 'stamp', signature: 'signature', photo: 'image', cover: 'cover', redact: 'redact', other: 'file',
   };
   const MARKUP = new Set(['highlight', 'underline', 'strikeout', 'squiggly']);
-  const BOXY = new Set(['rect', 'ellipse', 'cover', 'redact', 'text', 'stamp', 'signature']);
+  const BOXY = new Set(['rect', 'ellipse', 'cover', 'redact', 'text', 'stamp', 'signature', 'photo']);
   const DEFAULTS = {
     highlight: { color: '#ffd400', opacity: 1 },
     underline: { color: '#2563eb', opacity: 1 },
@@ -224,7 +225,7 @@ var Annotate = (() => {
     let zoom = 1, curPage = 0;
     let undoStack = [], redoStack = [];
     let busy = false, closed = false;
-    let pendingStamp = null, pendingSig = null;
+    let pendingStamp = null, pendingSig = null, pendingPhoto = null;
     let stampMenu = null;
     let sideTab = 'props';
     const pageEls = [], thumbEls = [];
@@ -376,6 +377,7 @@ var Annotate = (() => {
                    `<path d="M${x + s * 0.22} ${y + s * 0.3}H${x + s * 0.78}M${x + s * 0.22} ${y + s * 0.52}H${x + s * 0.62}" stroke="rgba(0,0,0,.55)" stroke-width="${1.2 * u}" stroke-linecap="round"/>`);
         }
         case 'signature':
+        case 'photo':
           return g(`<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="transparent"/>` +
                    `<image href="${a.image}" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" preserveAspectRatio="xMidYMid meet"/>`);
         default: // other (kept as is)
@@ -661,7 +663,7 @@ var Annotate = (() => {
       }
       const hitType = hitId && byId(hitId) ? byId(hitId).type : null;
       if (tool === 'text' && (hitType === 'text' || hitType === 'stamp')) { select(hitId); editText(byId(hitId)); return; }
-      if (tool === 'select' || (hitId && (tool === 'note' || tool === 'stamp' || tool === 'signature'))) {
+      if (tool === 'select' || (hitId && (tool === 'note' || tool === 'stamp' || tool === 'signature' || tool === 'photo'))) {
         if (hitId) {
           if (sel !== hitId) select(hitId);
           const a = byId(hitId);
@@ -697,6 +699,9 @@ var Annotate = (() => {
       } else if (tool === 'stamp' || tool === 'signature') {
         placePending(p, pt);
         return;
+      } else if (tool === 'photo') {
+        if (!pendingPhoto) { openPhotoPicker(); return; }
+        drag = { mode: 'shape', p, start: pt, cur: pt };
       } else {
         drag = { mode: 'shape', p, start: pt, cur: pt };
       }
@@ -792,6 +797,11 @@ var Annotate = (() => {
         editText(a, true);
         return;
       }
+      if (tool === 'photo') {
+        if (small) { placePending(p, d.start); return; }
+        placePhotoInBox(p, r);
+        return;
+      }
       if (small) return;
       if (tool === 'line' || tool === 'arrow') {
         const a = base(tool, p);
@@ -836,7 +846,7 @@ var Annotate = (() => {
       if (h.includes('e')) x1 = Math.max(pt[0], x0 + min);
       if (h.includes('n')) y0 = Math.min(pt[1], y1 - min);
       if (h.includes('s')) y1 = Math.max(pt[1], y0 + min);
-      const keep = (shift || a.type === 'signature') && h.length === 2;
+      const keep = (shift || a.type === 'signature' || a.type === 'photo') && h.length === 2;
       if (keep) {
         const ar = (d.box[2] - d.box[0]) / Math.max(0.01, d.box[3] - d.box[1]);
         const w = x1 - x0, hh = y1 - y0;
@@ -877,11 +887,17 @@ var Annotate = (() => {
         const fake = { id: '_live', type: tool, page: drag.p, color: c, width: (st.width || 0) * u, fill: st.fill, opacity: st.opacity ?? 1,
                        rect: normRect(drag.start, drag.cur), line: [...drag.start, ...drag.cur], text: '', font_size: (st.font_size || 12) * u };
         if (tool === 'text') live.innerHTML = `<rect x="${fake.rect[0]}" y="${fake.rect[1]}" width="${fake.rect[2] - fake.rect[0]}" height="${fake.rect[3] - fake.rect[1]}" fill="none" stroke="var(--accent)" stroke-dasharray="${4 / zoom} ${3 / zoom}" stroke-width="${1 / zoom}"/>`;
+        else if (tool === 'photo' && pendingPhoto) {
+          fake.image = pendingPhoto.url; fake.opacity = 0.75;
+          live.innerHTML = svgFor(fake).replace('xMidYMid meet', 'xMidYMid slice') +
+            `<rect x="${fake.rect[0]}" y="${fake.rect[1]}" width="${fake.rect[2] - fake.rect[0]}" height="${fake.rect[3] - fake.rect[1]}" fill="none" stroke="var(--accent)" stroke-dasharray="${4 / zoom} ${3 / zoom}" stroke-width="${1 / zoom}"/>`;
+        }
         else live.innerHTML = svgFor(fake);
       }
     }
     function ghost(e) {
-      if (tool !== 'stamp' && tool !== 'signature') return;
+      if (tool !== 'stamp' && tool !== 'signature' && tool !== 'photo') return;
+      if (drag) return;
       const p = pageAt(e); pageEls.forEach((el, i) => { if (i !== p) el.querySelector('.an-live').innerHTML = ''; });
       if (p < 0) return;
       const a = pendingAnn(p, toUnits(e, p)); if (!a) return;
@@ -917,6 +933,13 @@ var Annotate = (() => {
         a.rect = [pt[0] - w / 2, pt[1] - h / 2, pt[0] + w / 2, pt[1] + h / 2].map(r2);
         return a;
       }
+      if (tool === 'photo' && pendingPhoto) {
+        const a = base('photo', p);
+        const w = 100 * u, h = w / pendingPhoto.ratio;           // about 35 mm wide
+        a.image = pendingPhoto.url; a.color = null; a.text = pendingPhoto.name || '';
+        a.rect = [pt[0] - w / 2, pt[1] - h / 2, pt[0] + w / 2, pt[1] + h / 2].map(r2);
+        return a;
+      }
       if (tool === 'signature' && pendingSig) {
         const a = base('signature', p);
         const w = 170 * u, h = w / pendingSig.ratio;
@@ -928,7 +951,7 @@ var Annotate = (() => {
     }
     function placePending(p, pt) {
       const a = pendingAnn(p, pt);
-      if (!a) { if (tool === 'stamp') openStampMenu(); else if (tool === 'signature') openSignaturePad(); return; }
+      if (!a) { if (tool === 'stamp') openStampMenu(); else if (tool === 'signature') openSignaturePad(); else if (tool === 'photo') openPhotoPicker(); return; }
       const pg = pages()[p];
       const b = a.rect, dx = clamp(0, -b[0], pg.w - b[2]), dy = clamp(0, -b[1], pg.h - b[3]);
       add(translate(a, dx, dy));
@@ -970,6 +993,42 @@ var Annotate = (() => {
       setTimeout(() => document.addEventListener('mousedown', closeStampMenu, { once: true }), 0);
     }
     function closeStampMenu() { if (stampMenu) { stampMenu.remove(); stampMenu = null; } }
+
+    // ── photo (e.g. a passport photo onto an application form) ─────────────
+    async function openPhotoPicker() {
+      let r;
+      try { r = await SFM.annotPickPhoto(); } catch (e) { r = { ok: false, error: String(e) }; }
+      if (!r || !r.ok) { App.toast('Couldn\u2019t open the photo picker: ' + ((r && r.error) || ''), 'error'); return; }
+      if (!r.path) return;                                  // cancelled
+      const ph = await SFM.annotPhotoLoad(r.path, 1600);
+      if (!ph || !ph.ok) { App.toast((ph && ph.error) || 'Couldn\u2019t open the photo', 'error'); return; }
+      pendingPhoto = { url: ph.data_url, ratio: ph.width / Math.max(1, ph.height), name: ph.name };
+      setTool('photo', true);
+      App.toast('Drag a box over the photo area of the form, or click to place it', 'info', 4000);
+    }
+    // Fill the dragged box completely (centre-crop the photo to the box's shape),
+    // like a passport photo glued into a form's photo frame.
+    function placePhotoInBox(p, r) {
+      const src = pendingPhoto; if (!src) return;
+      const bw = r[2] - r[0], bh = r[3] - r[1], boxRatio = bw / Math.max(0.01, bh);
+      const img = new Image();
+      img.onload = () => {
+        let sx = 0, sy = 0, sw = img.width, sh = img.height;
+        if (img.width / img.height > boxRatio) { sw = img.height * boxRatio; sx = (img.width - sw) / 2; }
+        else { sh = img.width / boxRatio; sy = (img.height - sh) / 2; }
+        const cv = document.createElement('canvas');
+        const scale = Math.min(1, 1600 / Math.max(sw, sh));
+        cv.width = Math.max(1, Math.round(sw * scale)); cv.height = Math.max(1, Math.round(sh * scale));
+        cv.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+        const a = base('photo', p);
+        a.image = cv.toDataURL('image/jpeg', 0.92); a.color = null; a.text = src.name || '';
+        a.rect = r.map(r2);
+        add(a);
+        pageEls[p].querySelector('.an-live').innerHTML = '';
+        setTool('select');
+      };
+      img.src = src.url;
+    }
 
     async function openSignaturePad() {
       const url = await signaturePad();
@@ -1041,7 +1100,7 @@ var Annotate = (() => {
       if (!TOOL[t]) return;
       if (doc && doc.kind === 'image' && t === 'redact') t = 'cover';
       commitEdit();
-      if (!keepPending) { if (t !== 'stamp') pendingStamp = null; if (t !== 'signature') pendingSig = null; }
+      if (!keepPending) { if (t !== 'stamp') pendingStamp = null; if (t !== 'signature') pendingSig = null; if (t !== 'photo') pendingPhoto = null; }
       tool = t;
       $$('.an-tool').forEach(b => { const on = b.dataset.tool === t; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on); });
       ov.querySelector('.an-editor').dataset.tool = t;
@@ -1060,6 +1119,7 @@ var Annotate = (() => {
         const t = tb.dataset.tool;
         if (t === 'stamp') { stampMenu ? closeStampMenu() : openStampMenu(); return; }
         if (t === 'signature') { openSignaturePad(); return; }
+        if (t === 'photo') { openPhotoPicker(); return; }
         setTool(t); view.focus({ preventScroll: true }); return;
       }
       const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
@@ -1103,18 +1163,18 @@ var Annotate = (() => {
       const t = a ? a.type : tool;
       const st = a || toolStyle(t);
       const u = a ? unit(a.page) : unit(curPage);
-      if (!a && (t === 'select' || t === 'eraser' || t === 'signature' || !DEFAULTS[t])) {
+      if (!a && (t === 'select' || t === 'eraser' || t === 'signature' || t === 'photo' || !DEFAULTS[t])) {
         box.innerHTML = `<div class="empty-state empty-state-sm an-empty">
           <div class="empty-state-icon">${ic(t === 'eraser' ? 'eraser' : 'mouse-pointer', 22)}</div>
-          <div class="empty-state-title">${t === 'eraser' ? 'Eraser' : t === 'signature' ? 'Signature' : 'Nothing selected'}</div>
-          <div class="empty-state-text">${t === 'eraser' ? 'Click or drag over annotations to remove them.' : t === 'signature' ? 'Click on the page to place your signature.' : 'Pick a tool above, or click an annotation to edit its colour, size and comment.'}</div></div>
+          <div class="empty-state-title">${t === 'eraser' ? 'Eraser' : t === 'signature' ? 'Signature' : t === 'photo' ? 'Photo' : 'Nothing selected'}</div>
+          <div class="empty-state-text">${t === 'eraser' ? 'Click or drag over annotations to remove them.' : t === 'signature' ? 'Click on the page to place your signature.' : t === 'photo' ? 'Drag a box over the form’s photo area to fit the photo into it, or click to place it. Drag the corners to resize; it keeps its shape.' : 'Pick a tool above, or click an annotation to edit its colour, size and comment.'}</div></div>
           <div class="an-kbd-help">${shortcutHelp()}</div>`;
         return;
       }
       const isText = t === 'text' || t === 'stamp';
       const hasWidth = ['ink', 'rect', 'ellipse', 'line', 'arrow', 'stamp'].includes(t);
       const hasFill = ['rect', 'ellipse', 'text'].includes(t);
-      const hasColor = !['signature', 'other', 'redact'].includes(t);
+      const hasColor = !['signature', 'photo', 'other', 'redact'].includes(t);
       const coverCols = [['#ffffff', 'White'], ['#000000', 'Black']];
       const width = (st.width || 0) / (a ? u : 1), fs = (st.font_size || 12) / (a ? u : 1);
       let html = `<div class="an-props-head">${ic(TYPE_ICON[t] || 'file', 16)}<span>${a ? esc(TYPE_LABEL[t] || t) : 'New ' + esc((TYPE_LABEL[t] || t).toLowerCase())}</span>
@@ -1297,7 +1357,7 @@ var Annotate = (() => {
       const tk = TOOLS.find(x => x.key && x.key.toLowerCase() === k.toLowerCase());
       if (tk) {
         handled();
-        if (tk.id === 'signature') openSignaturePad(); else setTool(tk.id);
+        if (tk.id === 'signature') openSignaturePad(); else if (tk.id === 'photo') openPhotoPicker(); else setTool(tk.id);
       }
     }
     document.addEventListener('keydown', onKey, true);

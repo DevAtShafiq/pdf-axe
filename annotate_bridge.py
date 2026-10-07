@@ -100,6 +100,52 @@ class AnnotateBridgeMixin:
             flatten=bool(opts.get("flatten")), apply_redactions=bool(opts.get("apply_redactions")),
             author=author, release_handles=_release_handles)
 
+    # ── photos (attach a photo onto a form) ──────────────────────────────────
+    def annot_pick_photo(self) -> dict:
+        """Native picker for one photo → {path} (or cancelled)."""
+        try:
+            import webview
+            win = getattr(self, "_window", None)
+            if win is None:
+                return _err("Window not ready")
+            result = win.create_file_dialog(
+                webview.OPEN_DIALOG, allow_multiple=False,
+                file_types=("Photos (*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif;*.tif;*.tiff)", "All files (*.*)"))
+            if result:
+                return _ok(path=os.path.normpath(result[0] if isinstance(result, (list, tuple)) else result))
+            return _ok(path="", cancelled=True)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def annot_photo_load(self, path: str, max_dim: int = 1600) -> dict:
+        """Photo file → JPEG data URL (camera rotation applied, ≤ max_dim px)
+        for placing on a PDF/image. The source file is only read."""
+        try:
+            import base64
+            import io
+            from PIL import Image, ImageOps
+            if not path or not os.path.isfile(path):
+                return _err("Photo not found")
+            with Image.open(path) as im:
+                im = ImageOps.exif_transpose(im)
+                if im.mode in ("RGBA", "LA", "P"):
+                    im = im.convert("RGBA")
+                    bg = Image.new("RGB", im.size, (255, 255, 255))
+                    bg.paste(im, mask=im.getchannel("A"))
+                    im = bg
+                else:
+                    im = im.convert("RGB")
+                md = max(200, int(max_dim or 1600))
+                if max(im.size) > md:
+                    im.thumbnail((md, md), Image.LANCZOS)
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=90)
+                w, h = im.size
+            url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+            return _ok(data_url=url, width=w, height=h, name=os.path.basename(path))
+        except Exception as exc:
+            return _err(f"Couldn't open the photo: {exc}")
+
     # ── remembered signatures (settings) ─────────────────────────────────────
     def annot_signatures(self) -> dict:
         try:
