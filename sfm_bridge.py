@@ -119,9 +119,10 @@ def _fmt_size(n: int) -> str:
 from cloud_bridge import CloudBridgeMixin  # noqa: E402  (account / subscription / cloud methods)
 from office_bridge import OfficeBridgeMixin  # noqa: E402  (office + shared drive methods)
 from archive_bridge import ArchiveBridgeMixin  # noqa: E402  (zip / unzip / ZIP + PDF passwords)
+from recorder_bridge import RecorderBridgeMixin  # noqa: E402  (screen recording + screenshots)
 
 
-class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin, ArchiveBridgeMixin):
+class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().
