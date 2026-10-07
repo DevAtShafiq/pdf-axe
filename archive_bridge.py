@@ -233,11 +233,16 @@ class ArchiveBridgeMixin:
             if doc is None:
                 r = _at.pdf_is_encrypted(path)
                 return _ok(locked=r["needs_password"], **r)
-            needs = bool(getattr(doc, "needs_pass", False))
-            locked = bool(getattr(doc, "is_encrypted", False)) and needs
-            method = "" if locked else ((doc.metadata or {}).get("encryption") or "")
-            return _ok(encrypted=needs or bool(method), needs_password=needs, locked=locked,
-                       method=method)
+            # NOTE: never read doc.needs_pass on the cached document — on an
+            # authenticated (unlocked) PyMuPDF document it resets the key, and
+            # every later render/text read fails ("aes padding out of range").
+            # is_encrypted is safe: True only while it still needs the password.
+            if bool(getattr(doc, "is_encrypted", False)):
+                return _ok(encrypted=True, needs_password=True, locked=True, method="")
+            r = _at.pdf_is_encrypted(path)          # its own document — safe
+            method = r.get("method") or ((doc.metadata or {}).get("encryption") or "")
+            return _ok(encrypted=bool(r["needs_password"] or method),
+                       needs_password=bool(r["needs_password"]), locked=False, method=method)
         except _at.ArchiveError as exc:
             return _err(str(exc), exc.code)
         except Exception as exc:
@@ -253,7 +258,7 @@ class ArchiveBridgeMixin:
             doc = _fo.get_cached_fitz_doc(path)
             if doc is None:
                 return _err("Could not open the PDF")
-            if getattr(doc, "needs_pass", False) and not doc.authenticate(password):
+            if getattr(doc, "is_encrypted", False) and not doc.authenticate(password):
                 return _err("Wrong password", "wrong_password")
             return _ok(pages=len(doc))
         except _at.ArchiveError as exc:

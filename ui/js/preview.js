@@ -83,6 +83,7 @@ const Preview = (() => {
     _path = path;
     _ext  = (ext || '').toLowerCase();
     _pdfSrc = null; _converted = false; _docFull = null;
+    _resetPdfDom();
     _zoom = 1.0;
     _updateZoomLabel();
 
@@ -120,12 +121,21 @@ const Preview = (() => {
   function clear() {
     _token++;
     _path = null; _pdfSrc = null; _converted = false; _pdfCount = 0; _pdfCurPage = 0; _docFull = null;
+    _resetPdfDom();
     _showOnly('empty');
     if (_emptyDefault !== null) emptyEl().innerHTML = _emptyDefault;
     fileNameEl().textContent = 'No file selected';
   }
 
   // ── PDF ──────────────────────────────────────────────────────────────────
+  // Drop the previous file's pages (and Word/Excel HTML) so nothing stale lingers.
+  function _resetPdfDom() {
+    PdfText.hideMenu();
+    if (_pageObs) { _pageObs.disconnect(); _pageObs = null; }
+    const w = pdfWrap(); if (w) w.innerHTML = '';
+    const d = docEl();   if (d) d.innerHTML = '';
+  }
+
   // src: the PDF to render (an Office file's converted copy when converted=true)
   async function _openPdf(src, converted = false) {
     const tok = _token;

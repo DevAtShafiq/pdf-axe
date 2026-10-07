@@ -144,6 +144,19 @@ def test_text_layer_locked_pdf(tmp_path):
     doc.save(str(p), encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw="pw", owner_pw="pw2")
     r = DocPreviewBridgeMixin().pdf_text_layer(str(p), 0)
     assert r["ok"] is False and r["code"] == "locked"
+    # After the preview unlock (in memory, file unchanged) the text layer works.
+    import sfm_bridge
+    b = sfm_bridge.SFMBridge()
+    assert b.pdf_unlock_preview(str(p), "pw")["ok"]
+    # Re-selecting the file asks for the state again; that must not re-lock /
+    # corrupt the unlocked document (PyMuPDF's needs_pass resets the key).
+    st = b.pdf_preview_state(str(p))
+    assert st["ok"] and st["locked"] is False and st["needs_password"] is True
+    assert b.pdf_unlock_preview(str(p), "pw")["ok"]          # unlocking twice is harmless
+    r = b.pdf_text_layer(str(p), 0)
+    assert r["ok"] and [w[0] for w in r["lines"][0]["w"]] == ["secret", "text"]
+    import file_ops as fo
+    fo.invalidate_pdf_doc_cache(str(p))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

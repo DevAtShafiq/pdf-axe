@@ -237,6 +237,8 @@ const PdfText = (() => {
   document.addEventListener('mousedown', e => { if (_menuEl && !_menuEl.contains(e.target)) _hideMenu(); }, true);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') _hideMenu(); });
   window.addEventListener('blur', _hideMenu);
+  document.addEventListener('scroll', _hideMenu, true);
+  window.addEventListener('resize', _hideMenu);
 
   // items (optional): [{icon, label, shortcut, fn, disabled} | {sep:true}] replaces the PDF items.
   function menu(e, { path, page, box, items } = {}) {
@@ -306,5 +308,6 @@ const PdfText = (() => {
     });
   }
 
-  return { wrapPage, attach, selectPage, selectionIn, selectedText, copyText, copyPage, copyAll, menu, enablePan };
+  return { wrapPage, attach, selectPage, selectionIn, selectedText, copyText, copyPage, copyAll, menu,
+           hideMenu: _hideMenu, enablePan };
 })();

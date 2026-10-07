@@ -58,7 +58,8 @@ def _open_pdf(path: str):
     doc = _fo.get_cached_fitz_doc(path)
     if doc is None:
         raise PreviewError("Could not open the PDF", "open_failed")
-    if getattr(doc, "needs_pass", False) and getattr(doc, "is_encrypted", False):
+    # is_encrypted only (never needs_pass: on an unlocked document it resets the key)
+    if getattr(doc, "is_encrypted", False):
         raise PreviewError("The PDF is locked", "locked")
     return doc
 
@@ -212,7 +213,7 @@ def pdf_all_text(path: str, max_chars: int = 20_000_000) -> tuple[str, int]:
 def _clean_text(t: str) -> str:
     t = (t or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = [ln.rstrip() for ln in t.split("\n")]
-    return "\n".join(lines).strip("\n")
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip("\n")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -683,7 +684,9 @@ class _DocxRenderer:
                         attrs += f' style="background:#{fill}"'
                 inner: list[str] = []
                 self.render_blocks(tc, inner)
-                out.append(f"<td{attrs}>{''.join(inner)}</td>")
+                cell_html = "".join(inner)
+                trimmed = re.sub(r"(?:<p>&nbsp;</p>)+$", "", cell_html)   # merged cells leave empty paragraphs
+                out.append(f"<td{attrs}>{trimmed or cell_html}</td>")
             out.append("</tr>")
         out.append("</tbody></table>")
         return "".join(out)
