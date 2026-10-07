@@ -24,8 +24,7 @@ const QrScan = (() => {
   function isScannable(p) { return EXTS.includes(_ext(p)); }
 
   async function _copy(text) {
-    try { await navigator.clipboard.writeText(text); }
-    catch (_) { try { await SFM.setClipboard(text); } catch (e) { App.toast('Copy failed', 'error'); return; } }
+    if (!(await SFM.copyText(text))) { App.toast('Copy failed', 'error'); return; }
     App.toast('Copied to clipboard', 'success', 1800);
   }
 

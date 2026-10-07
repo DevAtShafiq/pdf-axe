@@ -138,8 +138,7 @@ const Details = (() => {
     wire('qa-rename',  () => { if (_path) FileTree.startRename(_path); });
     wire('qa-copy-path', () => {
       if (!_path) return;
-      navigator.clipboard.writeText(_path).catch(() => SFM.setClipboard(_path));
-      App.toast('Path copied', 'success');
+      SFM.copyText(_path).then(ok => App.toast(ok ? 'Path copied' : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
     wire('qa-delete',  async () => {
       if (!_path) return;

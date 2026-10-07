@@ -214,9 +214,10 @@
 
         <!-- Column header (list view) / zoom (thumbnail view) -->
         <div class="filelist-toolbar" id="fl-sort-bar">
-          <span class="col-head col-name">Name</span>
-          <span class="col-head col-date">Modified</span>
-          <span class="col-head col-size">Size</span>
+          <button type="button" class="col-head col-name col-sort" data-sort="name" title="Sort by name">Name<span class="sort-arrow"></span></button>
+          <button type="button" class="col-head col-date col-sort" data-sort="mtime" title="Sort by date modified">Modified<span class="sort-arrow"></span></button>
+          <button type="button" class="col-head col-size col-sort" data-sort="size" title="Sort by size">Size<span class="sort-arrow"></span></button>
+          <button type="button" class="icon-btn icon-btn-sm col-folders-first" id="fl-folders-first" title="Keep folders on top" aria-pressed="false"><i data-icon="folder" data-size="13"></i></button>
           <div class="thumb-zoom-bar" id="thumb-zoom-bar" style="display:none">
             <button class="icon-btn icon-btn-sm" id="thumb-zoom-out" title="Smaller" aria-label="Smaller thumbnails"><i data-icon="minus" data-size="14"></i></button>
             <input type="range" class="zoom-slider" id="thumb-zoom-slider" min="60" max="200" value="100" aria-label="Thumbnail size">

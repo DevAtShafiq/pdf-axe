@@ -200,14 +200,12 @@ const ContextMenu = (() => {
     _item(menu, 'link', 'Copy Path', '', () => {
       hide();
       const text = paths.join('\n');
-      navigator.clipboard.writeText(text).catch(() => SFM.setClipboard(text));
-      App.toast('Path copied', 'success');
+      SFM.copyText(text).then(ok => App.toast(ok ? (paths.length > 1 ? `${paths.length} paths copied` : 'Path copied') : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
     _item(menu, 'clipboard', 'Copy Name', '', () => {
       hide();
       const names = entries.map(e => e.name).join('\n');
-      navigator.clipboard.writeText(names).catch(() => SFM.setClipboard(names));
-      App.toast('Name copied', 'success');
+      SFM.copyText(names).then(ok => App.toast(ok ? 'Name copied' : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
 
     // Position & show

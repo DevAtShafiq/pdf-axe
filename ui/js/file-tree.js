@@ -74,7 +74,7 @@ const FileTree = (() => {
     try {
       const r = await SFM.listFolder(path);
       if (!r.ok) { App.toast(r.error, 'error'); App.setStatus('Error'); return; }
-      _entries  = r.entries;
+      _entries  = _sortEntries(r.entries || []);
       _filtered = _entries;
       _applySearchFilter(_searchQuery);
       App.setStatus(`${_filtered.length} items`);
@@ -90,6 +90,55 @@ const FileTree = (() => {
 
   function refresh() {
     if (_currentFolder) loadFolder(_currentFolder);
+  }
+
+  // ── Sorting (click a column header; remembered) ───────────────────────────
+  // Default: newest first, so freshly downloaded files are on top.
+  const _SORT_STORE = 'oa.filelist.sort';
+  let _sort = { key: 'mtime', dir: 'desc', foldersFirst: false };
+  try { Object.assign(_sort, JSON.parse(localStorage.getItem(_SORT_STORE) || '{}')); } catch (_) {}
+  const _byName = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
+  function _sortEntries(list) {
+    const k = _sort.key, m = _sort.dir === 'asc' ? 1 : -1;
+    return list.slice().sort((a, b) => {
+      if (_sort.foldersFirst && !!a.is_dir !== !!b.is_dir) return a.is_dir ? -1 : 1;
+      let c = 0;
+      if (k === 'name') c = _byName(a, b);
+      else if (k === 'size') c = (a.is_dir ? -1 : (a.size || 0)) - (b.is_dir ? -1 : (b.size || 0));
+      else c = (a.mtime || 0) - (b.mtime || 0);
+      return c ? c * m : _byName(a, b);
+    });
+  }
+  function _renderSortHeader() {
+    document.querySelectorAll('#fl-sort-bar .col-sort').forEach(h => {
+      const on = h.dataset.sort === _sort.key;
+      h.classList.toggle('active', on);
+      h.setAttribute('aria-sort', on ? (_sort.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+      const arrow = h.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = on ? (_sort.dir === 'asc' ? ' ↑' : ' ↓') : '';
+    });
+    const ff = $('fl-folders-first');
+    if (ff) { ff.classList.toggle('active', !!_sort.foldersFirst); ff.setAttribute('aria-pressed', String(!!_sort.foldersFirst)); }
+  }
+  function setSort(key, foldersFirst) {
+    if (key) {
+      if (_sort.key === key) _sort.dir = _sort.dir === 'asc' ? 'desc' : 'asc';
+      else { _sort.key = key; _sort.dir = key === 'name' ? 'asc' : 'desc'; }
+    }
+    if (typeof foldersFirst === 'boolean') _sort.foldersFirst = foldersFirst;
+    try { localStorage.setItem(_SORT_STORE, JSON.stringify(_sort)); } catch (_) {}
+    const keep = Array.from(_selected);
+    _entries = _sortEntries(_entries);
+    _applySearchFilter(_searchQuery);
+    keep.forEach(p => _selected.add(p));
+    _renderSortHeader();
+  }
+  function _initSortHeader() {
+    document.querySelectorAll('#fl-sort-bar .col-sort').forEach(h =>
+      h.addEventListener('click', () => setSort(h.dataset.sort)));
+    const ff = $('fl-folders-first');
+    if (ff) ff.addEventListener('click', () => setSort(null, !_sort.foldersFirst));
+    _renderSortHeader();
   }
 
   // Refresh, then select + reveal `path` when it is in the current folder
@@ -632,16 +681,40 @@ const FileTree = (() => {
   }
 
   // ── Clipboard (cut/copy/paste) ────────────────────────────────────────────
-  function copySelection() {
-    _clipboard = { mode: 'copy', paths: Array.from(_selected) };
-    App.toast(`${_clipboard.paths.length} item(s) copied`, 'info', 1500);
+  // Files go on the real Windows clipboard, so they paste into Explorer,
+  // WhatsApp, Outlook… and files copied in Explorer paste in here.
+  async function _toWindowsClipboard(paths, cut) {
+    let r;
+    try { r = await SFM.setClipboardFiles(paths, cut); } catch (e) { r = { ok: false, error: String(e) }; }
+    return r && r.ok ? '' : ((r && r.error) || 'clipboard unavailable');
   }
-  function cutSelection() {
-    _clipboard = { mode: 'cut', paths: Array.from(_selected) };
-    App.toast(`${_clipboard.paths.length} item(s) cut`, 'info', 1500);
+  async function copySelection() {
+    const paths = Array.from(_selected);
+    if (!paths.length) return;
+    _clipboard = { mode: 'copy', paths };
+    const err = await _toWindowsClipboard(paths, false);
+    if (err) App.toast(`Copied inside Office Axe only (${err})`, 'warning', 3000);
+    else App.toast(`${paths.length} item(s) copied — paste here or in Explorer, WhatsApp, email…`, 'success', 2200);
+  }
+  async function cutSelection() {
+    const paths = Array.from(_selected);
+    if (!paths.length) return;
+    _clipboard = { mode: 'cut', paths };
+    const err = await _toWindowsClipboard(paths, true);
+    App.toast(`${paths.length} item(s) cut — paste to move them`, err ? 'warning' : 'info', 1800);
   }
   async function pasteSelection() {
-    if (!_clipboard.paths.length || !_currentFolder) return;
+    if (!_currentFolder) return;
+    // Prefer whatever is on the Windows clipboard (e.g. copied in Explorer);
+    // it also holds what was copied here, unless another app replaced it.
+    try {
+      const w = await SFM.getClipboardFiles();
+      if (w && w.ok && w.paths && w.paths.length) {
+        const same = w.paths.length === _clipboard.paths.length && w.paths.every(p => _clipboard.paths.includes(p));
+        if (!same) _clipboard = { mode: w.cut ? 'cut' : 'copy', paths: w.paths };
+      }
+    } catch (_) {}
+    if (!_clipboard.paths.length) { App.toast('Nothing to paste — copy some files first', 'info', 2000); return; }
     if (_clipboard.mode === 'copy') {
       const r = await SFM.copyFiles(_clipboard.paths, _currentFolder);
       if (r.ok) { App.toast('Pasted', 'success'); refresh(); }
@@ -1318,6 +1391,7 @@ const FileTree = (() => {
   function init() {
     _initKeyboardNav();
     _initThumbZoom();
+    _initSortHeader();
 
     // Make file list areas keyboard-focusable for arrow nav
     ['filelist-list','filelist-thumb'].forEach(id => {
@@ -1338,6 +1412,6 @@ const FileTree = (() => {
     combineSelected, browseFolder,
     getSelected, getFocusedEntry, getCurrentFolder,
     expandAll, collapseAll,
-    startRename, isRenaming,
+    startRename, isRenaming, setSort,
   };
 })();

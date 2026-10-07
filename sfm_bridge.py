@@ -661,10 +661,93 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, Offi
             return _err(str(exc))
 
     def set_clipboard(self, text: str) -> dict:
+        """Put Unicode text on the Windows clipboard (Korean etc. safe)."""
+        text = str(text or "")
         try:
-            import subprocess
-            subprocess.run(["clip"], input=text.encode("utf-8"), check=True)
-            return _ok()
+            import win32clipboard, win32con
+            for _ in range(5):                      # another app may hold the clipboard briefly
+                try:
+                    win32clipboard.OpenClipboard()
+                    break
+                except Exception:
+                    import time; time.sleep(0.05)
+            else:
+                return _err("The clipboard is busy — try again")
+            try:
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+            finally:
+                win32clipboard.CloseClipboard()
+            return _ok(chars=len(text))
+        except ImportError:
+            try:   # fallback without pywin32: clip.exe reads UTF-16LE with a BOM correctly
+                import subprocess
+                subprocess.run(["clip"], input=b"\xff\xfe" + text.encode("utf-16-le"), check=True,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                return _ok(chars=len(text))
+            except Exception as exc:
+                return _err(str(exc))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def set_clipboard_files(self, paths: list, cut: bool = False) -> dict:
+        """Put files on the Windows clipboard (like Ctrl+C / Ctrl+X in Explorer) so
+        they can be pasted into Explorer, WhatsApp, Outlook… Nothing is moved here:
+        a 'cut' only marks them; the app that pastes decides."""
+        try:
+            import struct
+            import win32clipboard, win32con
+            files = [os.path.abspath(str(p)) for p in (paths or []) if p and os.path.exists(str(p))]
+            if not files:
+                return _err("Nothing to copy")
+            body = ("\0".join(files) + "\0\0").encode("utf-16-le")
+            dropfiles = struct.pack("<IiiII", 20, 0, 0, 0, 1) + body   # DROPFILES: offset, pt, fNC, fWide
+            effect_fmt = win32clipboard.RegisterClipboardFormat("Preferred DropEffect")
+            for _ in range(5):
+                try:
+                    win32clipboard.OpenClipboard()
+                    break
+                except Exception:
+                    import time; time.sleep(0.05)
+            else:
+                return _err("The clipboard is busy — try again")
+            try:
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32con.CF_HDROP, dropfiles)
+                win32clipboard.SetClipboardData(effect_fmt, struct.pack("<I", 2 if cut else 1))
+                # plain-text fallback for apps that only accept text
+                win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, "\r\n".join(files))
+            finally:
+                win32clipboard.CloseClipboard()
+            return _ok(count=len(files), cut=bool(cut))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def get_clipboard_files(self) -> dict:
+        """Files currently on the Windows clipboard (copied/cut in Explorer or here)."""
+        try:
+            import struct
+            import win32clipboard, win32con
+            for _ in range(5):
+                try:
+                    win32clipboard.OpenClipboard()
+                    break
+                except Exception:
+                    import time; time.sleep(0.05)
+            else:
+                return _ok(paths=[], cut=False)
+            try:
+                paths, cut = [], False
+                if win32clipboard.IsClipboardFormatAvailable(win32con.CF_HDROP):
+                    paths = [str(p) for p in win32clipboard.GetClipboardData(win32con.CF_HDROP)]
+                    fmt = win32clipboard.RegisterClipboardFormat("Preferred DropEffect")
+                    if win32clipboard.IsClipboardFormatAvailable(fmt):
+                        raw = win32clipboard.GetClipboardData(fmt)
+                        if isinstance(raw, (bytes, bytearray)) and len(raw) >= 4:
+                            cut = bool(struct.unpack("<I", bytes(raw[:4]))[0] & 2)
+            finally:
+                win32clipboard.CloseClipboard()
+            return _ok(paths=[p for p in paths if os.path.exists(p)], cut=cut)
         except Exception as exc:
             return _err(str(exc))
 

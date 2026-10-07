@@ -190,7 +190,7 @@ const PdfText = (() => {
 
   // ── Clipboard ─────────────────────────────────────────────────────────────
   async function _clip(text) {
-    try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+    if (SFM.copyText && await SFM.copyText(text)) return true;
     try {
       const ta = document.createElement('textarea');
       ta.value = text; ta.setAttribute('readonly', '');

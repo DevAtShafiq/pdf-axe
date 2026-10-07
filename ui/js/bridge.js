@@ -113,6 +113,8 @@ const SFM = (() => {
     moveFiles:           (paths, dest)             => call('move_files', paths, dest),
     createFolder:        (parent, name)            => call('create_folder', parent, name),
     setClipboard:        (text)                    => call('set_clipboard', text),
+    setClipboardFiles:   (paths, cut=false)        => call('set_clipboard_files', paths, cut),
+    getClipboardFiles:   ()                        => call('get_clipboard_files'),
     // PDF thumbnails / pages
     getPdfThumb:         (path, page=0, dpi=72)    => call('get_pdf_thumbnail', path, page, dpi),
     getPdfPage:          (path, page, dpi=150)     => call('get_pdf_page_as_png', path, page, dpi),
@@ -286,3 +288,12 @@ const SFM = (() => {
     sharedUsage:         ()                        => call('shared_usage'),
   };
 })();
+
+// Copy text to the Windows clipboard reliably (Unicode-safe, via the bridge),
+// falling back to the browser clipboard. Resolves true when it really copied.
+SFM.copyText = async function copyText(text) {
+  text = String(text == null ? '' : text);
+  try { const r = await SFM.setClipboard(text); if (r && r.ok) return true; } catch (_) {}
+  try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+  return false;
+};
