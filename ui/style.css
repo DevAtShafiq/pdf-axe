@@ -58,6 +58,12 @@
   --bg-surface:      #1c1f25;
   --bg-surface-2:    #23262d;
   --bg-preview:      #0b0d10;
+  /* "Paper" — document pages (PDF / Word / Excel previews) stay white in both themes */
+  --paper:           #ffffff;
+  --paper-text:      #1f2328;
+  --paper-muted:     #59636e;
+  --paper-line:      #d1d9e0;
+  --paper-head:      #f3f5f7;
   --bg-hover:        rgba(255,255,255,.045);
   --bg-active:       rgba(255,255,255,.08);
   --bg-selected:     rgba(47,134,255,.18);

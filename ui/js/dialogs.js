@@ -229,10 +229,15 @@ const Dialogs = (() => {
   }
 
   // ── 2. PDF Full View ──────────────────────────────────────────────────────
-  async function openFullView(path, ext, startPage = 0) {
-    const name  = path.split(/[\\/]/).pop();
-    const isPdf = (ext || '').toLowerCase() === '.pdf';
-    const body  = `
+  // opts: { readOnly (hide page edits — e.g. an Office file previewed as PDF),
+  //         title (window title instead of the file name),
+  //         html / htmlClass (show a Word/Excel HTML preview instead of a page image) }
+  async function openFullView(path, ext, startPage = 0, opts = {}) {
+    const name  = opts.title || path.split(/[\\/]/).pop();
+    const isPdf = !opts.html && (ext || '').toLowerCase() === '.pdf';
+    const ro    = !!opts.readOnly;
+    const body  = opts.html ? `
+      <div id="fullview-wrap" class="fv-doc-wrap"><div class="${opts.htmlClass || 'doc-preview'}">${opts.html}</div></div>` : `
       <div id="fullview-wrap" style="width:100%;flex:1 1 auto;min-height:0;overflow:auto;background:var(--bg-preview);border-radius:var(--radius-lg);display:flex;padding:16px;box-sizing:border-box">
         <div id="fullview-inner" style="margin:auto;display:flex;flex-direction:column;gap:12px;align-items:center"></div>
       </div>
@@ -246,6 +251,10 @@ const Dialogs = (() => {
         <select id="fv-zoom" title="Ctrl + scroll to zoom" style="width:110px"><option value="fit" selected>Fit page</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option><option value="4">400%</option></select>
         <button class="icon-btn" id="fv-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${Icons.svg('zoom-in', 16)}</button>
         <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="icon-btn" id="fv-copy-page" title="Copy this page's text" aria-label="Copy page text">${Icons.svg('file-text', 16)}</button>
+        <button class="icon-btn" id="fv-copy-all" title="Copy all text" aria-label="Copy all text">${Icons.svg('files', 16)}</button>
+        <span class="fv-edit${ro ? ' hidden' : ''}">
+        <span class="toolbar-sep toolbar-sep-sm"></span>
         <button class="icon-btn" id="fv-rot-ccw" title="Rotate counter-clockwise" aria-label="Rotate counter-clockwise">${Icons.svg('rotate-ccw', 16)}</button>
         <button class="icon-btn" id="fv-rot-cw"  title="Rotate clockwise" aria-label="Rotate clockwise">${Icons.svg('rotate-cw', 16)}</button>
         <button class="icon-btn icon-btn-danger" id="fv-del-page" title="Delete this page" aria-label="Delete this page">${Icons.svg('trash', 16)}</button>
@@ -253,6 +262,7 @@ const Dialogs = (() => {
         <button class="btn btn-sm btn-ghost" id="fv-append" title="Append another PDF to this one">${Icons.svg('plus', 14)}Append</button>
         <button class="btn btn-sm btn-ghost" id="fv-merge" title="Merge with other PDFs">${Icons.svg('merge', 14)}Merge</button>
         <button class="btn btn-sm btn-ghost" id="fv-arrange" title="Arrange / reorder pages">${Icons.svg('layers', 14)}Arrange</button>
+        </span>
       </div>` : ''}`;
 
     _openModal('fullview', name, body, [{ label: 'Close', onClick: closeModal }]);
@@ -309,6 +319,24 @@ const Dialogs = (() => {
     let page = startPage, total = 1, zoom = 'fit';
     const inner = document.getElementById('fullview-inner');
     const wrap  = document.getElementById('fullview-wrap');
+    if (opts.html) {
+      wrap.querySelectorAll('[data-href]').forEach(a => a.addEventListener('click', () => SFM.qrOpenUrl(a.dataset.href)));
+      return;
+    }
+    if (isPdf && typeof PdfText !== 'undefined') {
+      PdfText.enablePan(wrap);
+      wrap.addEventListener('contextmenu', e => {
+        const box = e.target.closest && e.target.closest('.pdf-page');
+        if (box) PdfText.menu(e, { path, page, box });
+      });
+      wrap.setAttribute('tabindex', '-1');
+      wrap.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+          const box = inner.querySelector('.pdf-page');
+          if (box && PdfText.selectPage(box)) { e.preventDefault(); e.stopPropagation(); }
+        }
+      });
+    }
 
     // Scale a page/image to fit the available viewport (whole A4 visible).
     function _fitDims(natW, natH) {
@@ -344,7 +372,19 @@ const Dialogs = (() => {
         } else {
           dw = Math.round(r.width); dh = Math.round(r.height);   // 1:1 at the rendered DPI (crisp)
         }
-        inner.innerHTML = `<img src="${r.data_url}" style="width:${dw}px;height:${dh}px;border-radius:2px;box-shadow:0 4px 24px #0008">`;
+        inner.innerHTML = '';
+        const img = new Image();
+        img.src = r.data_url;
+        img.className = 'pdf-page-canvas';
+        if (typeof PdfText !== 'undefined') {
+          const box = PdfText.wrapPage(img, path, p, { width: dw, height: dh });
+          box.classList.add('fv-page-box');
+          inner.appendChild(box);
+          PdfText.attach(box);
+        } else {
+          img.style.cssText = `width:${dw}px;height:${dh}px;border-radius:2px;box-shadow:0 4px 24px #0008`;
+          inner.appendChild(img);
+        }
       } else {
         const r = await SFM.getImagePreview(path, 1600);
         if (!r.ok) { inner.textContent = r.error || 'Preview unavailable'; return; }
@@ -434,6 +474,8 @@ const Dialogs = (() => {
         else if (e.key === '0') { e.preventDefault(); zoom = 'fit'; _syncZoomSelect(); renderPage(page); }
       };
       document.addEventListener('keydown', _onZoomKey);
+      document.getElementById('fv-copy-page').addEventListener('click', () => PdfText.copyPage(path, page));
+      document.getElementById('fv-copy-all').addEventListener('click', () => PdfText.copyAll(path));
       document.getElementById('fv-rot-ccw').addEventListener('click', async () => {
         const r = await SFM.rotatePage(path, page, -90);
         if (r.ok) { renderPage(page); App.toast('Rotated CCW', 'success'); }

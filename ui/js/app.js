@@ -283,7 +283,13 @@ const App = (() => {
       // Prevent default for our shortcuts
       if (ctrl && key === 'z' && !shift) { e.preventDefault(); undo(); return; }
       if (ctrl && (key === 'y' || (key === 'z' && shift))) { e.preventDefault(); redo(); return; }
-      if (ctrl && key === 'c' && !shift) { FileTree.copySelection(); return; }
+      if (ctrl && key === 'c' && !shift) {
+        // Selected text (PDF text layer, Word/Excel preview …) → the browser copies it.
+        const sel = window.getSelection();
+        const onList = t && (t.id === 'filelist-list' || t.id === 'filelist-thumb');
+        if (!onList && sel && !sel.isCollapsed && sel.toString().trim()) return;
+        FileTree.copySelection(); return;
+      }
       if (ctrl && key === 'x')           { FileTree.cutSelection();  return; }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
       if (ctrl && shift && key === 'N')  { e.preventDefault(); FileTree.newFolder(); return; }

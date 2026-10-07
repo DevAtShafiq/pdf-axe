@@ -1,0 +1,244 @@
+/* ============================================================
+   preview-docs.css — PDF text layer, Word / Excel / CSV previews
+   (preview.js, pdf-text.js). Tokens only — see ui/DESIGN.md.
+   ============================================================ */
+
+/* ── PDF page box + selectable text layer ─────────────────── */
+.pdf-page {
+  position: relative;
+  flex-shrink: 0;
+  margin: 0 auto;
+  background: var(--paper);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25), 0 8px 24px rgba(0,0,0,.25);
+}
+.pdf-page > .pdf-page-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  margin: 0;
+  box-shadow: none;
+  border-radius: inherit;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.fv-page-box > .pdf-page-canvas { height: 100%; }
+#pdf-canvas-wrap.fit-width .pdf-page { max-width: 100%; }
+#pdf-canvas-wrap.fit-width .pdf-page > .pdf-page-canvas { max-width: none; }
+
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  font-size: 1px;              /* in-flow spaces / <br>s stay tiny */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: default;
+  forced-color-adjust: none;
+  z-index: 1;
+}
+.pdf-text-layer > span {
+  position: absolute;
+  white-space: pre;
+  color: transparent;
+  font-family: sans-serif;
+  line-height: 1;
+  transform-origin: 0 0;
+  cursor: text;
+}
+.pdf-text-layer > br { user-select: text; }
+.pdf-text-layer ::selection,
+.pdf-text-layer::selection { background: color-mix(in srgb, var(--accent) 34%, transparent); color: transparent; }
+
+/* Drag-to-pan outside the words */
+#pdf-canvas-wrap.is-panning,
+#fullview-wrap.is-panning,
+#pdf-canvas-wrap.is-panning .pdf-text-layer,
+#fullview-wrap.is-panning .pdf-text-layer { cursor: grabbing; }
+
+.pdf-scan-hint {
+  position: absolute;
+  left: 50%; bottom: var(--space-3);
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-surface-2) 90%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  box-shadow: var(--shadow-sm);
+  opacity: .82;
+  pointer-events: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity var(--transition);
+}
+.pdf-page:hover .pdf-scan-hint { opacity: 1; }
+
+.pdf-text-menu { min-width: 240px; }
+
+/* ── Word / Excel / CSV preview shell ─────────────────────── */
+.doc-preview {
+  --doc-zoom: 1;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg-preview);
+  overflow: hidden;
+}
+#preview-body:focus { outline: none; }
+.doc-loading {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  color: var(--text-muted); font-size: var(--fs-sm);
+}
+.doc-bar {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 32px; padding: 0 var(--space-2) 0 var(--space-3);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.doc-bar-meta { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-bar .btn-sm { color: var(--text-secondary); }
+.doc-notice {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px var(--space-3);
+  background: var(--yellow-subtle);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  flex-shrink: 0;
+}
+.doc-notice .i { color: var(--yellow); flex-shrink: 0; }
+.doc-notice-text { flex: 1; min-width: 0; }
+.doc-empty-text { color: var(--text-muted); font-size: var(--fs-sm); padding: var(--space-5); text-align: center; }
+.preview-empty-actions { justify-content: center; margin-top: var(--space-2); }
+
+/* ── Word: a white page on the preview background ─────────── */
+.doc-page-wrap {
+  flex: 1; min-height: 0; overflow: auto;
+  padding: var(--space-4) var(--space-3) var(--space-6);
+}
+.doc-sheet {
+  box-sizing: border-box;
+  width: calc(794px * var(--doc-zoom));          /* A4 at 96 dpi */
+  max-width: 100%;
+  min-height: calc(400px * var(--doc-zoom));
+  margin: 0 auto;
+  padding: calc(56px * var(--doc-zoom)) calc(64px * var(--doc-zoom));
+  background: var(--paper);
+  color: var(--paper-text);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25), 0 8px 24px rgba(0,0,0,.25);
+  font-family: Calibri, "Segoe UI", Arial, sans-serif;
+  font-size: calc(14.5px * var(--doc-zoom));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  user-select: text; -webkit-user-select: text;
+  cursor: text;
+}
+.doc-sheet p { margin: 0 0 .55em; }
+.doc-sheet h1, .doc-sheet h2, .doc-sheet h3, .doc-sheet h4, .doc-sheet h5, .doc-sheet h6 {
+  font-family: "Calibri Light", "Segoe UI", Arial, sans-serif;
+  color: var(--paper-text); line-height: 1.25; margin: .9em 0 .4em; font-weight: 600;
+}
+.doc-sheet h1 { font-size: 1.85em; } .doc-sheet h2 { font-size: 1.45em; } .doc-sheet h3 { font-size: 1.2em; }
+.doc-sheet h4, .doc-sheet h5, .doc-sheet h6 { font-size: 1.05em; }
+.doc-sheet > :first-child { margin-top: 0; }
+.doc-sheet ul, .doc-sheet ol { margin: 0 0 .55em; padding-left: 1.8em; }
+.doc-sheet li { margin: .1em 0; }
+.doc-sheet ol.doc-ol-lowerLetter { list-style-type: lower-alpha; }
+.doc-sheet ol.doc-ol-upperLetter { list-style-type: upper-alpha; }
+.doc-sheet ol.doc-ol-lowerRoman  { list-style-type: lower-roman; }
+.doc-sheet ol.doc-ol-upperRoman  { list-style-type: upper-roman; }
+.doc-sheet .doc-quote { border-left: 3px solid var(--paper-line); padding-left: .9em; color: var(--paper-muted); font-style: italic; }
+.doc-sheet .doc-tab { display: inline-block; min-width: 2em; white-space: pre; }
+.doc-sheet .doc-pagebreak { display: block; height: 0; margin: 1.2em -64px; border-top: 1px dashed var(--paper-line); }
+.doc-sheet .doc-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.doc-sheet .doc-img { max-width: 100%; height: auto; vertical-align: bottom; }
+.doc-sheet .doc-img-missing { color: var(--paper-muted); font-size: .85em; }
+.doc-table { border-collapse: collapse; margin: .4em 0 .9em; max-width: 100%; }
+.doc-table td { border: 1px solid var(--paper-line); padding: 4px 7px; vertical-align: top; }
+.doc-table td > :last-child { margin-bottom: 0; }
+
+/* ── Excel / CSV grid ──────────────────────────────────────── */
+.xl-scroll {
+  flex: 1; min-height: 0; overflow: auto;
+  background: var(--paper);
+  user-select: text; -webkit-user-select: text;
+}
+.xl-scroll.is-loading { opacity: .5; }
+.xl-grid {
+  border-collapse: separate; border-spacing: 0;
+  table-layout: fixed;
+  font-family: Calibri, "Segoe UI", Arial, sans-serif;
+  font-size: calc(13px * var(--doc-zoom));
+  color: var(--paper-text);
+  background: var(--paper);
+}
+.xl-grid col { width: calc(72px * var(--doc-zoom)); }
+.xl-grid col.xl-col-rh { width: calc(44px * var(--doc-zoom)); }
+.xl-grid td {
+  height: calc(20px * var(--doc-zoom));
+  padding: 0 calc(5px * var(--doc-zoom));
+  border-right: 1px solid var(--paper-line);
+  border-bottom: 1px solid var(--paper-line);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  vertical-align: bottom;
+  max-width: 600px;
+}
+.xl-grid td.xl-num { text-align: right; font-variant-numeric: tabular-nums; }
+.xl-grid td.xl-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.xl-grid th {
+  position: sticky;
+  background: var(--paper-head);
+  color: var(--paper-muted);
+  font-weight: 500; font-size: .85em;
+  border-right: 1px solid var(--paper-line);
+  border-bottom: 1px solid var(--paper-line);
+  user-select: none; -webkit-user-select: none;
+  z-index: 1;
+}
+.xl-grid thead th { top: 0; height: calc(20px * var(--doc-zoom)); text-align: center; z-index: 2; }
+.xl-grid th.xl-rh { left: 0; text-align: center; padding: 0 4px; }
+.xl-grid th.xl-corner { left: 0; top: 0; z-index: 3; }
+.xl-grid tbody tr:hover th.xl-rh { color: var(--paper-text); }
+
+.xl-tabs {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 0 var(--space-2);
+  min-height: 30px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden;
+  flex-shrink: 0;
+}
+.xl-tab {
+  flex-shrink: 0;
+  max-width: 180px;
+  padding: 0 var(--space-3);
+  border: none; border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+.xl-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.xl-tab.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: var(--fw-medium); }
+.xl-tab.is-hidden { font-style: italic; opacity: .7; }
+
+/* ── Full view of a Word / Excel preview ───────────────────── */
+.fv-doc-wrap {
+  width: 100%; flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg-preview);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.fv-doc-wrap > .doc-preview { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4); }
+.fv-doc-wrap > .doc-preview > .xl-scroll { padding: 0; }

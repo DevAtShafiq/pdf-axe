@@ -204,7 +204,7 @@ def pdf_all_text(path: str, max_chars: int = 20_000_000) -> tuple[str, int]:
         total += len(t)
         if total > max_chars:
             break
-    return "\n\n".join(p for p in parts), len(doc)
+    return "\n\n".join(parts).rstrip(), len(doc)
 
 
 def _clean_text(t: str) -> str:

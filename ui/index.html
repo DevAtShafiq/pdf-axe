@@ -44,6 +44,7 @@
 <link rel="stylesheet" href="office.css">
 <link rel="stylesheet" href="archive.css">
 <link rel="stylesheet" href="recorder.css">
+<link rel="stylesheet" href="preview-docs.css">
 </head>
 <body>
 
@@ -253,6 +254,8 @@
             <button class="icon-btn" id="preview-zoom-reset" title="Reset zoom (Ctrl+0)" aria-label="Reset zoom"><i data-icon="scan-fit"></i></button>
           </div>
           <div class="toolbar-sep toolbar-sep-sm"></div>
+          <button class="icon-btn hidden" id="preview-copy-page" title="Copy this page's text" aria-label="Copy page text"><i data-icon="file-text"></i></button>
+          <button class="icon-btn hidden" id="preview-copy-all" title="Copy all text" aria-label="Copy all text"><i data-icon="files"></i></button>
           <button class="icon-btn hidden" id="preview-annotate" title="Annotate (Ctrl+Shift+A)" aria-label="Annotate"><i data-icon="annotate"></i></button>
           <button class="icon-btn" id="preview-fullscreen" title="Open full view" aria-label="Open full view"><i data-icon="maximize"></i></button>
         </div>
@@ -269,7 +272,7 @@
           <button class="btn btn-ghost btn-sm" id="pdf-compress" title="Compress PDF"><i data-icon="compress" data-size="14"></i>Compress</button>
         </div>
 
-        <div class="preview-body" id="preview-body">
+        <div class="preview-body" id="preview-body" tabindex="-1">
           <!-- Empty state -->
           <div class="preview-empty" id="preview-empty">
             <div class="empty-state-icon"><i data-icon="eye" data-size="28"></i></div>
@@ -286,6 +289,9 @@
 
           <!-- Plain text preview -->
           <div  id="text-preview"  class="text-preview hidden"></div>
+
+          <!-- Word / Excel / CSV preview (read-only HTML) -->
+          <div  id="doc-preview"   class="doc-preview hidden"></div>
 
           <!-- PDF floating page nav -->
           <div class="pdf-float-nav hidden" id="pdf-float-nav">
@@ -492,6 +498,7 @@
 <script src="js/account.js"></script>
 <script src="js/office.js"></script>
 <script src="js/file-tree.js"></script>
+<script src="js/pdf-text.js"></script>
 <script src="js/preview.js"></script>
 <script src="js/rename-templates.js"></script>
 <script src="js/details.js"></script>

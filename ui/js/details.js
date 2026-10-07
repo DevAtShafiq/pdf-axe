@@ -117,6 +117,8 @@ const Details = (() => {
 
   function _enrichDetails(info) {
     if (info.pages)    _addRow('Pages', info.pages);
+    if (info.slides)   _addRow('Slides', info.slides);
+    if (info.words)    _addRow('Words', Number(info.words).toLocaleString());
     if (info.author)   _addRow('Author', info.author);
     if (info.created)  _addRow('Created', _fmtDate(info.created));
     if (info.title)    _addRow('Title', info.title);

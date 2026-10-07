@@ -481,6 +481,8 @@ const FileTree = (() => {
       const onList = active && (active.id === 'filelist-list' || active.id === 'filelist-thumb');
       const onBody = !active || active === document.body || active.tagName === 'DIV';
       if (!onList && !onBody) return;
+      // The preview pane has focus (text selection, Ctrl+A on a page) — not ours.
+      if (active && active.closest && active.closest('#preview-body')) return;
       // Don't hijack search box or rename inputs
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
 
