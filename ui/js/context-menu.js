@@ -115,6 +115,7 @@ const ContextMenu = (() => {
         _sep(menu);
       }
       if (isPdf) {
+        if (window.Annotate) _item(menu, 'annotate', 'Annotate…', 'Ctrl+Shift+A', () => { hide(); Annotate.open(mainPath); });
         _item(menu, 'layers', 'Arrange Pages…', '', () => { hide(); PdfTools.openArrange([mainPath]); });
         _item(menu, 'scissors', 'Split PDF…', '', () => { hide(); PdfTools.openSplit(mainPath); });
         _item(menu, 'extract', 'Extract Pages…', '', () => { hide(); PdfTools.openExtract(mainPath); });
@@ -138,6 +139,7 @@ const ContextMenu = (() => {
 
     // Section: image ops
     if (isImg) {
+      if (window.Annotate && Annotate.canAnnotate(mainPath)) _item(menu, 'annotate', 'Annotate…', 'Ctrl+Shift+A', () => { hide(); Annotate.open(mainPath); });
       _item(menu, 'crop', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
       _item(menu, 'shirt', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
     }

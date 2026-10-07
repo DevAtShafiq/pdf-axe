@@ -38,6 +38,7 @@
 <link rel="stylesheet" href="rename-templates.css">
 <link rel="stylesheet" href="convert-tools.css">
 <link rel="stylesheet" href="pdf-tools.css">
+<link rel="stylesheet" href="annotate.css">
 <link rel="stylesheet" href="media-tools.css">
 <link rel="stylesheet" href="account.css">
 <link rel="stylesheet" href="office.css">
@@ -241,6 +242,7 @@
             <button class="icon-btn" id="preview-zoom-reset" title="Reset zoom (Ctrl+0)" aria-label="Reset zoom"><i data-icon="scan-fit"></i></button>
           </div>
           <div class="toolbar-sep toolbar-sep-sm"></div>
+          <button class="icon-btn hidden" id="preview-annotate" title="Annotate (Ctrl+Shift+A)" aria-label="Annotate"><i data-icon="annotate"></i></button>
           <button class="icon-btn" id="preview-fullscreen" title="Open full view" aria-label="Open full view"><i data-icon="maximize"></i></button>
         </div>
 
@@ -319,6 +321,7 @@
               <button class="qa-btn hidden"  id="qa-convert-img" title="Convert to JPG / PNG / WEBP / BMP / TIFF"><span class="icon"><i data-icon="convert"></i></span> Convert format…</button>
               <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon"><i data-icon="images"></i></span> PDF to images…</button>
               <button class="qa-btn hidden"  id="qa-compress" title="Make a smaller copy"><span class="icon"><i data-icon="compress"></i></span> Compress…</button>
+              <button class="qa-btn hidden"  id="qa-annotate" title="Highlight, comment, draw, stamp and sign (Ctrl+Shift+A)"><span class="icon"><i data-icon="annotate"></i></span> Annotate…</button>
               <button class="qa-btn danger"  id="qa-delete" title="Move to the _to_review folder (nothing is deleted)"><span class="icon"><i data-icon="archive"></i></span> Move to review</button>
             </div>
           </div>
@@ -485,6 +488,7 @@
 <script src="js/dialogs.js"></script>
 <script src="js/convert-tools.js"></script>
 <script src="js/pdf-tools.js"></script>
+<script src="js/annotate.js"></script>
 <script src="js/panels.js"></script>
 <script src="js/qr.js"></script>
 <script src="js/photo-tools.js"></script>
