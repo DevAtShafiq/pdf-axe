@@ -162,6 +162,9 @@ const ContextMenu = (() => {
       _sep(menu);
     }
 
+    // Section: ZIP / unzip / ZIP + PDF passwords (archive.js)
+    if (typeof Archive !== 'undefined') Archive.menuItems(menu, { entries, paths, item: _item, sep: _sep, hide });
+
     // Section: copy / move (always visible)
     _item(menu, 'copy', 'Copy To…', '', () => { hide(); Dialogs.openCopyTo(paths); });
     _item(menu, 'folder-input', 'Move To…', '', () => { hide(); Dialogs.openMoveTo(paths); });

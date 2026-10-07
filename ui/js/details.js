@@ -25,7 +25,9 @@ const Details = (() => {
     $('quick-actions').classList.remove('hidden');
     _showConvertAction(entry);
     _showAiSection(entry);
-    if (window.PdfTools) PdfTools.onDetails(entry);
+    // (const globals are not window properties — test with typeof)
+    if (typeof PdfTools !== 'undefined') PdfTools.onDetails(entry);
+    if (typeof Archive !== 'undefined') Archive.onDetails(entry);
 
     try {
       const info = await SFM.getFileInfo(entry.path);
@@ -48,12 +50,14 @@ const Details = (() => {
 
     $('quick-actions').classList.add('hidden');
     $('ai-photo-section').classList.add('hidden');
-    if (window.PdfTools) PdfTools.onDetails(null, entries);
+    if (typeof PdfTools !== 'undefined') PdfTools.onDetails(null, entries);
+    if (typeof Archive !== 'undefined') Archive.onDetails(null, entries);
   }
 
   // ── Public: clear panel ───────────────────────────────────────────────────
   function clear() {
     _path = null; _entry = null;
+    if (typeof Archive !== 'undefined') Archive.onDetails(null, []);
     $('details-empty').classList.remove('hidden');
     $('details-content').classList.add('hidden');
   }

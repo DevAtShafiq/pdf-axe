@@ -486,9 +486,15 @@ def test_bridge_pdf_password_and_preview_unlock(tmp_path):
     r = br.b.pdf_set_password(str(src), "pw", "", {"print": True})
     assert r["ok"] and r["out_path"].endswith("c_protected.pdf")
     assert br.b.pdf_is_encrypted(r["out_path"])["needs_password"] is True
+    st = br.b.pdf_preview_state(r["out_path"])
+    assert st["ok"] and st["locked"] and st["needs_password"] and st["encrypted"]
     assert br.b.pdf_unlock_preview(r["out_path"], "bad")["code"] == "wrong_password"
     u = br.b.pdf_unlock_preview(r["out_path"], "pw")
     assert u["ok"] and u["pages"] == 2
+    st = br.b.pdf_preview_state(r["out_path"])
+    assert st["ok"] and not st["locked"] and st["encrypted"]
+    plain = br.b.pdf_preview_state(str(src))
+    assert plain["ok"] and not plain["encrypted"] and not plain["locked"]
     assert file_ops.pil_image_for_pdf_page(r["out_path"], 0, 200, 200) is not None
     file_ops.release_pdf_handles_for_paths((r["out_path"],))
     rm = br.b.pdf_remove_password(r["out_path"], "pw")

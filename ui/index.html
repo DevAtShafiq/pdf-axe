@@ -41,6 +41,7 @@
 <link rel="stylesheet" href="media-tools.css">
 <link rel="stylesheet" href="account.css">
 <link rel="stylesheet" href="office.css">
+<link rel="stylesheet" href="archive.css">
 </head>
 <body>
 
@@ -107,6 +108,12 @@
       </button>
       <button class="toolbar-btn" id="btn-compress-pdf" title="Compress PDFs or images">
         <i data-icon="compress"></i><span class="tb-label">Compress</span>
+      </button>
+      <button class="toolbar-btn" id="btn-zip" title="Compress the selection to a ZIP (Ctrl+Shift+Z)">
+        <i data-icon="package"></i><span class="tb-label">Zip</span>
+      </button>
+      <button class="toolbar-btn hidden" id="btn-unzip" title="Extract the selected ZIP (Ctrl+Shift+E)">
+        <i data-icon="package-open"></i><span class="tb-label">Unzip</span>
       </button>
       <button class="toolbar-btn" id="btn-combine-pdf" title="Merge selected PDFs and images (Ctrl+Enter)">
         <i data-icon="merge"></i><span class="tb-label">Merge</span>
@@ -485,6 +492,7 @@
 <script src="js/dialogs.js"></script>
 <script src="js/convert-tools.js"></script>
 <script src="js/pdf-tools.js"></script>
+<script src="js/archive.js"></script>
 <script src="js/panels.js"></script>
 <script src="js/qr.js"></script>
 <script src="js/photo-tools.js"></script>

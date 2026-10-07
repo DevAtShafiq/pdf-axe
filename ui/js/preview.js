@@ -67,6 +67,15 @@ const Preview = (() => {
     const name = path.split(/[\\/]/).pop();
     fileNameEl().textContent = name;
 
+    // ZIPs show their contents; password-protected PDFs ask first (archive.js).
+    if (typeof Archive !== 'undefined' && (_ext === '.zip' || _ext === '.pdf')) {
+      const handled = await Archive.previewHook(path, _ext, {
+        el: emptyEl(), show: () => _showOnly('empty'),
+        openPdf: () => _openPdf(path), isCurrent: () => _path === path,
+      });
+      if (handled || _path !== path) return;
+    }
+
     if (_ext === '.pdf') {
       await _openPdf(path);
     } else if (['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tiff'].includes(_ext)) {

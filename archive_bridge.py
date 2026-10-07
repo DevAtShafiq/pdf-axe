@@ -223,6 +223,26 @@ class ArchiveBridgeMixin:
         _log.info("pdf_remove_password: %s", path)
         return _run("Remove PDF password", _at.pdf_remove_password, path, password)
 
+    def pdf_preview_state(self, path: str) -> dict:
+        """Cheap check on the preview's cached document:
+        {encrypted, needs_password, locked} — locked turns false after
+        pdf_unlock_preview. Falls back to pdf_is_encrypted."""
+        try:
+            import file_ops as _fo
+            doc = _fo.get_cached_fitz_doc(path)
+            if doc is None:
+                r = _at.pdf_is_encrypted(path)
+                return _ok(locked=r["needs_password"], **r)
+            needs = bool(getattr(doc, "needs_pass", False))
+            locked = bool(getattr(doc, "is_encrypted", False)) and needs
+            method = "" if locked else ((doc.metadata or {}).get("encryption") or "")
+            return _ok(encrypted=needs or bool(method), needs_password=needs, locked=locked,
+                       method=method)
+        except _at.ArchiveError as exc:
+            return _err(str(exc), exc.code)
+        except Exception as exc:
+            return _err(str(exc))
+
     def pdf_unlock_preview(self, path: str, password: str) -> dict:
         """Unlock a password-protected PDF for the preview (in memory only — the
         file is not changed). The preview's cached document stays unlocked."""

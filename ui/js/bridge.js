@@ -154,6 +154,21 @@ const SFM = (() => {
     pdfExtract:          (path, spec, out='', job='') => call('pdf_extract', path, spec, out, job),
     pdfBuild:            (pages, out, replace=false, job='') => call('pdf_build', pages, out, replace, job),
     browseForPdfsOrImages: ()                      => call('browse_for_pdfs_or_images'),
+    // ZIP / unzip / ZIP + PDF passwords (archive_bridge.py). Jobs emit
+    // archive_progress {job_id, done, total, file} and archive_done {job_id, ok, out_path, error, code}
+    archiveCapabilities: ()                        => call('archive_capabilities'),
+    archiveCancel:       (job)                     => call('archive_cancel', job),
+    zipPaths:            (paths, outName='', password='', job='', compression='deflate', level=6) => call('zip_paths', paths, outName, password, job, compression, level),
+    zipEach:             (paths, password='', job='', compression='deflate', level=6) => call('zip_each', paths, password, job, compression, level),
+    zipList:             (path, password='')       => call('zip_list', path, password),
+    zipExtract:          (path, dest='', password='', members=null, job='', mode='folder') => call('zip_extract', path, dest, password, members, job, mode),
+    zipSetPassword:      (path, newPw, oldPw='')   => call('zip_set_password', path, newPw, oldPw),
+    zipRemovePassword:   (path, pw)                => call('zip_remove_password', path, pw),
+    pdfIsEncrypted:      (path)                    => call('pdf_is_encrypted', path),
+    pdfPreviewState:     (path)                    => call('pdf_preview_state', path),
+    pdfSetPassword:      (path, userPw, ownerPw='', perms=null, currentPw='') => call('pdf_set_password', path, userPw, ownerPw, perms, currentPw),
+    pdfRemovePassword:   (path, pw)                => call('pdf_remove_password', path, pw),
+    pdfUnlockPreview:    (path, pw)                => call('pdf_unlock_preview', path, pw),
     // Image
     cropImage:           (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),

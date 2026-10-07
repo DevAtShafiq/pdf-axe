@@ -382,6 +382,8 @@ const FileTree = (() => {
       App.navigate(entry.path);
       return;
     }
+    // ZIP → contents dialog; locked PDF → password first (archive.js)
+    if (typeof Archive !== 'undefined' && Archive.onOpen(entry)) return;
     const ext = (entry.ext || '').toLowerCase();
     if (_FULLVIEW_EXTS.has(ext)) {
       Preview.previewFile(entry.path, entry.ext);   // keep side preview in sync
