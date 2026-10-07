@@ -198,6 +198,14 @@ const Icons = (() => {
     'save':          '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
     'fit-width':     '<path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/>',
     'panel-right':   '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+    // PDF text editor (pdf-edit.js)
+    'bold':          '<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>',
+    'italic':        '<path d="M19 4h-9"/><path d="M14 20H5"/><path d="M15 4 9 20"/>',
+    'align-left':    '<path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/>',
+    'align-center':  '<path d="M17 12H7"/><path d="M19 18H5"/><path d="M21 6H3"/>',
+    'align-right':   '<path d="M21 12H9"/><path d="M21 18H7"/><path d="M21 6H3"/>',
+    'file-pen':      '<path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M13.378 15.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/>',
+    'text-select':   '<path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/><path d="M7 8h8"/><path d="M7 12h10"/><path d="M7 16h6"/>',
   };
 
   // Aliases so callers can use the obvious word.
