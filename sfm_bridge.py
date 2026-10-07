@@ -43,6 +43,7 @@ import file_ops as _fo
 import media_convert as _mc
 from pdf_tools_bridge import PdfToolsBridgeMixin
 from annotate_bridge import AnnotateBridgeMixin
+from pdf_edit_bridge import PdfEditBridgeMixin
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -123,7 +124,7 @@ from recorder_bridge import RecorderBridgeMixin  # noqa: E402  (screen recording
 from doc_preview_bridge import DocPreviewBridgeMixin  # noqa: E402  (PDF text layer, Word/Excel previews)
 
 
-class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin):
+class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().

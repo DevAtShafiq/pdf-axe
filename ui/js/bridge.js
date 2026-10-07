@@ -190,8 +190,14 @@ const SFM = (() => {
     annotSignatureForget:(index)                   => call('annot_signature_forget', index),
     annotPickPhoto:      ()                        => call('annot_pick_photo'),
     annotPhotoLoad:      (path, maxDim=1600)       => call('annot_photo_load', path, maxDim),
+    // PDF text editor (pdf_edit_bridge.py)
+    pdfeditOpen:         (path)                    => call('pdfedit_open', path),
+    pdfeditBlocks:       (path, page=0)            => call('pdfedit_blocks', path, page),
+    pdfeditPagePng:      (path, page=0, scale=1.5) => call('pdfedit_page_png', path, page, scale),
+    pdfeditApply:        (path, edits, opts={})    => call('pdfedit_apply', path, edits, opts),
+    pdfeditFonts:        ()                        => call('pdfedit_fonts'),
     // Image
-    cropImage:           (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
+    cropImage:          (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),
     compressImage:       (path, quality=70, maxEdge=0, fmt='', out='', targetKb=0, saveSmallest=true) => call('compress_image', path, quality, maxEdge, fmt, out, targetKb, saveSmallest),
     compressImages:      (paths, quality=70, maxEdge=0, fmt='', targetKb=0)        => call('compress_images', paths, quality, maxEdge, fmt, targetKb),

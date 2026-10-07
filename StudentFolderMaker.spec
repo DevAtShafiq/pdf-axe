@@ -55,6 +55,8 @@ datas = [
     ("pdf_tools_bridge.py",  "."),
     ("annotate.py",          "."),   # annotation engine (PDF + image)
     ("annotate_bridge.py",   "."),
+    ("pdf_edit.py",          "."),   # PDF text editing engine (Edit text)
+    ("pdf_edit_bridge.py",   "."),
     ("qr_scan.py",           "."),
     ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
     ("image_crop.py",        "."),
@@ -89,6 +91,8 @@ hiddenimports = [
     "pdf_tools_bridge",
     "annotate",
     "annotate_bridge",
+    "pdf_edit",
+    "pdf_edit_bridge",
     "qr_scan",
     "qr_pick",
     "image_crop",
