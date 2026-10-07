@@ -267,6 +267,16 @@ const App = (() => {
   }
 
   // ── Global Keyboard Shortcuts ─────────────────────────────────────────────
+  // Where the user last clicked: 'list' (file list) or 'other' — decides
+  // whether Ctrl+C copies files or selected text.
+  let _lastZone = 'other';
+  document.addEventListener('pointerdown', e => {
+    const inList = e.target && e.target.closest && e.target.closest('#pane-filelist');
+    _lastZone = inList ? 'list' : 'other';
+    // Clicking a file drops any text selection left in the preview.
+    if (inList && e.target.closest('.file-item')) { const s = window.getSelection(); if (s && !s.isCollapsed) s.removeAllRanges(); }
+  }, true);
+
   function _initKeyboard() {
     document.addEventListener('keydown', e => {
       // Don't hijack keys while the user is typing in a text field —
@@ -285,10 +295,16 @@ const App = (() => {
       if (ctrl && key === 'z' && !shift) { e.preventDefault(); undo(); return; }
       if (ctrl && (key === 'y' || (key === 'z' && shift))) { e.preventDefault(); redo(); return; }
       if (ctrl && key === 'c' && !shift) {
-        // Selected text (PDF text layer, Word/Excel preview …) → the browser copies it.
+        // Copy what the user last worked with: after a click in the file list,
+        // copy the selected FILES (a text selection left over in the preview
+        // must not win); after selecting text elsewhere (PDF text layer,
+        // Word/Excel preview …) let the browser copy that text.
         const sel = window.getSelection();
-        const onList = t && (t.id === 'filelist-list' || t.id === 'filelist-thumb');
+        const onList = _lastZone === 'list' ||
+          (t && (t.id === 'filelist-list' || t.id === 'filelist-thumb'));
         if (!onList && sel && !sel.isCollapsed && sel.toString().trim()) return;
+        if (sel && !sel.isCollapsed) sel.removeAllRanges();
+        e.preventDefault();
         FileTree.copySelection(); return;
       }
       if (ctrl && key === 'x')           { FileTree.cutSelection();  return; }

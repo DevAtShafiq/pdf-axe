@@ -388,13 +388,16 @@ const FileTree = (() => {
     el.addEventListener('contextmenu', e => _handleRowCtx(e, entry));
   }
 
+  const SLOW_CLICK_RENAME = false;
   function _handleRowClick(e, idx, entry) {
     // Explorer "slow second click": a plain click on the name of the item that
     // was already the only selection (for > 500 ms) starts renaming it, unless
     // it turns into a double-click.
     clearTimeout(_slowTimer);
     const wasSole = _selected.size === 1 && _selected.has(entry.path) && _focusIdx === idx;
-    if (wasSole && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0 && e.detail === 1
+    // Off by default: it opened the rename box by surprise, and Ctrl+C then
+    // copied the file NAME instead of the file. Rename with F2 / menu / tile.
+    if (SLOW_CLICK_RENAME && wasSole && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0 && e.detail === 1
         && e.target && e.target.closest && e.target.closest('.name, .thumb-name')
         && Date.now() - _soleSince > 500 && !_edit) {
       _slowTimer = setTimeout(() => {
