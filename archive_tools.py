@@ -156,9 +156,11 @@ def _clean_out_name(name: str, ext: str) -> str:
 
 
 def _strip_suffixes(stem: str) -> str:
+    # 'doc_protected (2)' -> 'doc' so removing a password gives 'doc_unlocked'
+    base = re.sub(r" \(\d+\)$", "", stem)
     for suf in (PROTECTED_SUFFIX, UNLOCKED_SUFFIX):
-        if stem.lower().endswith(suf):
-            return stem[: -len(suf)] or stem
+        if base.lower().endswith(suf):
+            return base[: -len(suf)] or stem
     return stem
 
 
@@ -216,7 +218,18 @@ def _is_encrypted(info) -> bool:
 
 
 def _is_aes(info) -> bool:
-    return info.compress_type == AES_COMPRESS_TYPE
+    # stdlib zipfile reports AES entries as method 99; pyzipper decodes the real
+    # method and keeps the WinZip AES extra field (header id 0x9901).
+    if info.compress_type == AES_COMPRESS_TYPE:
+        return True
+    extra = getattr(info, "extra", b"") or b""
+    i = 0
+    while i + 4 <= len(extra):
+        hid = int.from_bytes(extra[i:i + 2], "little"); ln = int.from_bytes(extra[i + 2:i + 4], "little")
+        if hid == 0x9901:
+            return True
+        i += 4 + ln
+    return False
 
 
 def _open_reader(path: str):
