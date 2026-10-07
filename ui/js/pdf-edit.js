@@ -681,10 +681,8 @@ var PdfEdit = (() => {
       drag = { mode: handle ? 'width' : 'move', s, p, start: pt, bbox: textBoxRect(e0), moved: false, snapped: false };
       capture(e);
     });
-    function textBoxRect(e) {
-      if (e.kind === 'add' || !e.changed) { if (e.kind !== 'add' && !e.changed) return e.bbox.slice(); }
-      const tb = textBox(e); return e.single ? [e.bbox[0], e.bbox[1], e.bbox[2], e.bbox[3]] : [tb.x, tb.y, tb.x + tb.w, tb.y + tb.h];
-    }
+    // the box a move / width drag starts from: the block's (possibly moved) bbox
+    const textBoxRect = e => e.bbox.slice();
     function capture(e) { try { pagesEl.setPointerCapture(e.pointerId); } catch (_) {} }
     pagesEl.addEventListener('pointermove', e => {
       if (!drag) return;

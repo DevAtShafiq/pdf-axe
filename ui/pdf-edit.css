@@ -1,0 +1,79 @@
+/* ============================================================
+   pdf-edit.css — full-window PDF text editor (ui/js/pdf-edit.js).
+   Reuses the annotation editor shell (.an-editor/.an-bar/… in
+   annotate.css); tokens only. The page is paper-white in both themes.
+   ============================================================ */
+
+.pe-bar .pe-add-btn { gap: 6px; }
+.pe-bar .pe-add-btn.active { background: var(--accent-subtle); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
+.pe-bar .icon-btn.pe-tool.active { background: var(--accent-subtle); color: var(--accent-text); }
+.pe-style { gap: var(--space-1); }
+.pe-style.is-off { opacity: .55; }
+.pe-font { width: 150px; height: var(--control-h-sm); padding: 0 var(--space-2); font-size: var(--fs-sm); }
+.pe-size { width: 58px; height: var(--control-h-sm); padding: 0 var(--space-1) 0 var(--space-2); font-size: var(--fs-sm); }
+.pe-color {
+  position: relative; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius); cursor: pointer;
+}
+.pe-color:hover { background: var(--bg-hover); }
+.pe-color input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; border: none; padding: 0; }
+.pe-color-sw { width: 16px; height: 16px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--border-strong); pointer-events: none; }
+.pe-align .seg-btn { padding: 0 6px; height: var(--control-h-sm); }
+.pe-align .seg-btn.active { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.pe-imgtools .btn { gap: 6px; }
+.an-hintbar.pe-hint-warn { color: var(--text-primary); background: var(--yellow-subtle); }
+.an-hintbar.pe-hint-warn svg { color: var(--yellow); }
+
+.pe-notice {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  margin: var(--space-2) var(--space-4) 0; border-radius: var(--radius-lg);
+}
+.pe-notice.hidden { display: none; }
+.pe-notice .callout-body { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.pe-notice-x { margin: -2px -4px 0 0; }
+
+/* ── page layer ─────────────────────────────────────────────── */
+.pe-layer { position: absolute; inset: 0; }
+.pe-item { position: absolute; box-sizing: border-box; }
+.pe-block { cursor: text; border-radius: 1px; }
+.pe-editor[data-mode="select"] .pe-block:hover { outline: 1px dashed var(--accent); outline-offset: 1px; }
+.pe-block.pe-locked { cursor: default; }
+.pe-editor[data-mode="select"] .pe-block.pe-locked:hover { outline-color: var(--text-muted); }
+.pe-block.is-sel { outline: 1.5px solid var(--accent) !important; outline-offset: 1px; cursor: move; }
+.pe-block.is-deleted { outline: none !important; pointer-events: none; }
+.pe-block.is-editing { outline: none !important; }
+.pe-imgbox { cursor: pointer; }
+.pe-imgbox.pe-bgimg { pointer-events: none; }
+.pe-editor[data-mode="select"] .pe-imgbox:hover { outline: 1px dashed var(--purple); outline-offset: 1px; }
+.pe-imgbox.is-sel { outline: 1.5px solid var(--purple); outline-offset: 1px; }
+.pe-editor[data-mode="add"] .pe-page, .pe-editor[data-mode="add"] .pe-item { cursor: crosshair; }
+
+/* live edits: paper patch over the original + the new text */
+.pe-patch { position: absolute; inset: 0; background: #fff; }                    /* paper */
+.pe-patch-abs { inset: auto; pointer-events: none; }
+.pe-newimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pe-text { position: absolute; left: 0; top: 0; right: 0; overflow: visible; pointer-events: none; }
+.pe-added { outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+
+.pe-handle {
+  position: absolute; right: -6px; top: 50%; width: 8px; height: 16px; margin-top: -8px;
+  background: #fff; border: 1.5px solid var(--accent); border-radius: 2px; cursor: ew-resize;
+}
+
+/* inline editor, placed exactly over the block */
+.pe-editbox {
+  position: absolute; z-index: 3; margin: 0; box-sizing: border-box; resize: none; overflow: hidden;
+  background: #fff; border: 1px dashed var(--accent); border-radius: 0; outline: none;      /* paper */
+  box-shadow: 0 0 0 3px var(--accent-ring, transparent);
+}
+
+/* scanned page banner */
+.pe-scan {
+  position: absolute; left: 12px; right: 12px; top: 12px; z-index: 2;
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-lg);
+  background: var(--bg-surface); color: var(--text-primary); font-size: var(--fs-sm);
+  border: 1px solid var(--yellow); box-shadow: var(--shadow-popup);
+}
+.pe-scan svg { color: var(--yellow); flex-shrink: 0; }
+.pe-scan.hidden { display: none; }
