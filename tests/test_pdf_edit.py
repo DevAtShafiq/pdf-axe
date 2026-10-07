@@ -312,6 +312,37 @@ def test_stale_block(tmp_path):
     assert ei.value.code == "stale"
 
 
+def test_tight_neighbours_widget_and_user_redaction(tmp_path):
+    """Lines set solid (leading == size) stay intact; a form field over the edited
+    text and an unapplied Redact annotation elsewhere are left alone."""
+    p = str(tmp_path / "tight.pdf")
+    doc = fitz.open()
+    pg = doc.new_page(width=400, height=300)
+    pg.insert_text((40, 100), "Upper line Alpha", fontsize=12, fontname="helv")
+    pg.insert_text((40, 112), "Lower line Beta", fontsize=12, fontname="tiro")
+    pg.insert_text((40, 124), "Third line Gamma", fontsize=12, fontname="helv")
+    w = fitz.Widget()
+    w.field_name = "over"
+    w.field_type = fitz.PDF_WIDGET_TYPE_CHECKBOX
+    w.rect = fitz.Rect(70, 100, 85, 115)
+    pg.add_widget(w)
+    pg.add_redact_annot(fitz.Rect(40, 200, 200, 220))
+    pg.insert_text((45, 214), "Keep me", fontsize=12, fontname="helv")
+    doc.save(p)
+    doc.close()
+    b, _ = _block(p, "Lower line")
+    assert b["text"] == "Lower line Beta"
+    out = pe.apply_edits(p, [{"type": "text", "page": 0, "block_id": b["id"],
+                              "new_text": "Lower line Changed"}])["out_path"]
+    txt = _page_text(out)
+    assert "Upper line Alpha" in txt and "Third line Gamma" in txt and "Lower line Changed" in txt
+    assert "Beta" not in txt
+    assert "Keep me" in txt                                   # user's redaction not applied
+    with fitz.open(out) as d:
+        assert [w.field_name for w in d[0].widgets()] == ["over"]
+        assert any(a.type[0] == fitz.PDF_ANNOT_REDACT for a in d[0].annots())
+
+
 def test_fonts_list():
     fams = pe.available_fonts()
     if HAVE_ARIAL:
