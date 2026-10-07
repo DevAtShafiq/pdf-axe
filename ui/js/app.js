@@ -278,7 +278,8 @@ const App = (() => {
       const ctrl  = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const alt   = e.altKey;
-      const key   = e.key;
+      // Letters compared lower-case: with Caps Lock on, Ctrl+C reports 'C'.
+      const key   = (e.key && e.key.length === 1) ? e.key.toLowerCase() : e.key;
 
       // Prevent default for our shortcuts
       if (ctrl && key === 'z' && !shift) { e.preventDefault(); undo(); return; }
@@ -292,7 +293,7 @@ const App = (() => {
       }
       if (ctrl && key === 'x')           { FileTree.cutSelection();  return; }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
-      if (ctrl && shift && key === 'N')  { e.preventDefault(); FileTree.newFolder(); return; }
+      if (ctrl && shift && key === 'n')  { e.preventDefault(); FileTree.newFolder(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
       if (key === 'F5')                  { e.preventDefault(); FileTree.refresh(); return; }
       if (key === 'F2')                  { e.preventDefault(); FileTree.startRename(); return; }

@@ -573,7 +573,7 @@ const FileTree = (() => {
         return;
 
       // ── Ctrl+A: select all ─────────────────────────────────────────────
-      } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+      } else if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         _filtered.forEach(en => _selected.add(en.path));
         _renderCurrent();
