@@ -26,9 +26,9 @@ for _f in _glob.glob("ui/**/*", recursive=True):
 
 # ── User data files that must live next to the EXE ───────────────────────────
 _user_data = []
+# Never bundle .env (OpenAI key, server secrets) or sfm_settings.json
+# (personal settings / API key): the EXE is shared with staff.
 for _fname in (
-    ".env",
-    "sfm_settings.json",
     "document_name_templates.txt",
     "sfm_rename_templates.json",
     "sfm_name_templates.json",
@@ -214,7 +214,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="StudentFolderMaker",
+    name="OfficeAxe",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -236,5 +236,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=["webview*", "clr*", "*.dll"],
-    name="StudentFolderMaker",
+    name="OfficeAxe",
 )
