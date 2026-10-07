@@ -169,6 +169,15 @@ const SFM = (() => {
     pdfSetPassword:      (path, userPw, ownerPw='', perms=null, currentPw='') => call('pdf_set_password', path, userPw, ownerPw, perms, currentPw),
     pdfRemovePassword:   (path, pw)                => call('pdf_remove_password', path, pw),
     pdfUnlockPreview:    (path, pw)                => call('pdf_unlock_preview', path, pw),
+    // Annotation editor (annotate_bridge.py)
+    annotLoad:           (path)                    => call('annot_load', path),
+    annotPagePng:        (path, page=0, scale=1.5) => call('annot_page_png', path, page, scale),
+    annotWords:          (path, page=0)            => call('annot_words', path, page),
+    annotSave:           (path, anns, opts={})     => call('annot_save', path, anns, opts),
+    annotAuthor:         ()                        => call('annot_author'),
+    annotSignatures:     ()                        => call('annot_signatures'),
+    annotSignatureSave:  (dataUrl)                 => call('annot_signature_save', dataUrl),
+    annotSignatureForget:(index)                   => call('annot_signature_forget', index),
     // Image
     cropImage:           (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),

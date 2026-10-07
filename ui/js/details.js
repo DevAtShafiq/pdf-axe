@@ -151,6 +151,7 @@ const Details = (() => {
     wire('qa-convert-pdf', () => { if (_path) ConvertTools.quickImageToPdf(_path); });
     wire('qa-convert-img', () => { if (_path) ConvertTools.openConvertImage([_path]); });
     wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
+    wire('qa-annotate',    () => { if (_path && window.Annotate) Annotate.open(_path); });
     wire('qa-compress',    () => {
       if (!_path) return;
       ConvertTools.openCompress([_path]);
@@ -167,6 +168,7 @@ const Details = (() => {
     show('qa-convert-img', isImg);
     show('qa-pdf-images',  isPdf);
     show('qa-compress',    isImg || isPdf);
+    show('qa-annotate',    file && !!window.Annotate && Annotate.canAnnotate(entry.path));
   }
 
   // ── AI Photo section ──────────────────────────────────────────────────────
