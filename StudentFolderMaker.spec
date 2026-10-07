@@ -3,6 +3,9 @@
 # StudentFolderMaker v2 — PyWebView build (onedir)
 # Entry point : main_webview.py  (PyWebView + SFMBridge)
 # UI assets   : ui/ folder (HTML / CSS / JS) — bundled via glob below
+#               (includes ui/js/account.js for the sign-in / subscription screen)
+# Cloud       : cloud_client.py talks to the account server in server/
+#               (the server itself is deployed separately — see server/README.md)
 #
 # Run once to test without building:
 #   python main_webview.py
@@ -23,9 +26,9 @@ for _f in _glob.glob("ui/**/*", recursive=True):
 
 # ── User data files that must live next to the EXE ───────────────────────────
 _user_data = []
+# Never bundle .env (OpenAI key, server secrets) or sfm_settings.json
+# (personal settings / API key): the EXE is shared with staff.
 for _fname in (
-    ".env",
-    "sfm_settings.json",
     "document_name_templates.txt",
     "sfm_rename_templates.json",
     "sfm_name_templates.json",
@@ -38,12 +41,31 @@ datas = [
     ("sfm_bridge.py",   "."),
     ("main_webview.py", "."),
     ("file_ops.py",     "."),
-    ("apostille_matcher.py",   "."),
-    ("watch_folder_service.py","."),
     ("ai_photo_editor.py",     "."),
     ("qr_screen_capture.py",   "."),
+    ("rename_templates.py",    "."),   # document-name templates (F2 rename suggestions)
     ("student_folder_maker.py","."),   # lazily imported for rename templates
     ("excel_grid.py",          "."),   # imported by student_folder_maker
+    ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
+    ("media_convert.py",       "."),   # image<->PDF conversion + PDF/image compression
+    ("cloud_bridge.py",        "."),   # account / cloud methods of the JS bridge
+    ("office_bridge.py",       "."),   # office + shared drive methods of the JS bridge
+    ("secure_store.py",        "."),   # DPAPI protection of the stored session token
+    ("pdf_tools.py",         "."),
+    ("pdf_tools_bridge.py",  "."),
+    ("annotate.py",          "."),   # annotation engine (PDF + image)
+    ("annotate_bridge.py",   "."),
+    ("pdf_edit.py",          "."),   # PDF text editing engine (Edit text)
+    ("pdf_edit_bridge.py",   "."),
+    ("qr_scan.py",           "."),
+    ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
+    ("image_crop.py",        "."),
+    ("archive_tools.py",     "."),
+    ("archive_bridge.py",    "."),
+    ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
+    ("doc_preview.py",       "."),   # PDF text layer + Word/Excel/Office previews
+    ("doc_preview_bridge.py", "."),
+    ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -53,14 +75,33 @@ binaries: list = []
 hiddenimports = [
     # ── App modules ──────────────────────────────────────────────────────────
     "file_ops",
-    "apostille_matcher",
-    "watch_folder_service",
     "ai_photo_editor",
     "qr_screen_capture",
+    "rename_templates",
     "excel_grid",
     "student_folder_maker",
     "sfm_bridge",
     "main_webview",
+    "cloud_client",
+    "media_convert",
+    "cloud_bridge",
+    "office_bridge",
+    "secure_store",
+    "pdf_tools",
+    "pdf_tools_bridge",
+    "annotate",
+    "annotate_bridge",
+    "pdf_edit",
+    "pdf_edit_bridge",
+    "qr_scan",
+    "qr_pick",
+    "image_crop",
+    "archive_tools",
+    "archive_bridge",
+    "recorder_bridge",
+    "doc_preview",
+    "doc_preview_bridge",
+    "screen_pick",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
@@ -86,8 +127,18 @@ hiddenimports = [
     "openpyxl.utils",
     # ── ZIP / network ────────────────────────────────────────────────────────
     "zipfile",
+    "pyzipper",
+    "Cryptodome",
+    "Cryptodome.Cipher.AES",
+    "Cryptodome.Protocol.KDF",
+    "Cryptodome.Hash.HMAC",
+    "Cryptodome.Hash.SHA1",
+    "Cryptodome.Util.Counter",
     "urllib.request",
+    "urllib.parse",
+    "urllib.error",
     "http.client",
+    "mimetypes",
     "ssl",
     # ── Screen / QR ─────────────────────────────────────────────────────────
     "mss",
@@ -171,7 +222,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="StudentFolderMaker",
+    name="OfficeAxe",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -193,5 +244,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=["webview*", "clr*", "*.dll"],
-    name="StudentFolderMaker",
+    name="OfficeAxe",
 )

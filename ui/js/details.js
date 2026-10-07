@@ -1,8 +1,8 @@
 /**
  * details.js — Right-hand details pane
  *
- * Shows file metadata, rename bar with autocomplete,
- * quick actions, and AI photo section.
+ * Shows file metadata, quick actions, and the AI photo section.
+ * (Rename is inline in the file list — see FileTree.startRename.)
  */
 
 const Details = (() => {
@@ -10,8 +10,6 @@ const Details = (() => {
   // ── State ─────────────────────────────────────────────────────────────────
   let _path         = null;
   let _entry        = null;
-  let _suggestions  = [];
-  let _acIdx        = -1;
 
   // ── DOM helpers ───────────────────────────────────────────────────────────
   const $  = id  => document.getElementById(id);
@@ -24,15 +22,17 @@ const Details = (() => {
     _showPanel();
     _renderBadge(entry);
     _renderRows(entry);
-    _setRenameValue(entry.name);
+    $('quick-actions').classList.remove('hidden');
+    _showConvertAction(entry);
     _showAiSection(entry);
+    // (const globals are not window properties — test with typeof)
+    if (typeof PdfTools !== 'undefined') PdfTools.onDetails(entry);
+    if (typeof Archive !== 'undefined') Archive.onDetails(entry);
 
     try {
       const info = await SFM.getFileInfo(entry.path);
       if (info.ok && _path === entry.path) _enrichDetails(info);
     } catch(e) {}
-
-    _loadSuggestions(entry);
   }
 
   // ── Public: multi-select summary ──────────────────────────────────────────
@@ -40,22 +40,24 @@ const Details = (() => {
     _path  = null;
     _entry = null;
     _showPanel();
-    $('file-type-badge').textContent = '📁';
-    $('file-type-badge').className   = 'type-badge type-folder';
+    $('file-type-badge').innerHTML = Icons.svg('files', 14) + '<span>' + entries.length + ' ITEMS</span>';
+    $('file-type-badge').className = 'type-badge type-file';
 
     const totalSize = entries.reduce((a, e) => a + (e.size || 0), 0);
     _clearRows();
     _addRow('Selected', entries.length + ' items');
     _addRow('Total size', _fmtSize(totalSize));
 
-    $('rename-wrap').classList.add('hidden');
     $('quick-actions').classList.add('hidden');
     $('ai-photo-section').classList.add('hidden');
+    if (typeof PdfTools !== 'undefined') PdfTools.onDetails(null, entries);
+    if (typeof Archive !== 'undefined') Archive.onDetails(null, entries);
   }
 
   // ── Public: clear panel ───────────────────────────────────────────────────
   function clear() {
     _path = null; _entry = null;
+    if (typeof Archive !== 'undefined') Archive.onDetails(null, []);
     $('details-empty').classList.remove('hidden');
     $('details-content').classList.add('hidden');
   }
@@ -80,10 +82,12 @@ const Details = (() => {
       '.txt': ['TXT','type-txt'], '.md':  ['MD','type-txt'],
     };
     if (entry.is_dir) {
-      badge.textContent = '📁'; badge.className = 'type-badge type-folder';
+      badge.innerHTML = Icons.svg('folder', 14) + '<span>FOLDER</span>';
+      badge.className = 'type-badge type-folder';
     } else {
       const [label, cls] = iconMap[ext] || [ext.replace('.','').toUpperCase() || 'FILE', 'type-file'];
-      badge.textContent = label; badge.className = `type-badge ${cls}`;
+      badge.innerHTML = Icons.svg(Icons.fileType(ext).icon, 14) + '<span>' + _esc(label) + '</span>';
+      badge.className = `type-badge ${cls}`;
     }
   }
 
@@ -107,12 +111,14 @@ const Details = (() => {
     _addRow('Name', entry.name);
     _addRow('Type', entry.is_dir ? 'Folder' : (entry.ext || 'File').replace('.','').toUpperCase());
     if (!entry.is_dir) _addRow('Size', _fmtSize(entry.size));
-    _addRow('Modified', _fmtDate(entry.modified));
+    _addRow('Modified', _fmtDate(entry.mtime || entry.modified));
     _addRow('Location', _shortPath(entry.path));
   }
 
   function _enrichDetails(info) {
     if (info.pages)    _addRow('Pages', info.pages);
+    if (info.slides)   _addRow('Slides', info.slides);
+    if (info.words)    _addRow('Words', Number(info.words).toLocaleString());
     if (info.author)   _addRow('Author', info.author);
     if (info.created)  _addRow('Created', _fmtDate(info.created));
     if (info.title)    _addRow('Title', info.title);
@@ -120,120 +126,8 @@ const Details = (() => {
     if (info.sheets?.length) _addRow('Sheets', info.sheets.join(', '));
   }
 
-  // ── Rename bar ────────────────────────────────────────────────────────────
-  function _setRenameValue(name) {
-    const input = $('rename-input');
-    if (!input) return;
-    input.value = name;
-    $('rename-wrap').classList.remove('hidden');
-    $('quick-actions').classList.remove('hidden');
-  }
-
-  async function _loadSuggestions(entry) {
-    try {
-      const r = await SFM.filterSuggestions('', entry.ext || '');
-      _suggestions = r.ok ? (r.suggestions || []) : [];
-    } catch(e) { _suggestions = []; }
-  }
-
-  function _initRenameBar() {
-    const input = $('rename-input');
-    const ac    = $('rename-autocomplete');
-    if (!input || !ac) return;
-
-    input.addEventListener('input', async () => {
-      const q = input.value.trim();
-      _acIdx  = -1;
-      if (!q) { _hideAc(); return; }
-      try {
-        const ext = _entry?.ext || '';
-        const r   = await SFM.filterSuggestions(q, ext);
-        _showAc(r.ok ? (r.suggestions || []) : [], input);
-      } catch(e) { _hideAc(); }
-    });
-
-    input.addEventListener('keydown', async e => {
-      const items = ac.querySelectorAll('.ac-item');
-      if (e.key === 'ArrowDown') { e.preventDefault(); _acIdx = Math.min(_acIdx + 1, items.length - 1); _acHighlight(items); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); _acIdx = Math.max(_acIdx - 1, -1); _acHighlight(items); }
-      else if (e.key === 'Enter' && e.shiftKey) {
-        // Shift+Enter: apply the best template suggestion for this file, then rename.
-        e.preventDefault();
-        let chosen = null;
-        if (_acIdx >= 0 && items[_acIdx]) chosen = items[_acIdx].dataset.val;   // highlighted suggestion
-        else if (items.length)            chosen = items[0].dataset.val;        // top listed suggestion
-        else {
-          // No dropdown open — fetch the best matching template for the current name/ext.
-          try {
-            const r = await SFM.filterSuggestions(input.value.trim(), _entry?.ext || '');
-            const sugg = (r.ok && r.suggestions) ? r.suggestions : [];
-            if (sugg.length) chosen = sugg[0];
-          } catch (_) {}
-        }
-        if (chosen) input.value = chosen;      // fall back to the typed value when nothing matched
-        _hideAc();
-        _commitRename();
-      }
-      else if (e.key === 'Enter') {
-        // Plain Enter only accepts a highlighted autocomplete suggestion.
-        if (_acIdx >= 0 && items[_acIdx]) { e.preventDefault(); input.value = items[_acIdx].dataset.val; _hideAc(); }
-      }
-      else if (e.key === 'Escape') { _hideAc(); input.value = _entry?.name || ''; }
-    });
-
-    input.addEventListener('blur', () => { setTimeout(_hideAc, 120); });
-
-    const btn = $('rename-btn');
-    if (btn) btn.addEventListener('click', _commitRename);
-  }
-
-  function _showAc(items, input) {
-    const ac = $('rename-autocomplete');
-    if (!ac) return;
-    ac.innerHTML = '';
-    items.slice(0, 12).forEach(val => {
-      const d = document.createElement('div');
-      d.className = 'ac-item'; d.dataset.val = val;
-      d.textContent = val;
-      d.addEventListener('mousedown', e => { e.preventDefault(); input.value = val; _hideAc(); });
-      ac.appendChild(d);
-    });
-    ac.classList.toggle('hidden', items.length === 0);
-  }
-
-  function _hideAc() {
-    const ac = $('rename-autocomplete');
-    if (ac) ac.classList.add('hidden');
-    _acIdx = -1;
-  }
-
-  function _acHighlight(items) {
-    items.forEach((el, i) => el.classList.toggle('active', i === _acIdx));
-    if (_acIdx >= 0 && items[_acIdx]) $('rename-input').value = items[_acIdx].dataset.val;
-  }
-
-  async function _commitRename() {
-    const input = $('rename-input');
-    if (!input || !_path) return;
-    const newName = input.value.trim();
-    if (!newName || newName === _entry?.name) return;
-
-    const r = await SFM.renameFile(_path, newName);
-    if (r.ok) {
-      App.pushUndo({
-        label: `Rename → ${newName}`,
-        undo: async () => { await SFM.renameFile(r.new_path, _entry.name); FileTree.refresh(); },
-        redo: async () => { await SFM.renameFile(_path, newName); FileTree.refresh(); }
-      });
-      _path = r.new_path;
-      if (_entry) _entry = { ..._entry, name: newName, path: r.new_path };
-      App.toast(`Renamed to ${newName}`, 'success');
-      FileTree.refresh();
-    } else {
-      App.toast('Rename failed: ' + r.error, 'error');
-      input.value = _entry?.name || '';
-    }
-  }
+  // Renaming happens inline in the file list (FileTree.startRename: F2,
+  // slow second click, context menu, "Rename (F2)" quick action).
 
   // ── Quick actions ─────────────────────────────────────────────────────────
   function _initQuickActions() {
@@ -241,28 +135,43 @@ const Details = (() => {
 
     wire('qa-open',    () => { if (_path) SFM.openNative(_path); });
     wire('qa-opendir', () => { if (_path) SFM.openFolder(_path.replace(/[\\/][^\\/]+$/, '')); });
+    wire('qa-rename',  () => { if (_path) FileTree.startRename(_path); });
     wire('qa-copy-path', () => {
       if (!_path) return;
-      navigator.clipboard.writeText(_path).catch(() => SFM.setClipboard(_path));
-      App.toast('Path copied', 'success');
+      SFM.copyText(_path).then(ok => App.toast(ok ? 'Path copied' : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
     wire('qa-delete',  async () => {
       if (!_path) return;
       const n = _entry?.name || _path;
-      if (!confirm(`Move "${n}" to _to_review/?`)) return;
+      if (!(await Dialogs.confirm({ title: 'Move to review', icon: 'archive', tone: 'warning', okLabel: 'Move to review', okIcon: 'archive', message: `Move “${n}” to the _to_review folder?`, detail: 'Nothing is deleted — it is moved into a _to_review folder next to it, where you can restore it.' }))) return;
       const r = await SFM.softDelete([_path]);
       if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); clear(); }
       else       { App.toast('Failed: ' + r.error, 'error'); }
     });
-    wire('qa-convert-pdf', async () => {
+    // Conversion / compression (convert-tools.js)
+    wire('qa-convert-pdf', () => { if (_path) ConvertTools.quickImageToPdf(_path); });
+    wire('qa-convert-img', () => { if (_path) ConvertTools.openConvertImage([_path]); });
+    wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
+    wire('qa-annotate',    () => { if (_path && window.Annotate) Annotate.open(_path); });
+    wire('qa-edit-text',   () => { if (_path && window.PdfEdit) PdfEdit.open(_path); });
+    wire('qa-compress',    () => {
       if (!_path) return;
-      App.setStatus('Converting to PDF…', true);
-      const r = await SFM.convertToPdf(_path);
-      App.setStatus('Ready');
-      if (r.ok) { App.toast('Converted: ' + r.out, 'success'); FileTree.refresh(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
+      ConvertTools.openCompress([_path]);
     });
-    wire('qa-print', () => { if (_path) Dialogs.openPrint(_path); });
+  }
+
+  // Image → PDF / format / compress for images; → images / compress for PDFs.
+  function _showConvertAction(entry) {
+    const file  = entry && !entry.is_dir;
+    const isImg = file && ConvertTools.isImage(entry.path);
+    const isPdf = file && ConvertTools.isPdf(entry.path);
+    const show = (id, on) => { const b = $(id); if (b) b.classList.toggle('hidden', !on); };
+    show('qa-convert-pdf', isImg);
+    show('qa-convert-img', isImg);
+    show('qa-pdf-images',  isPdf);
+    show('qa-compress',    isImg || isPdf);
+    show('qa-annotate',    file && !!window.Annotate && Annotate.canAnnotate(entry.path));
+    show('qa-edit-text',   isPdf && !!window.PdfEdit);
   }
 
   // ── AI Photo section ──────────────────────────────────────────────────────
@@ -270,28 +179,22 @@ const Details = (() => {
     const imgExts = ['.jpg','.jpeg','.png','.bmp','.webp'];
     const isImg   = imgExts.includes((entry.ext||'').toLowerCase());
     $('ai-photo-section').classList.toggle('hidden', !isImg);
+    if (isImg && typeof AiPhoto !== 'undefined') AiPhoto.onShowFile(entry);
+  }
+
+  // Shared AI photo runner (also used by the context menu). The flow — plan
+  // gate, API-key check, options, busy state, result reveal and before/after —
+  // lives in photo-tools.js (AiPhoto). Resolves with the ai_photo_result payload.
+  function runAiPhoto(path, action) {
+    return AiPhoto.run(path, action || 'wear_suit');
   }
 
   function _initAiPhoto() {
-    const wire = (id, action) => {
-      const el = $(id);
-      if (!el) return;
-      el.addEventListener('click', async () => {
-        if (!_path) return;
-        const key = (await SFM.getApiKey()).key || '';
-        if (!key) { App.toast('Set your API key in Settings first', 'error'); return; }
-        App.setStatus('Running AI…', true);
-        App.toast('Processing image…', 'info');
-        const r = await SFM.runAiPhoto(_path, action, null, key);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Done: ' + r.out, 'success'); FileTree.refresh(); }
-        else       { App.toast('AI failed: ' + r.error, 'error'); }
-      });
-    };
-    wire('ai-remove-bg', 'remove_background');
-    wire('ai-enhance',   'enhance');
-    wire('ai-upscale',   'upscale');
-    wire('ai-to-bw',     'to_bw');
+    document.querySelectorAll('#ai-photo-section [data-ai-action]').forEach(btn => {
+      btn.addEventListener('click', () => { if (_path) runAiPhoto(_path, btn.dataset.aiAction); });
+    });
+    const crop = $('ai-crop');
+    if (crop) crop.addEventListener('click', () => { if (_path) Cropper.open(_path); });
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -322,45 +225,17 @@ const Details = (() => {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
-    _initRenameBar();
     _initQuickActions();
     _initAiPhoto();
     clear();
   }
   init();
 
-  // ── Public: beginRename — F2 shortcut ────────────────────────────────────
-  function beginRename() {
-    const input = $('rename-input');
-    if (!input || !_path) return;
-    input.focus();
-    const name = input.value;
-    const dot  = name.lastIndexOf('.');
-    input.setSelectionRange(0, dot > 0 ? dot : name.length);
+  // ── Public: beginRename — compatibility shim (old details-pane rename box).
+  // Starts the inline rename in the file list; `text` pre-fills the box.
+  function beginRename(text) {
+    return FileTree.startRename(_path || undefined, text);
   }
 
-  // ── Public: translateRename — toolbar 🇰🇷 button ─────────────────────────
-  async function translateRename() {
-    if (!_path) { App.toast('Select a file first', 'warning'); return; }
-    const name = _entry?.name || '';
-    const stem = name.replace(/\.[^.]+$/, '');
-    App.setStatus('Translating…', true);
-    try {
-      const r = await SFM.translateKorean(stem);
-      App.setStatus('Ready');
-      if (r.ok && r.text) {
-        const ext   = _entry?.ext || '';
-        const input = $('rename-input');
-        if (input) { input.value = r.text + ext; input.focus(); }
-        App.toast('Korean: ' + r.text, 'info', 5000);
-      } else {
-        App.toast('Translation failed: ' + (r.error || ''), 'error');
-      }
-    } catch(e) {
-      App.setStatus('Ready');
-      App.toast('Translation error', 'error');
-    }
-  }
-
-  return { showFile, showMultiple, clear, beginRename, translateRename };
+  return { showFile, showMultiple, clear, beginRename, runAiPhoto };
 })();

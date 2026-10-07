@@ -1,6 +1,6 @@
 /**
  * app.js — Core application: state, routing, toasts, keyboard shortcuts,
- *           undo/redo registry, pane resizing, cost poller.
+ *           undo/redo registry, pane resizing, theme toggle.
  */
 
 // ── Global App State ─────────────────────────────────────────────────────────
@@ -22,8 +22,6 @@ const App = (() => {
     thumbZoom:       100,      // %
     searchQuery:     '',
     currentPanel:    'workspace',
-    costPollTimer:   null,
-    watchPollTimer:  null,
   };
 
   // ── Panel Switching ───────────────────────────────────────────────────────
@@ -31,9 +29,11 @@ const App = (() => {
     state.currentPanel = name;
     document.querySelectorAll('.panel-view').forEach(el => {
       el.style.display = 'none';
+      el.classList.add('hidden');
     });
     const target = document.getElementById(`panel-${name}`);
-    if (target) target.style.display = 'flex';
+    // .hidden is display:none !important, so it must come off as well
+    if (target) { target.classList.remove('hidden'); target.style.display = 'flex'; }
 
     document.querySelectorAll('.sidebar-btn[data-panel]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.panel === name);
@@ -42,11 +42,12 @@ const App = (() => {
 
   // ── Toast Notifications ───────────────────────────────────────────────────
   function toast(message, type = 'info', duration = 3500) {
-    const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+    const icons = { info: 'info', success: 'check-circle', error: 'x-circle', warning: 'alert-triangle' };
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
     el.className = `toast ${type}`;
-    el.innerHTML = `<span class="icon">${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    el.innerHTML = `<span class="icon">${Icons.svg(icons[type] || 'info', 16)}</span><span>${message}</span>`;
     container.appendChild(el);
     setTimeout(() => {
       el.classList.add('fade-out');
@@ -165,7 +166,8 @@ const App = (() => {
       const row = document.createElement('div');
       row.style.cssText = 'padding:6px 14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       row.title = f;
-      row.innerHTML = '📂 ' + f.split(/[\\/]/).slice(-2).join('/');
+      row.innerHTML = Icons.svg('folder', 14, 'text-muted') + '<span class="truncate">'
+        + _escHtml(f.split(/[\\/]/).slice(-2).join('/')) + '</span>';
       row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-hover)');
       row.addEventListener('mouseleave', () => row.style.background = '');
       row.addEventListener('click', () => { dd.remove(); navigate(f); });
@@ -201,41 +203,22 @@ const App = (() => {
     document.getElementById('btn-nav-forward').disabled = state.historyFwd.length === 0;
   }
 
-  // ── Cost Polling ──────────────────────────────────────────────────────────
-  async function _pollCost() {
-    try {
-      const r = await SFM.getCost();
-      if (r.ok) {
-        const v = `$${r.cost_usd.toFixed(4)}`;
-        document.getElementById('cost-label').textContent = v;
-        document.getElementById('status-cost').textContent = `GPT: ${v}`;
-      }
-    } catch(e) {}
+  function _escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function startCostPoller() {
-    _pollCost();
-    state.costPollTimer = setInterval(_pollCost, 10000);
-  }
-
-  // ── Watch Polling ─────────────────────────────────────────────────────────
-  async function _pollWatch() {
-    try {
-      const r = await SFM.watchEntries();
-      if (!r.ok) return;
-      const watchEl  = document.getElementById('status-watch');
-      const watchTxt = document.getElementById('status-watch-text');
-      if (r.active > 0) {
-        watchEl.style.display = 'flex';
-        watchTxt.textContent = `Watch: ${r.active} active`;
-      } else {
-        watchEl.style.display = 'none';
-      }
-    } catch(e) {}
-  }
-
-  function startWatchPoller() {
-    state.watchPollTimer = setInterval(_pollWatch, 5000);
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  // Dark is the default (:root); light sets data-theme="light" on <html>.
+  function applyTheme(theme) {
+    const light = theme === 'light';
+    const html = document.documentElement;
+    if (light) html.setAttribute('data-theme', 'light'); else html.removeAttribute('data-theme');
+    window._sfmTheme = light ? 'light' : 'dark';
+    const tb = document.getElementById('btn-theme');
+    if (tb) {
+      tb.innerHTML = Icons.svg(light ? 'sun' : 'moon', 16);
+      tb.title = light ? 'Switch to dark theme' : 'Switch to light theme';
+    }
   }
 
   // ── Pane Resizing ─────────────────────────────────────────────────────────
@@ -284,6 +267,16 @@ const App = (() => {
   }
 
   // ── Global Keyboard Shortcuts ─────────────────────────────────────────────
+  // Where the user last clicked: 'list' (file list) or 'other' — decides
+  // whether Ctrl+C copies files or selected text.
+  let _lastZone = 'other';
+  document.addEventListener('pointerdown', e => {
+    const inList = e.target && e.target.closest && e.target.closest('#pane-filelist');
+    _lastZone = inList ? 'list' : 'other';
+    // Clicking a file drops any text selection left in the preview.
+    if (inList && e.target.closest('.file-item')) { const s = window.getSelection(); if (s && !s.isCollapsed) s.removeAllRanges(); }
+  }, true);
+
   function _initKeyboard() {
     document.addEventListener('keydown', e => {
       // Don't hijack keys while the user is typing in a text field —
@@ -295,19 +288,31 @@ const App = (() => {
       const ctrl  = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const alt   = e.altKey;
-      const key   = e.key;
+      // Letters compared lower-case: with Caps Lock on, Ctrl+C reports 'C'.
+      const key   = (e.key && e.key.length === 1) ? e.key.toLowerCase() : e.key;
 
       // Prevent default for our shortcuts
       if (ctrl && key === 'z' && !shift) { e.preventDefault(); undo(); return; }
       if (ctrl && (key === 'y' || (key === 'z' && shift))) { e.preventDefault(); redo(); return; }
-      if (ctrl && key === 'c' && !shift) { FileTree.copySelection(); return; }
+      if (ctrl && key === 'c' && !shift) {
+        // Copy what the user last worked with: after a click in the file list,
+        // copy the selected FILES (a text selection left over in the preview
+        // must not win); after selecting text elsewhere (PDF text layer,
+        // Word/Excel preview …) let the browser copy that text.
+        const sel = window.getSelection();
+        const onList = _lastZone === 'list' ||
+          (t && (t.id === 'filelist-list' || t.id === 'filelist-thumb'));
+        if (!onList && sel && !sel.isCollapsed && sel.toString().trim()) return;
+        if (sel && !sel.isCollapsed) sel.removeAllRanges();
+        e.preventDefault();
+        FileTree.copySelection(); return;
+      }
       if (ctrl && key === 'x')           { FileTree.cutSelection();  return; }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
-      if (ctrl && shift && key === 'N')  { e.preventDefault(); FileTree.newFolder(); return; }
-      if (ctrl && shift && key === 'Z')  { e.preventDefault(); FileTree.zipSelection(); return; }
+      if (ctrl && shift && key === 'n')  { e.preventDefault(); FileTree.newFolder(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
       if (key === 'F5')                  { e.preventDefault(); FileTree.refresh(); return; }
-      if (key === 'F2')                  { e.preventDefault(); Details.beginRename(); return; }
+      if (key === 'F2')                  { e.preventDefault(); FileTree.startRename(); return; }
       if (key === 'Delete')              { FileTree.deleteSelection(); return; }
       if (alt && key === 'ArrowLeft')    { e.preventDefault(); navBack(); return; }
       if (alt && key === 'ArrowRight')   { e.preventDefault(); navForward(); return; }
@@ -323,8 +328,7 @@ const App = (() => {
   function _initEventHandlers() {
     // Long-op log lines
     // Non-smart-split log events → console only (dialogs handle their own)
-    ['ocr_rename_log','split_ocr_log','report_log',
-     'apostille_log','watch_log'].forEach(ev => {
+    ['ocr_rename_log','split_ocr_log'].forEach(ev => {
       SFM.on(ev, ({ log }) => console.log(`[${ev}]`, log));
     });
     // smart_rename_log is handled inside Dialogs.openSmartSplitProgress — no global handler needed
@@ -346,17 +350,12 @@ const App = (() => {
       if (r.ok) { toast('Conversion complete', 'success'); FileTree.refresh(); }
       else       { toast('Conversion failed', 'error'); }
     });
-    SFM.on('zip_done',   r => { setStatus('Ready'); if(r.ok) toast('Zip complete','success'); else toast('Zip failed: '+r.error,'error'); FileTree.refresh(); });
-    SFM.on('unzip_done', r => { setStatus('Ready'); if(r.ok) toast('Unzip complete','success'); else toast('Unzip failed: '+r.error,'error'); FileTree.refresh(); });
-    SFM.on('report_done',r => { setStatus('Ready'); if(r.ok) toast('Report saved','success'); else toast('Report failed: '+r.error,'error'); });
     SFM.on('qr_result',  r => {
       setStatus('Ready');
       if (r.ok) {
         const decoded = r.text || r.url || '';
         const pageInfo = r.page ? ` (page ${r.page})` : '';
-        // Put decoded text into rename bar so user can use it immediately
-        const ri = document.getElementById('rename-input');
-        if (ri && decoded) ri.value = decoded;
+        // (Use FileTree.startRename(path, decoded) to offer it as a file name.)
         // If it looks like a URL, offer to open it
         if (decoded.match(/^https?:\/\//i)) {
           toast(`QR decoded${pageInfo}: ${decoded.slice(0, 80)}`, 'success', 8000);
@@ -366,10 +365,6 @@ const App = (() => {
       } else {
         toast('QR: ' + (r.error || 'No QR code found'), 'warning', 4000);
       }
-    });
-    SFM.on('folder_create_done', r => {
-      setStatus('Ready');
-      toast(`${r.created.length} folders created`, 'success');
     });
     SFM.on('ai_photo_done', r => {
       setStatus('Ready');
@@ -405,57 +400,36 @@ const App = (() => {
     });
     wire('btn-compress-pdf', () => {
       const p = state.focusedPath || state.selectedPaths[0];
-      if (!p) { toast('Select a PDF first', 'warning'); return; }
-      Dialogs.openCompressPdf(p);
+      if (!p) { toast('Select a PDF or image first', 'warning'); return; }
+      // One dialog for PDFs, images or a mix (target size or quality).
+      const all = (state.selectedPaths || []).length ? state.selectedPaths : [p];
+      ConvertTools.openCompress(all);
     });
-    wire('btn-zip',   () => FileTree.zipSelection());
-    wire('btn-unzip', () => FileTree.unzipSelection());
-    wire('btn-translate', () => Details.translateRename());
-    wire('btn-qr',    () => {
-      // If an image/PDF is selected, scan it directly
-      const selPath = state.focusedPath || state.selectedPaths[0];
-      const selExt  = (selPath || '').split('.').pop().toLowerCase();
-      const fileExts = new Set(['jpg','jpeg','png','bmp','webp','gif','tiff','tif','pdf']);
-      if (selPath && fileExts.has(selExt)) {
-        setStatus('Scanning QR from file…', true);
-        toast('Scanning QR from selected file…', 'info', 2000);
-        SFM.scanQrFromFile(selPath);
-      } else {
-        // No image/PDF selected — open click-overlay (screenshot + click on QR)
-        Dialogs.openQrOverlay();
-      }
+    wire('btn-convert', () => {
+      const p = state.focusedPath || state.selectedPaths[0];
+      const all  = (state.selectedPaths || []).length ? state.selectedPaths : (p ? [p] : []);
+      const imgs = all.filter(ConvertTools.isImage);
+      const pdfs = all.filter(ConvertTools.isPdf);
+      if (imgs.length && (ConvertTools.isImage(p) || !pdfs.length)) { ConvertTools.openImagesToPdf(imgs); return; }
+      if (pdfs.length) { ConvertTools.openPdfToImages(ConvertTools.isPdf(p) ? p : pdfs[0]); return; }
+      toast('Select image(s) to make a PDF, or a PDF to save its pages as images', 'warning', 4500);
     });
+    // QR: native pick overlay — click a code anywhere on screen (qr.js / qr_pick.py)
+    wire('btn-qr',    () => QrScan.pick());
     wire('btn-more',  () => Dialogs.openMoreMenu());
     wire('btn-theme', () => {
-      const html = document.documentElement;
-      const isCurrentlyDark = html.getAttribute('data-theme') !== 'light';
-      if (isCurrentlyDark) {
-        // → light mode
-        html.setAttribute('data-theme', 'light');
-        document.getElementById('btn-theme').textContent = '☀️';
-        window._sfmTheme = 'light';
-        SFM.saveSettings({ theme: 'light' }).catch(() => {});
-      } else {
-        // → dark mode: REMOVE attribute so :root (dark) CSS applies
-        html.removeAttribute('data-theme');
-        document.getElementById('btn-theme').textContent = '🌙';
-        window._sfmTheme = 'dark';
-        SFM.saveSettings({ theme: 'dark' }).catch(() => {});
-      }
+      const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      SFM.saveSettings({ theme: next }).catch(() => {});
     });
     // Restore saved theme from settings
     SFM.getSettings().then(r => {
-      if (r.ok && r.settings && r.settings.theme === 'light') {
-        document.documentElement.setAttribute('data-theme', 'light');
-        const tb = document.getElementById('btn-theme');
-        if (tb) tb.textContent = '☀️';
-      }
+      if (r.ok && r.settings && r.settings.theme === 'light') applyTheme('light');
     }).catch(() => {});
-    wire('cost-chip', async () => {
-      await SFM.resetCost();
-      document.getElementById('cost-label').textContent = '$0.0000';
-      toast('Cost tracker reset', 'info', 1500);
-    });
+
+    // Brand mark in the sidebar
+    const logo = document.getElementById('sidebar-logo');
+    if (logo && !logo.firstChild) logo.innerHTML = Icons.logo(32);
 
     // Search
     const searchInput = document.getElementById('search-input');
@@ -495,16 +469,14 @@ const App = (() => {
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   // These initialisers were previously defined but never invoked, which left
-  // keyboard shortcuts, toolbar buttons, Python→JS event handlers (zip_done,
-  // unzip_done, report_done, …), pane resizers and status pollers all dead.
+  // keyboard shortcuts, toolbar buttons, Python→JS event handlers,
+  // pane resizers and status pollers all dead.
   function _boot() {
     const safe = (fn, name) => { try { fn(); } catch (e) { console.error('[App boot]', name, e); } };
     safe(_initToolbar,       '_initToolbar');
     safe(_initKeyboard,      '_initKeyboard');
     safe(_initEventHandlers, '_initEventHandlers');
     safe(_initPaneResizers,  '_initPaneResizers');
-    safe(startCostPoller,    'startCostPoller');
-    safe(startWatchPoller,   'startWatchPoller');
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _boot);
@@ -517,6 +489,6 @@ const App = (() => {
     state,
     navigate, toast, setStatus, setStatusFolder,
     setStatusSelection, pushUndo, undo, redo,
-    switchPanel, navBack, navForward, navUp,
+    switchPanel, navBack, navForward, navUp, applyTheme,
   };
 })();

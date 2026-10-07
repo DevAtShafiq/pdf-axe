@@ -4,10 +4,10 @@
  * Stacked modal system — each open() creates its own overlay div.
  * Escape / close only pops the TOP modal.
  *
- * Dialogs: CombinePdf, ArrangePages, PdfFullView, Apostille,
- *          A4Placer, IdCard, Print, Templates, Uppercase,
- *          CompressPdf, Settings, ExtractPages, DuplicatePages,
- *          SimilarMove, PassportCheck, MoreMenu
+ * Dialogs: CombinePdf/ArrangePages/ExtractPages (→ pdf-tools.js), PdfFullView, Templates, Uppercase,
+ *          CompressPdf, Settings, ExtractPages, MoreMenu, SmartSplitProgress,
+ *          CopyTo, MoveTo, PdfToImages, SplitRenameOcrProgress, CropImage,
+ *          CompressImages, OcrRenameProgress, QrOverlay
  */
 
 const Dialogs = (() => {
@@ -16,23 +16,45 @@ const Dialogs = (() => {
   const _Z_BASE = 9100;
 
   // ── Core modal open / close ───────────────────────────────────────────────
-  function _openModal(id, title, bodyHtml, buttons) {
+  // Shared modal header: optional icon tile + title + subtitle + close button.
+  // opts: { icon?, tone? ('danger'|'warning'), subtitle? (plain text), titleId? }
+  function _header(title, opts) {
+    const o = opts || {};
+    const icon = o.icon ? `<span class="modal-head-icon${o.tone ? ' tone-' + o.tone : ''}">${Icons.svg(o.icon, 18)}</span>` : '';
+    return `<div class="modal-header">${icon}
+        <div class="modal-heading">
+          <h2 class="modal-title"${o.titleId ? ` id="${o.titleId}"` : ''}>${_esc(title)}</h2>
+          ${o.subtitle ? `<div class="modal-subtitle" title="${_esc(o.subtitle)}">${_esc(o.subtitle)}</div>` : ''}
+        </div>
+        <button class="modal-close" aria-label="Close" title="Close (Esc)">${Icons.svg('x', 16)}</button>
+      </div>`;
+  }
+
+  // Set a button's icon + label (keeps data-modal-btn etc.)
+  function _setBtn(btn, label, icon) {
+    if (!btn) return;
+    btn.innerHTML = (icon ? Icons.svg(icon, btn.classList.contains('btn-sm') ? 14 : 16) : '') + _esc(label);
+  }
+
+  // _openModal(id, title, bodyHtml, buttons, opts?)
+  //   opts: { icon, tone, subtitle, size: 'sm'|'lg'|'xl', cls }
+  function _openModal(id, title, bodyHtml, buttons, opts) {
+    const o = opts || {};
     const z = _Z_BASE + _stack.length * 50;
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.style.zIndex = z;
     document.body.appendChild(overlay);
 
+    // buttons: [{ label, primary?, danger?, icon? (Icons name), left?, onClick }]
     const btnHtml = (buttons || []).map(b =>
-      `<button class="btn ${b.primary ? 'btn-primary' : ''}" data-modal-btn="${b.label}">${_esc(b.label)}</button>`
+      `<button class="btn ${b.primary ? 'btn-primary' : ''} ${b.danger ? 'btn-danger' : ''} ${b.left ? 'footer-left' : ''}" data-modal-btn="${b.label}">${b.icon ? Icons.svg(b.icon, 16) : ''}${_esc(b.label)}</button>`
     ).join('');
 
+    const cls = [o.size ? 'modal-' + o.size : '', o.cls || ''].join(' ').trim();
     overlay.innerHTML = `
-      <div class="modal" id="modal-${id}" role="dialog" aria-labelledby="modal-title-${id}">
-        <div class="modal-header">
-          <h2 class="modal-title" id="modal-title-${id}">${_esc(title)}</h2>
-          <button class="modal-close" aria-label="Close">&#x2715;</button>
-        </div>
+      <div class="modal ${cls}" id="modal-${id}" role="dialog" aria-labelledby="modal-title-${id}">
+        ${_header(title, { ...o, titleId: 'modal-title-' + id })}
         <div class="modal-body" id="modal-body-${id}">${bodyHtml}</div>
         ${btnHtml ? `<div class="modal-footer">${btnHtml}</div>` : ''}
       </div>`;
@@ -44,6 +66,7 @@ const Dialogs = (() => {
         _stack.splice(idx, 1);
       }
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if (o.onClose) { const f = o.onClose; o.onClose = null; f(); }
     }
 
     overlay.querySelector('.modal-close').addEventListener('click', close);
@@ -65,7 +88,88 @@ const Dialogs = (() => {
     return overlay;
   }
 
-  function closeModal() {
+  // ── In-app replacements for window.prompt / window.confirm ───────────────
+  // Small prompts can be opened from full-window editors (arrange, templates)
+  // that sit above the normal modal stack, so lift them to the very top.
+  function _raise(overlay) { overlay.classList.add('dlg-top'); overlay.style.zIndex = 10050; }
+
+  // ask({ title, label, value, placeholder, hint, icon, okLabel, okIcon,
+  //       selectStem, validate(v) → error string | '' }) → Promise<string|null>
+  function ask(opts) {
+    const o = opts || {};
+    return new Promise(resolve => {
+      let done = false;
+      const finish = v => { if (done) return; done = true; resolve(v); };
+      const id = 'ask-' + Date.now();
+      const body = `
+        <div class="field">
+          ${o.label ? `<label class="field-label" for="${id}-in">${_esc(o.label)}</label>` : ''}
+          <input id="${id}-in" class="input-text" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="${_esc(o.placeholder || '')}" value="${_esc(o.value || '')}">
+          <div class="field-error hidden" id="${id}-err"></div>
+          ${o.hint ? `<div class="field-hint">${_esc(o.hint)}</div>` : ''}
+        </div>`;
+      const submit = () => {
+        const v = input.value.trim();
+        const err = o.validate ? (o.validate(v) || '') : (v ? '' : 'Please enter a value.');
+        if (err) {
+          errEl.textContent = err; errEl.classList.remove('hidden');
+          input.classList.add('is-invalid'); input.focus(); return;
+        }
+        finish(v); overlay._close();
+      };
+      const overlay = _openModal(id, o.title || 'Enter a value', body, [
+        { label: 'Cancel', onClick: () => overlay._close() },
+        { label: o.okLabel || 'OK', primary: true, icon: o.okIcon, onClick: submit },
+      ], { icon: o.icon, subtitle: o.subtitle, size: 'sm', onClose: () => finish(null) });
+      _raise(overlay);
+      const input = overlay.querySelector(`#${id}-in`);
+      const errEl = overlay.querySelector(`#${id}-err`);
+      input.addEventListener('input', () => { errEl.classList.add('hidden'); input.classList.remove('is-invalid'); });
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); submit(); }
+      });
+      setTimeout(() => {
+        input.focus();
+        const v = input.value, dot = v.lastIndexOf('.');
+        if (o.selectStem && dot > 0) input.setSelectionRange(0, dot); else input.select();
+      }, 30);
+    });
+  }
+
+  // confirm({ title, message, detail, okLabel, okIcon, cancelLabel, danger,
+  //           icon }) → Promise<boolean>.  Also accepts confirm('message').
+  function confirmDialog(opts) {
+    const o = typeof opts === 'string' ? { message: opts } : (opts || {});
+    return new Promise(resolve => {
+      let done = false;
+      const finish = v => { if (done) return; done = true; resolve(v); };
+      const id = 'confirm-' + Date.now();
+      const body = `
+        <p class="confirm-message">${_esc(o.message || '')}</p>
+        ${o.detail ? `<p class="confirm-detail text-muted">${_esc(o.detail)}</p>` : ''}`;
+      const overlay = _openModal(id, o.title || 'Are you sure?', body, [
+        { label: o.cancelLabel || 'Cancel', onClick: () => overlay._close() },
+        { label: o.okLabel || 'OK', primary: !o.danger, danger: !!o.danger, icon: o.okIcon,
+          onClick: () => { finish(true); overlay._close(); } },
+      ], { icon: o.icon || (o.danger ? 'alert-triangle' : 'info'), tone: o.danger ? 'danger' : o.tone,
+           size: 'sm', onClose: () => finish(false) });
+      _raise(overlay);
+      const ok = overlay.querySelector('.modal-footer .btn:last-child');
+      const onEnter = e => { if (e.key === 'Enter' && document.body.contains(overlay)) { e.preventDefault(); ok.click(); } };
+      overlay.addEventListener('keydown', onEnter);
+      setTimeout(() => ok && ok.focus(), 30);
+    });
+  }
+
+  // closeModal()    → close the top-most modal
+  // closeModal(id)  → close the overlay #mo-<id> (dialogs built with _modal /
+  //                   _attachClose, e.g. Crop Image and the QR overlay)
+  function closeModal(id) {
+    if (typeof id === 'string' && id) {
+      const ov = document.getElementById('mo-' + id);
+      if (ov && ov._close) { ov._close(); return; }
+    }
     if (_stack.length) _stack[_stack.length - 1].overlay._close();
   }
 
@@ -73,447 +177,92 @@ const Dialogs = (() => {
     while (_stack.length) closeModal();
   }
 
-  // ── 1. Combine PDFs ───────────────────────────────────────────────────────
-  // Full-window Page Organizer — port of the old system's Combine/Arrange
-  // window: one tile per PDF page, drag (or Space+arrows) to reorder,
-  // click = green-✓ select, right-click menu (rotate / remove / extract),
-  // zoom controls, merge → mergedN.pdf (+sources → _to_review/),
-  // arrange → save in place over the original.
-  async function openPageOrganizer(paths, opts) {
-    const mode      = opts?.mode || 'merge';           // 'merge' | 'arrange'
-    const arrange   = mode === 'arrange';
-    const inplace   = arrange ? paths[0] : null;
-    const outDirDef = (opts?.folder || paths[0].replace(/[\\/][^\\/]+$/, '')).replace(/[\\/]$/, '');
+  // ── Helpers for dialogs that build their own overlay markup ──────────────
+  // openCropImage / openQrOverlay render <div class="modal-overlay" id="mo-<id>">
+  // themselves; these register it on the same stack as _openModal so Escape and
+  // closeModal() behave the same. (No backdrop-click close: a crop drag that
+  // ends outside the image must not dismiss the dialog.)
+  let _uid = 0;
+  function _nextId() { return 'dlg' + (++_uid); }
+  function _nextZ()  { return _Z_BASE + _stack.length * 50; }
 
-    // ── build slot list: one entry per page, in file order ──────────────────
-    App.setStatus('Reading pages…', true);
-    const slots = [];                                   // {path,page,rotate,sel}
-    for (const p of paths) {
-      const rc = await SFM.getPdfPageCount(p);
-      const n  = Math.max(1, rc.page_count || rc.count || 1);
-      for (let i = 0; i < n; i++) slots.push({ path: p, page: i, rotate: 0, sel: false });
-    }
-    App.setStatus('Ready');
-    if (!slots.length) { App.toast('No pages found', 'error'); return; }
-
-    // next free mergedN in outDir (old _next_merged_stem)
-    async function nextMergedStem(dir) {
-      const lr = await SFM.listFolder(dir).catch(() => null);
-      const names = new Set((lr?.entries || []).map(e => (e.name || '').toLowerCase()));
-      let n = 1;
-      while (names.has(`merged${n}.pdf`)) n++;
-      return `merged${n}`;
-    }
-
-    // ── overlay DOM (fills the whole window, like the old maximized dialog) ─
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.style.zIndex = 9600;
-    const title = arrange
-      ? 'Arrange PDF — ' + inplace.split(/[\\/]/).pop()
-      : `Combine PDFs (${paths.length} files · ${slots.length} pages)`;
-    overlay.innerHTML = `
-      <div style="width:calc(100vw - 20px);height:calc(100vh - 20px);display:flex;flex-direction:column;
-                  background:var(--bg-panel);border:1px solid var(--border-strong);border-radius:10px;overflow:hidden">
-        <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg-surface);
-                    border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <strong style="font-size:13px;margin-right:8px">${_esc(title)}</strong>
-          <button class="btn" id="pg-addpdf">Add PDF…</button>
-          <span class="text-muted" style="font-size:11px;margin-left:8px">Size:</span>
-          <button class="btn" id="pg-zoom-out" title="Smaller thumbnails" style="padding:2px 9px">−</button>
-          <button class="btn" id="pg-zoom-in"  title="Larger thumbnails"  style="padding:2px 9px">+</button>
-          <button class="btn" id="pg-zoom-reset" style="padding:2px 9px">Reset</button>
-          <span id="pg-zoom-label" class="text-muted" style="font-size:11px;min-width:40px">100%</span>
-          <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
-          <button class="btn" id="pg-selall">Select All</button>
-          <button class="btn" id="pg-extract" disabled>✂ Extract Selected (0)</button>
-          <div style="flex:1"></div>
-          <button class="btn" id="pg-cancel">Cancel</button>
-          <button class="btn btn-primary" id="pg-save">${arrange ? 'Save to PDF file' : 'OK — Merge PDFs'}</button>
-        </div>
-        ${arrange ? '' : `
-        <div style="display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--bg-surface);border-bottom:1px solid var(--border)">
-          <label class="text-muted" style="font-size:12px;white-space:nowrap">Save as (no .pdf):</label>
-          <input id="pg-basename" class="input-text" style="flex:1;max-width:280px">
-          <label class="text-muted" style="font-size:12px;white-space:nowrap">Folder:</label>
-          <input id="pg-outdir" class="input-text" style="flex:2" value="${_esc(outDirDef)}">
-          <button class="btn" id="pg-browse">Browse…</button>
-        </div>`}
-        <div id="pg-grid" tabindex="0" style="flex:1;overflow:auto;background:#3a3d42;padding:14px;outline:none;
-             display:flex;flex-wrap:wrap;gap:16px;align-content:flex-start"></div>
-        <div id="pg-menu" style="display:none;position:fixed;z-index:9700;background:var(--bg-panel);
-             border:1px solid var(--border-strong);border-radius:6px;box-shadow:0 8px 32px #000a;
-             padding:4px;min-width:230px;font-size:12px"></div>
-      </div>`;
-    document.body.appendChild(overlay);
-
-    const grid    = overlay.querySelector('#pg-grid');
-    const menu    = overlay.querySelector('#pg-menu');
-    const selBtn  = overlay.querySelector('#pg-selall');
-    const extBtn  = overlay.querySelector('#pg-extract');
-    const zoomLbl = overlay.querySelector('#pg-zoom-label');
-    const baseInp = overlay.querySelector('#pg-basename');
-    const dirInp  = overlay.querySelector('#pg-outdir');
-    if (baseInp) nextMergedStem(outDirDef).then(s => { if (!baseInp.value) baseInp.value = s; });
-
-    // ── geometry / zoom (old: 10 columns at 100%) ────────────────────────────
-    const ZOOM_MIN = 0.4, ZOOM_MAX = 10, ZOOM_STEP = 1.15;
-    let zoom = 1;
-    const baseW = Math.max(90, Math.floor((grid.clientWidth - 14 * 2 - 16 * 9) / 10) || 120);
-    function tileW() { return Math.round(baseW * zoom); }
-
-    // ── thumbnail cache ──────────────────────────────────────────────────────
-    const thumbs = new Map();          // "path|page|tier" -> data_url / 'pending'
-    function tier() { return tileW() > 260 ? 110 : 36; }
-    let thumbGen = 0;
-    async function fillThumbs() {
-      const gen = ++thumbGen, t = tier();
-      for (const el of Array.from(grid.children)) {
-        if (gen !== thumbGen) return;                    // superseded
-        const i = +el.dataset.i, s = slots[i];
-        if (!s) continue;
-        const key = `${s.path}|${s.page}|${t}`;
-        let du = thumbs.get(key);
-        if (du === undefined) {
-          thumbs.set(key, 'pending');
-          const r = await SFM.getPdfPage(s.path, s.page, t).catch(() => null);
-          du = r?.ok ? r.data_url : null;
-          thumbs.set(key, du);
-        }
-        if (du && du !== 'pending') {
-          const img = el.querySelector('img');
-          if (img && img.dataset.key !== key) { img.src = du; img.dataset.key = key; img.style.visibility = 'visible'; }
-        }
-      }
-    }
-
-    // ── state ────────────────────────────────────────────────────────────────
-    let focusIdx = 0, pickIdx = null, pickSnapshot = null, lastClickIdx = null;
-
-    function selCount() { return slots.filter(s => s.sel).length; }
-    function updateButtons() {
-      const n = selCount();
-      extBtn.disabled = n === 0;
-      extBtn.textContent = `✂ Extract Selected (${n})`;
-      selBtn.textContent = (slots.length && n === slots.length) ? 'Deselect All' : 'Select All';
-      zoomLbl.textContent = Math.round(zoom * 100) + '%';
-    }
-
-    function render() {
-      const w = tileW(), h = Math.round(w * 1.29);
-      grid.innerHTML = slots.map((s, i) => {
-        const odd = s.rotate === 90 || s.rotate === 270;
-        const fit = odd ? `rotate(${s.rotate}deg) scale(${(w / h).toFixed(3)})` : `rotate(${s.rotate}deg)`;
-        return `
-        <div class="pg-tile" data-i="${i}" style="width:${w}px;user-select:none;cursor:grab;position:relative">
-          <div style="width:${w}px;height:${h}px;background:#fff;border:3px solid ${
-            i === pickIdx ? '#ff9800' : (s.sel ? '#2e9e4f' : (i === focusIdx ? 'var(--accent,#4a9eff)' : '#00000033'))
-          };border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px #0006">
-            <img draggable="false" style="max-width:100%;max-height:100%;visibility:hidden;transform:${fit}">
-            ${s.sel ? '<div style="position:absolute;top:4px;left:4px;background:#2e9e4f;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:13px">✓</div>' : ''}
-          </div>
-          <div style="text-align:center;font-size:11px;color:#ddd;padding-top:3px" title="${_esc(s.path.split(/[\\/]/).pop())}">
-            ${i + 1}${paths.length > 1 ? ' · ' + _esc(s.path.split(/[\\/]/).pop().slice(0, 14)) : ''}
-          </div>
-        </div>`;
-      }).join('');
-      updateButtons();
-      fillThumbs();
-    }
-
-    function syncFromDom() {
-      const order = Array.from(grid.children).map(el => slots[+el.dataset.i]);
-      slots.length = 0; slots.push(...order);
-    }
-
-    // ── close / cleanup ──────────────────────────────────────────────────────
+  function _attachClose(id) {
+    const overlay = document.getElementById('mo-' + id);
+    if (!overlay) return;
     function close() {
-      document.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('mousemove', onMove, true);
-      document.removeEventListener('mouseup', onUp, true);
-      overlay.remove();
-    }
-    overlay.querySelector('#pg-cancel').addEventListener('click', close);
-    overlay.addEventListener('mousedown', e => { if (!menu.contains(e.target)) menu.style.display = 'none'; }, true);
-
-    // ── drag to reorder (pointer-based, like the old B1-Motion drag) ────────
-    let drag = null, suppressClick = false;
-    grid.addEventListener('mousedown', e => {
-      if (e.button !== 0) return;
-      const tile = e.target.closest('.pg-tile');
-      if (!tile) return;
-      drag = { el: tile, sx: e.clientX, sy: e.clientY, moved: false };
-      e.preventDefault();
-    });
-    function onMove(e) {
-      if (!drag) return;
-      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 6) {
-        drag.moved = true;
-        drag.el.style.opacity = '.45';
-        drag.el.style.cursor = 'grabbing';
-        drag.el.style.pointerEvents = 'none';   // so elementFromPoint sees the tile UNDER the cursor
+      const idx = _stack.findIndex(s => s.overlay === overlay);
+      if (idx !== -1) {
+        document.removeEventListener('keydown', _stack[idx].onKeyDown);
+        _stack.splice(idx, 1);
       }
-      if (!drag.moved) return;
-      const under = document.elementFromPoint(e.clientX, e.clientY)?.closest('.pg-tile');
-      if (under && under !== drag.el && under.parentNode === grid) {
-        const kids = Array.from(grid.children);
-        if (kids.indexOf(drag.el) < kids.indexOf(under)) under.after(drag.el); else under.before(drag.el);
-      }
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     }
-    function onUp(e) {
-      if (!drag) return;
-      const wasDrag = drag.moved, el = drag.el;
-      el.style.opacity = ''; el.style.cursor = 'grab'; el.style.pointerEvents = '';
-      drag = null;
-      if (wasDrag) {
-        suppressClick = true;                   // swallow the click generated by this mouseup
-        syncFromDom();
-        focusIdx = Array.from(grid.children).indexOf(el);
-        pickIdx = null;
-        render();
-      }
-    }
-    document.addEventListener('mousemove', onMove, true);
-    document.addEventListener('mouseup', onUp, true);
-
-    // ── click = toggle green-✓ selection (shift = range, like old) ──────────
-    grid.addEventListener('click', e => {
-      if (suppressClick) { suppressClick = false; return; }
-      const tile = e.target.closest('.pg-tile');
-      if (!tile) return;
-      const i = Array.from(grid.children).indexOf(tile);
-      focusIdx = i;
-      if (e.shiftKey && lastClickIdx !== null) {
-        const [a, b] = [Math.min(lastClickIdx, i), Math.max(lastClickIdx, i)];
-        for (let k = a; k <= b; k++) slots[k].sel = true;
-      } else {
-        slots[i].sel = !slots[i].sel;
-        lastClickIdx = i;
-      }
-      grid.focus();
-      render();
-    });
-
-    // ── right-click context menu (rotate / remove / extract) ────────────────
-    grid.addEventListener('contextmenu', e => {
-      const tile = e.target.closest('.pg-tile');
-      if (!tile) return;
-      e.preventDefault();
-      const i = Array.from(grid.children).indexOf(tile);
-      focusIdx = i;
-      const item = (label) => `<div class="pg-mi" style="padding:6px 12px;border-radius:4px;cursor:pointer" data-act="${label}">${label}</div>`;
-      menu.innerHTML = [
-        item('Rotate clockwise'),
-        item('Rotate counter-clockwise'),
-        '<div style="height:1px;background:var(--border);margin:3px 6px"></div>',
-        item(arrange ? 'Remove page from layout…' : 'Remove from merge…'),
-        '<div style="height:1px;background:var(--border);margin:3px 6px"></div>',
-        item('✂ Extract this page → New PDF…'),
-        item('✂ Extract selected pages → New PDF…'),
-      ].join('');
-      menu.style.left = Math.min(e.clientX, window.innerWidth - 250) + 'px';
-      menu.style.top  = Math.min(e.clientY, window.innerHeight - 200) + 'px';
-      menu.style.display = 'block';
-      menu.querySelectorAll('.pg-mi').forEach(mi => {
-        mi.addEventListener('mouseenter', () => mi.style.background = 'var(--bg-hover,#ffffff14)');
-        mi.addEventListener('mouseleave', () => mi.style.background = '');
-        mi.addEventListener('click', () => { menu.style.display = 'none'; menuAction(mi.dataset.act, i); });
-      });
-    });
-
-    function menuAction(act, i) {
-      if (act.startsWith('Rotate clockwise'))              { slots[i].rotate = (slots[i].rotate + 90) % 360; render(); }
-      else if (act.startsWith('Rotate counter'))           { slots[i].rotate = (slots[i].rotate + 270) % 360; render(); }
-      else if (act.startsWith('Remove'))                   {
-        slots.splice(i, 1);
-        if (!slots.length) { close(); return; }
-        focusIdx = Math.min(focusIdx, slots.length - 1);
-        pickIdx = null; render();
-      }
-      else if (act.includes('this page'))                  { doExtract([i]); }
-      else if (act.includes('selected pages'))             {
-        const sel = slots.map((s, k) => s.sel ? k : -1).filter(k => k >= 0);
-        if (!sel.length) { App.toast('No pages selected. Click pages to select them (green ✓).', 'warning'); return; }
-        doExtract(sel);
-      }
-    }
-
-    // ── keyboard: Space pick/drop, arrows move, Escape, Enter (old bindings) ─
-    function cols() {
-      const w = tileW() + 16;
-      return Math.max(1, Math.floor((grid.clientWidth - 28) / w));
-    }
-    function moveSlot(from, to) {
-      to = Math.max(0, Math.min(slots.length - 1, to));
-      if (from === to) return from;
-      const [s] = slots.splice(from, 1);
-      slots.splice(to, 0, s);
-      return to;
-    }
-    function onKey(e) {
-      if (!document.body.contains(overlay)) return;
-      if (e.target === baseInp || e.target === dirInp) {
-        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); doSave(); }
-        return;
-      }
-      const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols(), ArrowDown: cols() }[e.key];
-      if (e.key === ' ') {
-        e.preventDefault(); e.stopPropagation();
-        if (pickIdx === null) { pickIdx = focusIdx; pickSnapshot = slots.slice(); }
-        else pickIdx = null;                             // drop keeps position
-        render();
-      } else if (step !== undefined) {
-        e.preventDefault(); e.stopPropagation();
-        if (pickIdx !== null) { pickIdx = focusIdx = moveSlot(pickIdx, pickIdx + step); }
-        else focusIdx = Math.max(0, Math.min(slots.length - 1, focusIdx + step));
-        render();
-        grid.children[focusIdx]?.scrollIntoView({ block: 'nearest' });
-      } else if (e.key === 'Escape') {
-        e.preventDefault(); e.stopPropagation();
-        if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
-        if (pickIdx !== null) {                          // cancel pick → restore order
-          slots.length = 0; slots.push(...pickSnapshot);
-          pickIdx = null; render(); return;
-        }
-        close();
-      } else if (e.key === 'Enter') {
-        e.preventDefault(); e.stopPropagation(); doSave();
-      }
-    }
-    document.addEventListener('keydown', onKey, true);
-
-    // ── zoom ─────────────────────────────────────────────────────────────────
-    function setZoom(z) { zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); render(); }
-    overlay.querySelector('#pg-zoom-in').addEventListener('click',    () => setZoom(zoom * ZOOM_STEP));
-    overlay.querySelector('#pg-zoom-out').addEventListener('click',   () => setZoom(zoom / ZOOM_STEP));
-    overlay.querySelector('#pg-zoom-reset').addEventListener('click', () => setZoom(1));
-    grid.addEventListener('wheel', e => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      setZoom(e.deltaY < 0 ? zoom * ZOOM_STEP : zoom / ZOOM_STEP);
-    }, { passive: false });
-
-    // ── Select All / Extract ────────────────────────────────────────────────
-    selBtn.addEventListener('click', () => {
-      const all = slots.length && selCount() === slots.length;
-      slots.forEach(s => s.sel = !all);
-      render();
-    });
-    extBtn.addEventListener('click', () => {
-      const sel = slots.map((s, k) => s.sel ? k : -1).filter(k => k >= 0);
-      if (sel.length) doExtract(sel);
-    });
-
-    // ── Add PDF… (old arrange feature; native multi-select picker) ──────────
-    overlay.querySelector('#pg-addpdf').addEventListener('click', async () => {
-      const r = await SFM.browseForPdfs();
-      if (!r.ok || !r.paths?.length) return;
-      let added = 0;
-      for (const p of r.paths) {
-        const rc = await SFM.getPdfPageCount(p);
-        const n  = Math.max(1, rc.page_count || rc.count || 1);
-        for (let i = 0; i < n; i++) { slots.push({ path: p, page: i, rotate: 0, sel: false }); added++; }
-      }
-      if (added) { App.toast(`Added ${added} page(s) from ${r.paths.length} file(s)`, 'success'); render(); }
-    });
-
-    // ── Browse output folder (merge mode) ───────────────────────────────────
-    overlay.querySelector('#pg-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) { dirInp.value = r.path; if (baseInp && /^merged\d+$/.test(baseInp.value)) baseInp.value = await nextMergedStem(r.path); }
-    });
-
-    // ── extract / save (exact old semantics) ────────────────────────────────
-    function slotPayload(indices) {
-      return indices.map(k => ({ path: slots[k].path, page: slots[k].page, rotate: slots[k].rotate }));
-    }
-
-    async function doExtract(indices) {
-      const dir = (dirInp?.value?.trim() || outDirDef);
-      const def = (await nextMergedStem(dir)) + '_extract';
-      const name = prompt('Save extracted pages as (no .pdf):', def);
-      if (!name || !name.trim()) return;
-      const out = dir.replace(/[\\/]$/, '') + '\\' + name.trim().replace(/\.pdf$/i, '') + '.pdf';
-      const ex = await SFM.call('path_exists', out);
-      if (ex.ok && ex.exists && !confirm(`'${name.trim()}.pdf' already exists.\nOverwrite?`)) return;
-      App.setStatus('Extracting pages…', true);
-      const r = await SFM.buildPdfFromPages(slotPayload(indices.slice().sort((a, b) => a - b)), out, false);
-      App.setStatus('Ready');
-      if (r.ok) { App.toast(`Extracted ${indices.length} page(s) → ` + out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-      else       { App.toast('Extract failed: ' + r.error, 'error'); }
-    }
-
-    async function doSave() {
-      if (!slots.length) { App.toast('No pages to save', 'error'); return; }
-      const payload = slotPayload(slots.map((_, k) => k));
-      if (arrange) {
-        // Old: save rearranged pages back into the original PDF (tmp + replace).
-        App.setStatus('Saving PDF…', true);
-        const r = await SFM.buildPdfFromPages(payload, inplace, true);
-        App.setStatus('Ready');
-        if (r.ok) {
-          App.toast('Saved rearranged PDF → ' + inplace.split(/[\\/]/).pop(), 'success');
-          close(); FileTree.refresh();
-          try { Preview.clear(); Preview.previewFile(inplace, '.pdf'); } catch (_) {}
-        }
-        else       { App.toast('Save failed: ' + r.error, 'error'); }
-      } else {
-        const dir = dirInp.value.trim();
-        const ok  = await SFM.call('path_exists', dir);
-        if (!dir || !ok.ok || !ok.is_dir) { App.toast('Choose a valid output folder first.', 'error'); return; }
-        let base = baseInp.value.trim() || await nextMergedStem(dir);
-        base = base.replace(/\.pdf$/i, '');
-        const out = dir.replace(/[\\/]$/, '') + '\\' + base + '.pdf';
-        const ex = await SFM.call('path_exists', out);
-        if (ex.ok && ex.exists && !confirm(`'${base}.pdf' already exists.\nOverwrite?`)) return;
-        App.setStatus('Merging PDFs…', true);
-        const r = await SFM.buildPdfFromPages(payload, out, false);
-        if (!r.ok) { App.setStatus('Ready'); App.toast('Merge failed: ' + r.error, 'error'); return; }
-        // Old: move source PDFs to _to_review/ so they don't sit next to the merged file.
-        const srcs = [...new Set(slots.map(s => s.path))].filter(p => p.toLowerCase() !== out.toLowerCase());
-        const mv = await SFM.softDelete(srcs);
-        App.setStatus('Ready');
-        const movedN = (mv.results || []).filter(x => x.ok).length;
-        App.toast(`Merged ${payload.length} pages → ${base}.pdf` + (movedN ? ` · ${movedN} source file(s) → _to_review/` : ''), 'success');
-        if (!mv.ok) App.toast('Some sources not moved: ' + mv.error, 'warning');
-        close(); FileTree.refresh();
-      }
-    }
-    overlay.querySelector('#pg-save').addEventListener('click', doSave);
-
-    render();
-    grid.focus();
+    const onKeyDown = e => {
+      if (e.key === 'Escape' && _stack[_stack.length - 1]?.overlay === overlay) close();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    _stack.push({ overlay, onKeyDown });
+    overlay._close = close;
   }
 
+  // _modal(name, {title, icon?, tone?, subtitle?, width, extraStyle, cls?, body, footer}) → id
+  function _modal(name, opts) {
+    const o  = opts || {};
+    const id = _nextId();
+    const html = `
+<div class="modal-overlay" id="mo-${id}" style="z-index:${_nextZ()}">
+<div class="modal ${o.cls || ''}" id="modal-${_esc(name)}" style="width:${o.width || '560px'};max-width:98vw;${o.extraStyle || ''}">
+  ${_header(o.title || '', o)}
+  <div class="modal-body">${o.body || ''}</div>
+  ${o.footer ? `<div class="modal-footer">${o.footer}</div>` : ''}
+</div></div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    _attachClose(id);
+    document.querySelector('#mo-' + id + ' .modal-close')
+      ?.addEventListener('click', () => closeModal(id));
+    return id;
+  }
+
+  // ── 1. Merge PDFs — see js/pdf-tools.js (PdfTools.openMerge) ─────────────
   function openCombinePdf(paths, folderPath) {
-    return openPageOrganizer(paths, { mode: 'merge', folder: folderPath });
+    return PdfTools.openMerge(paths, folderPath);
   }
 
   // ── 2. PDF Full View ──────────────────────────────────────────────────────
-  async function openFullView(path, ext, startPage = 0) {
-    const name  = path.split(/[\\/]/).pop();
-    const isPdf = (ext || '').toLowerCase() === '.pdf';
-    const body  = `
-      <div id="fullview-wrap" style="width:100%;flex:1 1 auto;min-height:0;overflow:auto;background:#111;display:flex;padding:16px;box-sizing:border-box">
+  // opts: { readOnly (hide page edits — e.g. an Office file previewed as PDF),
+  //         title (window title instead of the file name),
+  //         html / htmlClass (show a Word/Excel HTML preview instead of a page image) }
+  async function openFullView(path, ext, startPage = 0, opts = {}) {
+    const name  = opts.title || path.split(/[\\/]/).pop();
+    const isPdf = !opts.html && (ext || '').toLowerCase() === '.pdf';
+    const ro    = !!opts.readOnly;
+    const body  = opts.html ? `
+      <div id="fullview-wrap" class="fv-doc-wrap"><div class="${opts.htmlClass || 'doc-preview'}">${opts.html}</div></div>` : `
+      <div id="fullview-wrap" style="width:100%;flex:1 1 auto;min-height:0;overflow:auto;background:var(--bg-preview);border-radius:var(--radius-lg);display:flex;padding:16px;box-sizing:border-box">
         <div id="fullview-inner" style="margin:auto;display:flex;flex-direction:column;gap:12px;align-items:center"></div>
       </div>
       ${isPdf ? `
-      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:8px;flex-wrap:wrap;flex-shrink:0">
-        <button class="btn" id="fv-prev">&#9664;</button>
-        <span style="font-size:13px">Page <input id="fv-page-input" type="number" min="1" value="${startPage+1}" style="width:50px;text-align:center;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 4px"> / <span id="fv-total">?</span></span>
-        <button class="btn" id="fv-next">&#9654;</button>
-        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-        <button class="btn" id="fv-zoom-out" title="Zoom out (−)">&#8722;</button>
-        <select id="fv-zoom" class="btn" title="Ctrl + scroll to zoom" style="padding:4px 8px"><option value="fit" selected>Fit Page</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option><option value="4">400%</option></select>
-        <button class="btn" id="fv-zoom-in" title="Zoom in (+)">&#43;</button>
-        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-        <button class="btn" id="fv-rot-ccw" title="Rotate counter-clockwise">&#8634;</button>
-        <button class="btn" id="fv-rot-cw"  title="Rotate clockwise">&#8635;</button>
-        <button class="btn" id="fv-del-page" title="Delete this page" style="color:var(--text-danger)">&#128465; Del Page</button>
-        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-        <button class="btn" id="fv-append" title="Append another PDF to this one">&#128196;+ Append</button>
-        <button class="btn" id="fv-merge" title="Merge with other PDFs">&#128206; Merge</button>
-        <button class="btn" id="fv-arrange" title="Arrange / reorder pages">&#8645; Arrange</button>
+      <div class="fv-bar">
+        <button class="icon-btn" id="fv-prev" title="Previous page" aria-label="Previous page">${Icons.svg('chevron-left', 16)}</button>
+        <span class="fv-page">Page <input id="fv-page-input" type="number" min="1" value="${startPage+1}" style="width:56px;text-align:center"> of <span id="fv-total">?</span></span>
+        <button class="icon-btn" id="fv-next" title="Next page" aria-label="Next page">${Icons.svg('chevron-right', 16)}</button>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="icon-btn" id="fv-zoom-out" title="Zoom out (−)" aria-label="Zoom out">${Icons.svg('zoom-out', 16)}</button>
+        <select id="fv-zoom" title="Ctrl + scroll to zoom" style="width:110px"><option value="fit" selected>Fit page</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option><option value="4">400%</option></select>
+        <button class="icon-btn" id="fv-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${Icons.svg('zoom-in', 16)}</button>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="icon-btn" id="fv-copy-page" title="Copy this page's text" aria-label="Copy page text">${Icons.svg('file-text', 16)}</button>
+        <button class="icon-btn" id="fv-copy-all" title="Copy all text" aria-label="Copy all text">${Icons.svg('files', 16)}</button>
+        <span class="fv-edit${ro ? ' hidden' : ''}">
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="icon-btn" id="fv-rot-ccw" title="Rotate counter-clockwise" aria-label="Rotate counter-clockwise">${Icons.svg('rotate-ccw', 16)}</button>
+        <button class="icon-btn" id="fv-rot-cw"  title="Rotate clockwise" aria-label="Rotate clockwise">${Icons.svg('rotate-cw', 16)}</button>
+        <button class="icon-btn icon-btn-danger" id="fv-del-page" title="Delete this page" aria-label="Delete this page">${Icons.svg('trash', 16)}</button>
+        <span class="toolbar-sep toolbar-sep-sm"></span>
+        <button class="btn btn-sm btn-ghost" id="fv-append" title="Append another PDF to this one">${Icons.svg('plus', 14)}Append</button>
+        <button class="btn btn-sm btn-ghost" id="fv-merge" title="Merge with other PDFs">${Icons.svg('merge', 14)}Merge</button>
+        <button class="btn btn-sm btn-ghost" id="fv-arrange" title="Arrange / reorder pages">${Icons.svg('layers', 14)}Arrange</button>
+        </span>
       </div>` : ''}`;
 
     _openModal('fullview', name, body, [{ label: 'Close', onClick: closeModal }]);
@@ -570,6 +319,24 @@ const Dialogs = (() => {
     let page = startPage, total = 1, zoom = 'fit';
     const inner = document.getElementById('fullview-inner');
     const wrap  = document.getElementById('fullview-wrap');
+    if (opts.html) {
+      wrap.querySelectorAll('[data-href]').forEach(a => a.addEventListener('click', () => SFM.qrOpenUrl(a.dataset.href)));
+      return;
+    }
+    if (isPdf && typeof PdfText !== 'undefined') {
+      PdfText.enablePan(wrap);
+      wrap.addEventListener('contextmenu', e => {
+        const box = e.target.closest && e.target.closest('.pdf-page');
+        if (box) PdfText.menu(e, { path, page, box });
+      });
+      wrap.setAttribute('tabindex', '-1');
+      wrap.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+          const box = inner.querySelector('.pdf-page');
+          if (box && PdfText.selectPage(box)) { e.preventDefault(); e.stopPropagation(); }
+        }
+      });
+    }
 
     // Scale a page/image to fit the available viewport (whole A4 visible).
     function _fitDims(natW, natH) {
@@ -605,7 +372,19 @@ const Dialogs = (() => {
         } else {
           dw = Math.round(r.width); dh = Math.round(r.height);   // 1:1 at the rendered DPI (crisp)
         }
-        inner.innerHTML = `<img src="${r.data_url}" style="width:${dw}px;height:${dh}px;border-radius:2px;box-shadow:0 4px 24px #0008">`;
+        inner.innerHTML = '';
+        const img = new Image();
+        img.src = r.data_url;
+        img.className = 'pdf-page-canvas';
+        if (typeof PdfText !== 'undefined') {
+          const box = PdfText.wrapPage(img, path, p, { width: dw, height: dh });
+          box.classList.add('fv-page-box');
+          inner.appendChild(box);
+          PdfText.attach(box);
+        } else {
+          img.style.cssText = `width:${dw}px;height:${dh}px;border-radius:2px;box-shadow:0 4px 24px #0008`;
+          inner.appendChild(img);
+        }
       } else {
         const r = await SFM.getImagePreview(path, 1600);
         if (!r.ok) { inner.textContent = r.error || 'Preview unavailable'; return; }
@@ -695,6 +474,8 @@ const Dialogs = (() => {
         else if (e.key === '0') { e.preventDefault(); zoom = 'fit'; _syncZoomSelect(); renderPage(page); }
       };
       document.addEventListener('keydown', _onZoomKey);
+      document.getElementById('fv-copy-page').addEventListener('click', () => PdfText.copyPage(path, page));
+      document.getElementById('fv-copy-all').addEventListener('click', () => PdfText.copyAll(path));
       document.getElementById('fv-rot-ccw').addEventListener('click', async () => {
         const r = await SFM.rotatePage(path, page, -90);
         if (r.ok) { renderPage(page); App.toast('Rotated CCW', 'success'); }
@@ -707,7 +488,7 @@ const Dialogs = (() => {
       });
       document.getElementById('fv-del-page').addEventListener('click', async () => {
         if (total <= 1) { App.toast('Cannot delete the only page', 'error'); return; }
-        if (!confirm('Delete page ' + (page + 1) + ' of ' + total + '?')) return;
+        if (!(await confirmDialog({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${page + 1} of ${total} from this PDF?`, detail: 'This changes the PDF file itself.' }))) return;
         const r = await SFM.deletePage(path, page);
         if (r.ok) {
           total--;
@@ -721,18 +502,8 @@ const Dialogs = (() => {
           App.toast('Delete page failed: ' + r.error, 'error');
         }
       });
-      document.getElementById('fv-append').addEventListener('click', async () => {
-        const r = await SFM.call('browse_for_folder');
-        // browse for a file instead — use openFileDialog via prompt fallback
-        const other = prompt('Path of PDF to append:');
-        if (!other || !other.trim()) return;
-        const out = path.replace(/(\.[^.]+)$/, '_appended$1');
-        App.setStatus('Appending…', true);
-        const mr = await SFM.mergePdfs([path, other.trim()], out);
-        App.setStatus('Ready');
-        if (mr.ok) { App.toast('Appended → ' + out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Append failed: ' + mr.error, 'error');
-      });
+      // Append / Merge → merge dialog (file picker opens via “Add files…”).
+      document.getElementById('fv-append').addEventListener('click',  () => PdfTools.openMerge([path], path.replace(/[\\/][^\\/]+$/, '')));
       document.getElementById('fv-merge').addEventListener('click',   () => openCombinePdf([path], path.replace(/[\\/][^\\/]+$/, '')));
       document.getElementById('fv-arrange').addEventListener('click', () => openArrangePages(path, total));
     }
@@ -740,297 +511,36 @@ const Dialogs = (() => {
     renderPage(page);
   }
 
-  // ── 3. Arrange / Reorder PDF Pages — full-window organizer (old system) ──
+  // ── 3. Arrange PDF pages — see js/pdf-tools.js (PdfTools.openArrange) ──
   function openArrangePages(path /*, pageCount */) {
-    return openPageOrganizer([path], { mode: 'arrange' });
-  }
-
-  // Legacy small-modal version (superseded by openPageOrganizer, kept unused).
-  async function _openArrangePagesLegacy(path, pageCount) {
-    if (!pageCount) {
-      const r = await SFM.getPdfPageCount(path);
-      if (!r.ok || !r.page_count) { App.toast('Could not read PDF page count' + (r.error ? ': ' + r.error : ''), 'error'); return; }
-      pageCount = r.page_count;
-    }
-    const cards = Array.from({length: pageCount}, (_,i) =>
-      `<div class="arrange-card" draggable="true" data-idx="${i}"
-            style="width:110px;border:1px solid var(--border);border-radius:8px;background:var(--bg-app);padding:6px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:grab">
-         <div class="arrange-thumb" data-thumb="${i}"
-              style="width:96px;height:128px;display:flex;align-items:center;justify-content:center;background:#222;border-radius:4px;overflow:hidden;font-size:11px;color:var(--text-muted)">&#8987;</div>
-         <span style="font-size:11px;color:var(--text-muted)">Page ${i+1}</span>
-         <div style="display:flex;gap:4px">
-           <button class="btn arrange-left"  data-idx="${i}" title="Move earlier" style="padding:2px 10px">&#9664;</button>
-           <button class="btn arrange-right" data-idx="${i}" title="Move later"   style="padding:2px 10px">&#9654;</button>
-         </div>
-       </div>`
-    ).join('');
-
-    const body = `
-      <p class="text-muted" style="font-size:12px;margin-bottom:8px">Reorder pages with the &#9664;/&#9654; buttons (or drag the cards). A reordered copy is saved alongside the original.</p>
-      <div id="arrange-list" style="display:flex;flex-wrap:wrap;gap:8px;max-height:52vh;overflow-y:auto;padding:2px">${cards}</div>`;
-
-    _openModal('arrange', 'Arrange Pages — ' + path.split(/[\\/]/).pop(), body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Save Reordered', primary: true, onClick: async () => {
-        const cardEls = document.querySelectorAll('#arrange-list .arrange-card');
-        const order   = Array.from(cardEls).map(c => +c.dataset.idx);
-        closeModal();
-        App.setStatus('Reordering pages…', true);
-        const outPath = path.replace(/(\.[^.]+)$/, '_reordered$1');
-        const r = await SFM.reorderPages(path, order, outPath);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Saved: ' + (r.out_path || outPath).split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else       { App.toast('Reorder failed: ' + r.error, 'error'); }
-      }},
-    ]);
-
-    const list = document.getElementById('arrange-list');
-    if (!list) return;
-
-    // ◀ / ▶ move buttons — always work, no dragging needed
-    list.addEventListener('click', e => {
-      const btn = e.target.closest('.arrange-left, .arrange-right');
-      if (!btn) return;
-      const card = btn.closest('.arrange-card');
-      if (btn.classList.contains('arrange-left')) {
-        const prev = card.previousElementSibling;
-        if (prev) card.after(prev);          // swap with previous
-      } else {
-        const next = card.nextElementSibling;
-        if (next) card.before(next);         // swap with next
-      }
-    });
-
-    // Drag & drop (works with a real mouse)
-    let dragEl = null;
-    list.querySelectorAll('.arrange-card').forEach(card => {
-      card.addEventListener('dragstart', () => { dragEl = card; card.style.opacity = '.4'; });
-      card.addEventListener('dragend',   () => { if (dragEl) dragEl.style.opacity = ''; dragEl = null; });
-      card.addEventListener('dragover',  e => e.preventDefault());
-      card.addEventListener('drop', e => {
-        e.preventDefault();
-        if (!dragEl || dragEl === card) return;
-        const kids = Array.from(list.children);
-        if (kids.indexOf(dragEl) < kids.indexOf(card)) card.after(dragEl); else card.before(dragEl);
-      });
-    });
-
-    // Load thumbnails asynchronously (low dpi keeps this fast)
-    (async () => {
-      const maxThumbs = Math.min(pageCount, 200);
-      for (let i = 0; i < maxThumbs; i++) {
-        const slot = list.querySelector(`[data-thumb="${i}"]`);
-        if (!slot) break;                    // modal was closed
-        try {
-          const r = await SFM.getPdfPage(path, i, 30);
-          if (r.ok && r.data_url) slot.innerHTML = `<img src="${r.data_url}" style="width:100%;height:100%;object-fit:contain">`;
-          else slot.textContent = 'p.' + (i+1);
-        } catch (_) { slot.textContent = 'p.' + (i+1); }
-      }
-    })();
-  }
-
-  // ── 4. Apostille Matcher ──────────────────────────────────────────────────
-  async function openApostille(folder) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Scans folder for document sets and merges each into an apostille PDF.</p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="ap-folder" class="input-text" value="${_esc(folder||'')}" style="flex:1">
-          <button class="btn" id="ap-browse">Browse&#x2026;</button>
-        </div>
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Output folder (leave blank = same)</label>
-        <input id="ap-outfolder" class="input-text" placeholder="Same as input" style="width:100%;margin-top:4px">
-      </div>
-      <div id="ap-status" style="font-size:12px;color:var(--accent);min-height:20px"></div>`;
-
-    _openModal('apostille', 'Apostille Merger', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Scan', onClick: async () => {
-        const f = document.getElementById('ap-folder')?.value.trim();
-        if (!f) { App.toast('Set a folder first', 'error'); return; }
-        document.getElementById('ap-status').textContent = 'Scanning…';
-        const r = await SFM.scanApostilleRefs(f);
-        document.getElementById('ap-status').textContent = r.ok
-          ? `Found ${r.sets?.length||0} document sets`
-          : 'Error: ' + r.error;
-      }},
-      { label: 'Run Merge', primary: true, onClick: async () => {
-        const f   = document.getElementById('ap-folder')?.value.trim();
-        const out = document.getElementById('ap-outfolder')?.value.trim() || f;
-        if (!f) { App.toast('Set a folder first', 'error'); return; }
-        document.getElementById('ap-status').textContent = 'Merging…';
-        App.setStatus('Running apostille merge…', true);
-        const r = await SFM.processApostille([], f, out, '');
-        App.setStatus('Ready');
-        if (r.ok) {
-          document.getElementById('ap-status').textContent = `Done: ${r.merged||0} merged`;
-          App.toast('Apostille merge complete', 'success'); FileTree.refresh();
-        } else {
-          document.getElementById('ap-status').textContent = 'Error: ' + r.error;
-          App.toast('Merge failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    document.getElementById('ap-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('ap-folder').value = r.path;
-    });
-  }
-
-  // ── 5. A4 Page Placer ────────────────────────────────────────────────────
-  function openA4Placer(path) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Place multiple PDF pages onto a single A4 sheet.</p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Pages per sheet</label>
-        <select id="a4-pps" class="input-text" style="margin-top:4px;width:100%">
-          <option value="2">2 per sheet</option>
-          <option value="4" selected>4 per sheet</option>
-          <option value="6">6 per sheet</option>
-          <option value="9">9 per sheet</option>
-        </select>
-      </div>
-      <div>
-        <label class="detail-label">Output filename</label>
-        <input id="a4-outname" class="input-text" value="a4_layout.pdf" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('a4placer', 'Place on A4', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Create', primary: true, onClick: async () => {
-        const pps  = +document.getElementById('a4-pps')?.value || 4;
-        const name = document.getElementById('a4-outname')?.value.trim() || 'a4_layout.pdf';
-        const out  = path.replace(/[\\/][^\\/]+$/, '') + '\\' + name;
-        closeModal();
-        App.setStatus('Placing pages…', true);
-        const r = await SFM.call('place_pdf_on_a4', path, pps, out);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Done: ' + name, 'success'); FileTree.refresh(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
-
-  // ── 6. ID Card on A4 ─────────────────────────────────────────────────────
-  function openIdCard(path) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Tile ID card pages x4 onto a single A4 sheet.</p>
-      <div>
-        <label class="detail-label">Output filename</label>
-        <input id="idc-outname" class="input-text" value="id_card_a4.pdf" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('idcard', 'ID Card on A4', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Create', primary: true, onClick: async () => {
-        const name = document.getElementById('idc-outname')?.value.trim() || 'id_card_a4.pdf';
-        const out  = path.replace(/[\\/][^\\/]+$/, '') + '\\' + name;
-        closeModal();
-        App.setStatus('Tiling ID cards…', true);
-        const r = await SFM.call('id_card_on_a4', path, out);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Done: ' + name, 'success'); FileTree.refresh(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
-
-  // ── 7. Print Dialog ───────────────────────────────────────────────────────
-  async function openPrint(path) {
-    const body = `
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Printer</label>
-        <select id="print-printer" class="input-text" style="margin-top:4px;width:100%">
-          <option value="">Default printer</option>
-        </select>
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Page range (e.g. 1-3, 5)</label>
-        <input id="print-range" class="input-text" placeholder="All pages" style="width:100%;margin-top:4px">
-      </div>
-      <div>
-        <label class="detail-label">Copies</label>
-        <input id="print-copies" class="input-text" type="number" min="1" value="1" style="width:80px;margin-top:4px">
-      </div>`;
-
-    _openModal('print', 'Print', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Print', primary: true, onClick: async () => {
-        const printer = document.getElementById('print-printer')?.value || '';
-        const range   = document.getElementById('print-range')?.value.trim() || '';
-        const copies  = +document.getElementById('print-copies')?.value || 1;
-        closeModal();
-        App.setStatus('Printing…', true);
-        const r = await SFM.call('print_pdf_range', path, printer, range, copies);
-        App.setStatus('Ready');
-        if (r.ok) App.toast('Sent to printer', 'success');
-        else       App.toast('Print failed: ' + r.error, 'error');
-      }},
-    ]);
-
-    const r = await SFM.listPrinters();
-    const sel = document.getElementById('print-printer');
-    if (r.ok && sel) {
-      (r.printers || []).forEach(p => {
-        const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o);
-      });
-    }
+    return PdfTools.openArrange([path], { mode: 'arrange' });
   }
 
   // ── 8. Document Name Templates ────────────────────────────────────────────
-  async function openTemplates() {
-    const r = await SFM.getRenameTemplates();
-    const templates = r.ok ? (r.templates || []) : [];
-    const listHtml  = templates.map((t, i) =>
-      `<div class="template-row" data-idx="${i}">
-        <span class="template-name">${_esc(t.name || t)}</span>
-        <span class="template-pattern text-muted">${_esc(t.pattern || '')}</span>
-      </div>`
-    ).join('') || '<p class="text-muted">No templates saved yet.</p>';
-
-    const body = `
-      <div id="template-list" style="max-height:200px;overflow:auto;margin-bottom:12px">${listHtml}</div>
-      <div>
-        <label class="detail-label">New template name</label>
-        <input id="tmpl-name" class="input-text" placeholder="e.g. Passport_John Doe" style="width:100%;margin-top:4px">
-      </div>
-      <div style="margin-top:8px">
-        <label class="detail-label">Pattern (use {name}, {date}, {ext})</label>
-        <input id="tmpl-pattern" class="input-text" placeholder="{name}_{date}" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('templates', 'Document Name Templates', body, [
-      { label: 'Close', onClick: closeModal },
-      { label: 'Save Template', primary: true, onClick: async () => {
-        const name = document.getElementById('tmpl-name')?.value.trim();
-        const pat  = document.getElementById('tmpl-pattern')?.value.trim();
-        if (!name) { App.toast('Enter a template name', 'error'); return; }
-        const r = await SFM.saveRenameTemplate({ name, pattern: pat || name });
-        if (r.ok) { App.toast('Template saved', 'success'); closeModal(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
+  // Full manager lives in rename-templates.js (language, list, search,
+  // Add / Apply / Remove / Save to file).
+  function openTemplates() { return RenameTemplates.openManager(); }
 
   // ── 9. Change Case / Uppercase ────────────────────────────────────────────
   function openUppercase() {
+    const selected = App.state.selectedPaths || [];
     const body = `
-      <p class="text-muted" style="font-size:12px">Convert selected filenames to UPPERCASE, Title Case, or lowercase.</p>
-      <div id="uc-preview" style="max-height:160px;overflow:auto;font-size:12px;background:var(--bg-app);border-radius:6px;padding:8px;margin-bottom:12px;font-family:monospace"></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" id="uc-upper">UPPERCASE</button>
-        <button class="btn" id="uc-title">Title Case</button>
-        <button class="btn" id="uc-lower">lowercase</button>
+      <div class="field">
+        <span class="field-label">Convert names to</span>
+        <div class="segmented segmented-block" id="uc-seg" role="radiogroup" aria-label="Case">
+          <button type="button" class="seg-btn active" id="uc-upper">UPPERCASE</button>
+          <button type="button" class="seg-btn" id="uc-title">Title Case</button>
+          <button type="button" class="seg-btn" id="uc-lower">lowercase</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">Preview</span>
+        <div id="uc-preview" class="result-list"></div>
       </div>`;
 
-    _openModal('uppercase', 'Change Case', body, [
+    _openModal('uppercase', 'Change case', body, [
       { label: 'Cancel', onClick: closeModal },
-      { label: 'Apply', primary: true, onClick: async () => {
+      { label: 'Rename', primary: true, icon: 'case', onClick: async () => {
         const rows = document.querySelectorAll('#uc-preview .uc-row');
         closeModal();
         let done = 0;
@@ -1041,62 +551,35 @@ const Dialogs = (() => {
         App.toast(`Renamed ${done} file(s)`, 'success');
         FileTree.refresh();
       }},
-    ]);
+    ], { icon: 'case', subtitle: selected.length ? `${selected.length} selected item${selected.length === 1 ? '' : 's'}` : 'No selection', size: 'sm' });
 
-    const selected = App.state.selectedPaths || [];
     const preview  = document.getElementById('uc-preview');
 
     function buildPreview(fn) {
       preview.innerHTML = selected.map(p => {
         const name    = p.split(/[\\/]/).pop();
         const newName = fn(name);
-        return `<div class="uc-row" data-old="${_esc(p)}" data-new="${_esc(newName)}">
-          <span style="color:var(--text-muted)">${_esc(name)}</span> &#8594; <span style="color:var(--accent)">${_esc(newName)}</span>
+        return `<div class="uc-row result-row" data-old="${_esc(p)}" data-new="${_esc(newName)}">
+          <span class="result-name text-muted" title="${_esc(name)}">${_esc(name)}</span>
+          ${Icons.svg('arrow-right', 14, 'text-muted')}
+          <span class="result-name" title="${_esc(newName)}">${_esc(newName)}</span>
         </div>`;
-      }).join('') || '<p class="text-muted">No files selected.</p>';
+      }).join('') || `<div class="empty-state empty-state-sm"><div class="empty-state-icon">${Icons.svg('files', 22)}</div><div class="empty-state-text">Select files in the list first.</div></div>`;
     }
 
     const toTitle = s => s.replace(/\b\w/g, c => c.toUpperCase());
+    const pick = (id, fn) => document.getElementById(id).addEventListener('click', () => {
+      document.querySelectorAll('#uc-seg .seg-btn').forEach(b => b.classList.toggle('active', b.id === id));
+      buildPreview(fn);
+    });
     buildPreview(s => s.toUpperCase());
-    document.getElementById('uc-upper').addEventListener('click', () => buildPreview(s => s.toUpperCase()));
-    document.getElementById('uc-title').addEventListener('click', () => buildPreview(toTitle));
-    document.getElementById('uc-lower').addEventListener('click', () => buildPreview(s => s.toLowerCase()));
+    pick('uc-upper', s => s.toUpperCase());
+    pick('uc-title', toTitle);
+    pick('uc-lower', s => s.toLowerCase());
   }
 
-  // ── 10. Compress PDF ──────────────────────────────────────────────────────
-  function openCompressPdf(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Compress: <strong>${_esc(name)}</strong></p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Quality preset</label>
-        <select id="cmp-quality" class="input-text" style="margin-top:4px;width:100%">
-          <option value="screen">Screen (smallest)</option>
-          <option value="ebook" selected>eBook (balanced)</option>
-          <option value="printer">Printer (high quality)</option>
-          <option value="prepress">Prepress (maximum)</option>
-        </select>
-      </div>
-      <div>
-        <label class="detail-label">Output filename</label>
-        <input id="cmp-out" class="input-text" value="${_esc(name.replace(/\.pdf$/i,'_compressed.pdf'))}" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('compress', 'Compress PDF', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Compress', primary: true, onClick: async () => {
-        const quality = document.getElementById('cmp-quality')?.value || 'ebook';
-        const outName = document.getElementById('cmp-out')?.value.trim() || name;
-        const out     = path.replace(/[\\/][^\\/]+$/, '') + '\\' + outName;
-        closeModal();
-        App.setStatus('Compressing…', true);
-        const r = await SFM.call('compress_pdf_quality', path, quality, out);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast(`Compressed: ${outName}${r.reduction ? ' ('+r.reduction+'% saved)' : ''}`, 'success'); FileTree.refresh(); }
-        else       { App.toast('Compress failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
+  // ── 10. Compress PDF — implemented in convert-tools.js (single or batch) ──
+  function openCompressPdf(paths) { return ConvertTools.openCompressPdf(paths); }
 
   // ── 11. Settings ──────────────────────────────────────────────────────────
   async function openSettings() {
@@ -1105,40 +588,70 @@ const Dialogs = (() => {
     const rk = await SFM.getApiKey();
     const apiKey = rk.key || '';
 
+    const OCR_LANGS = [
+      ['eng', 'English'], ['kor', 'Korean'], ['jpn', 'Japanese'], ['chi_sim', 'Chinese (Simplified)'],
+      ['chi_tra', 'Chinese (Traditional)'], ['ara', 'Arabic'], ['fra', 'French'], ['deu', 'German'],
+      ['spa', 'Spanish'], ['rus', 'Russian'],
+    ];
+    const curTheme = s.theme || (document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
     const body = `
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div>
-          <label class="detail-label">OpenAI / GPT API Key</label>
-          <input id="s-apikey" class="input-text" type="password" value="${_esc(apiKey)}" placeholder="sk-..." style="width:100%;margin-top:4px">
-        </div>
-        <div>
-          <label class="detail-label">Default output folder</label>
-          <div style="display:flex;gap:8px;margin-top:4px">
-            <input id="s-outfolder" class="input-text" value="${_esc(s.output_folder||'')}" style="flex:1">
-            <button class="btn" id="s-outfolder-browse">Browse&#x2026;</button>
+      <div class="settings-form">
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('folder', 16)}General</div>
+          <div class="settings-row">
+            <label class="field-label" for="s-outfolder">Default output folder</label>
+            <div>
+              <div class="field-row">
+                <input id="s-outfolder" class="input-text" value="${_esc(s.output_folder||'')}" placeholder="Same folder as the original file">
+                <button class="btn" id="s-outfolder-browse">Browse&#x2026;</button>
+              </div>
+              <div class="field-hint">Where new PDFs and images are saved. Leave empty to save next to the original.</div>
+            </div>
           </div>
-        </div>
-        <div>
-          <label class="detail-label">Watch folder auto-rename</label>
-          <label style="display:flex;gap:8px;align-items:center;margin-top:4px;cursor:pointer">
-            <input type="checkbox" id="s-watchrename" ${s.watch_auto_rename ? 'checked' : ''}> Enable
-          </label>
-        </div>
-        <div>
-          <label class="detail-label">OCR language</label>
-          <select id="s-ocrlang" class="input-text" style="margin-top:4px;width:100%">
-            ${['eng','kor','jpn','chi_sim','chi_tra','ara','fra','deu','spa','rus'].map(l =>
-              `<option value="${l}" ${s.ocr_lang===l?'selected':''}>${l}</option>`
-            ).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="detail-label">App theme</label>
-          <select id="s-theme" class="input-text" style="margin-top:4px;width:100%">
-            <option value="dark"  ${(s.theme||'dark')==='dark' ?'selected':''}>Dark</option>
-            <option value="light" ${s.theme==='light'          ?'selected':''}>Light</option>
-          </select>
-        </div>
+          <div class="settings-row">
+            <label class="field-label" for="s-ocrlang">OCR language</label>
+            <div>
+              <select id="s-ocrlang" class="input-text">
+                ${OCR_LANGS.map(([v, n]) =>
+                  `<option value="${v}" ${s.ocr_lang===v?'selected':''}>${n} (${v})</option>`
+                ).join('')}
+              </select>
+              <div class="field-hint">Used when reading text from scanned documents.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('palette', 16)}Appearance</div>
+          <div class="settings-row">
+            <span class="field-label">Theme</span>
+            <div>
+              <div class="segmented segmented-block" id="s-theme-seg" role="radiogroup" aria-label="Theme">
+                <button type="button" class="seg-btn ${curTheme==='dark'?'active':''}" data-theme-val="dark">${Icons.svg('moon', 14)}Dark</button>
+                <button type="button" class="seg-btn ${curTheme==='light'?'active':''}" data-theme-val="light">${Icons.svg('sun', 14)}Light</button>
+              </div>
+              <select id="s-theme" class="hidden" aria-hidden="true">
+                <option value="dark"  ${curTheme==='dark' ?'selected':''}>Dark</option>
+                <option value="light" ${curTheme==='light'?'selected':''}>Light</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('sparkles', 16)}AI features</div>
+          <div class="settings-row">
+            <label class="field-label" for="s-apikey">OpenAI API key</label>
+            <div>
+              <div class="input-group">
+                <span class="input-icon">${Icons.svg('key', 14)}</span>
+                <input id="s-apikey" class="input-text mono" type="password" value="${_esc(apiKey)}" placeholder="sk-…" autocomplete="off" spellcheck="false">
+                <button type="button" class="icon-btn input-action" id="s-apikey-toggle" title="Show key" aria-label="Show key">${Icons.svg('eye', 16)}</button>
+              </div>
+              <div class="field-hint">Needed for Smart Split and AI photo edits. Stored on this computer only.</div>
+            </div>
+          </div>
+        </section>
       </div>`;
 
     _openModal('settings', 'Settings', body, [
@@ -1148,230 +661,86 @@ const Dialogs = (() => {
         if (newKey !== apiKey) await SFM.setApiKey(newKey);
         const ns = {
           output_folder:     document.getElementById('s-outfolder')?.value.trim() || '',
-          watch_auto_rename: document.getElementById('s-watchrename')?.checked || false,
           ocr_lang:          document.getElementById('s-ocrlang')?.value || 'eng',
           theme:             document.getElementById('s-theme')?.value || 'dark',
         };
         const r = await SFM.saveSettings(ns);
         closeModal();
-        if (r.ok) App.toast('Settings saved', 'success');
+        if (r.ok) { App.toast('Settings saved', 'success'); if (App.applyTheme) App.applyTheme(ns.theme); }
         else       App.toast('Save failed: ' + r.error, 'error');
       }},
     ]);
+    const _sm = document.getElementById('modal-settings');
+    if (_sm) _sm.style.width = 'min(640px, 94vw)';
 
     document.getElementById('s-outfolder-browse')?.addEventListener('click', async () => {
       const r = await SFM.call('browse_for_folder');
       if (r.ok && r.path) document.getElementById('s-outfolder').value = r.path;
     });
+    // Theme segmented control mirrors the (hidden) #s-theme select
+    document.querySelectorAll('#s-theme-seg [data-theme-val]').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('#s-theme-seg .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+      const sel = document.getElementById('s-theme');
+      if (sel) sel.value = b.dataset.themeVal;
+    }));
+    // Show / hide the API key
+    document.getElementById('s-apikey-toggle')?.addEventListener('click', () => {
+      const inp = document.getElementById('s-apikey');
+      const t = document.getElementById('s-apikey-toggle');
+      if (!inp || !t) return;
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      t.innerHTML = Icons.svg(show ? 'eye-off' : 'eye', 16);
+      t.title = show ? 'Hide key' : 'Show key';
+      t.setAttribute('aria-label', t.title);
+    });
   }
 
-  // ── 12. Extract PDF Pages ─────────────────────────────────────────────────
-  function openExtractPages(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Extract pages from: <strong>${_esc(name)}</strong></p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Page range (e.g. 1-3, 5, 7-9)</label>
-        <input id="ep-range" class="input-text" placeholder="e.g. 1-3, 5" style="width:100%;margin-top:4px">
-      </div>
-      <div>
-        <label class="detail-label">Output filename</label>
-        <input id="ep-out" class="input-text" value="${_esc(name.replace(/\.pdf$/i,'_extract.pdf'))}" style="width:100%;margin-top:4px">
-      </div>`;
-
-    _openModal('extract-pages', 'Extract PDF Pages', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Extract', primary: true, onClick: async () => {
-        const spec    = document.getElementById('ep-range')?.value.trim();
-        const outName = document.getElementById('ep-out')?.value.trim() || name;
-        if (!spec) { App.toast('Enter a page range', 'error'); return; }
-        const out = path.replace(/[\\/][^\\/]+$/, '') + '\\' + outName;
-        closeModal();
-        App.setStatus('Extracting pages…', true);
-        const r = await SFM.extractPdfPages(path, spec, out);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Extracted: ' + outName, 'success'); FileTree.refresh(); }
-        else       { App.toast('Extract failed: ' + r.error, 'error'); }
-      }},
-    ]);
-  }
-
-  // ── 13. Find Duplicate Pages ──────────────────────────────────────────────
-  async function openDuplicatePages(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Scanning: <strong>${_esc(name)}</strong></p>
-      <div id="dup-results" style="max-height:300px;overflow:auto;font-size:12px;background:var(--bg-app);border-radius:6px;padding:12px;margin-top:10px;min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('dup-pages', 'Find Duplicate Pages', body, [
-      { label: 'Close', onClick: closeModal },
-    ]);
-
-    const res = document.getElementById('dup-results');
-    try {
-      const r = await SFM.findDuplicatePages(path);
-      if (!r.ok) { if (res) res.innerHTML = `<p style="color:var(--text-danger)">Error: ${_esc(r.error)}</p>`; return; }
-      const groups = r.groups || [];
-      if (groups.length === 0) {
-        if (res) res.innerHTML = '<p style="color:var(--accent)">&#x2705; No duplicate pages found.</p>';
-      } else {
-        if (res) res.innerHTML = `<div style="width:100%">
-          <p style="color:var(--text-warning);margin:0 0 10px">&#x26A0;&#xFE0F; Found ${groups.length} duplicate group(s):</p>
-          ${groups.map(g => `<div style="padding:6px 0;border-bottom:1px solid var(--border)">Pages: <strong>${g.map(p => p+1).join(', ')}</strong></div>`).join('')}
-        </div>`;
-      }
-    } catch(e) {
-      if (res) res.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
-  }
-
-  // ── 14. Similar Move ──────────────────────────────────────────────────────
-  async function openSimilarMove(paths) {
-    if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = `
-      <p class="text-muted" style="font-size:12px">Suggests folders based on filename similarity. Uncheck to skip.</p>
-      <div id="sim-results" style="max-height:300px;overflow:auto;font-size:12px;background:var(--bg-app);border-radius:6px;padding:10px;margin-top:10px;min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('similar', 'Similar Move', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Move Checked', primary: true, onClick: async () => {
-        const res  = document.getElementById('sim-results');
-        const cbs  = res ? res.querySelectorAll('input[data-src]:checked') : [];
-        if (!cbs.length) { App.toast('No moves selected', 'warning'); return; }
-        const plan = Array.from(cbs).map(cb => ({ src: cb.dataset.src, dest: cb.dataset.dest }));
-        closeModal();
-        App.setStatus('Moving files…', true);
-        const r = await SFM.applyFileMoves(plan);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast(`Moved ${r.moved ?? plan.length} file(s)`, 'success'); FileTree.refresh(); }
-        else       { App.toast('Move failed: ' + r.error, 'error'); }
-      }},
-    ]);
-
-    const res = document.getElementById('sim-results');
-    try {
-      const r = await SFM.planSimilarMoves(paths);
-      if (!r.ok || !r.plan?.length) {
-        if (res) res.innerHTML = '<p class="text-muted">No matching folders found nearby.</p>';
-        return;
-      }
-      if (res) res.innerHTML = `<div style="width:100%">${r.plan.map(item =>
-        `<label style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer">
-          <input type="checkbox" checked data-src="${_esc(item.src)}" data-dest="${_esc(item.dest)}" style="margin-top:3px;flex-shrink:0">
-          <span>
-            <div style="font-weight:500">${_esc(item.src.split(/[\\/]/).pop())}</div>
-            <div class="text-muted" style="font-size:11px">&#x2192; ${_esc(item.dest)}</div>
-          </span>
-        </label>`
-      ).join('')}</div>`;
-    } catch(e) {
-      if (res) res.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
-  }
-
-  // ── 15. Passport Photo Check ──────────────────────────────────────────────
-  async function openPassportCheck(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Checking: <strong>${_esc(name)}</strong></p>
-      <div id="pp-result" style="margin-top:12px;font-size:13px;line-height:1.8;min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('passport', 'Passport Photo Check', body, [
-      { label: 'Close', onClick: closeModal },
-    ]);
-
-    const el = document.getElementById('pp-result');
-    try {
-      const r = await SFM.checkPassportPhoto(path);
-      if (!r.ok) { if (el) el.innerHTML = `<p style="color:var(--text-danger)">&#x274C; ${_esc(r.error)}</p>`; return; }
-      const checks  = r.checks || [];
-      const overall = checks.length > 0 && checks.every(c => c.pass);
-      if (el) el.innerHTML = `<div style="width:100%">
-        <div style="font-size:15px;font-weight:600;margin-bottom:12px;color:${overall?'var(--accent)':'var(--text-danger)'}">
-          ${overall ? '&#x2705; Photo meets requirements' : '&#x274C; Photo has issues'}
-        </div>
-        ${checks.map(c => `<div style="display:flex;gap:10px;align-items:baseline;padding:3px 0">
-          <span style="width:20px;text-align:center">${c.pass ? '&#x2705;' : '&#x274C;'}</span>
-          <span><strong>${_esc(c.label)}</strong>${c.detail ? ': ' + _esc(c.detail) : ''}</span>
-        </div>`).join('')}
-        ${r.message ? `<p style="margin-top:10px;color:var(--text-muted);font-size:12px">${_esc(r.message)}</p>` : ''}
-      </div>`;
-    } catch(e) {
-      if (el) el.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
+  // ── 12. Extract PDF Pages — see js/pdf-tools.js (PdfTools.openExtract) ─
+  function openExtractPages(path, page) {
+    return PdfTools.openExtract(path, { page });
   }
 
   // ── 16. More Menu ─────────────────────────────────────────────────────────
   function openMoreMenu() {
+    const item = (id, icon, label, hint) =>
+      `<button class="qa-btn more-item" id="${id}"><span class="icon">${Icons.svg(icon, 16)}</span>
+         <span class="flex-1">${label}</span>${hint ? `<span class="hint">${hint}</span>` : ''}</button>`;
     const body = `
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <button class="qa-btn" id="mm-student-folders">&#x1F4C2;  Create Student Folders&#x2026;</button>
-        <button class="qa-btn" id="mm-templates">&#x1F4DD;  Document Name Templates&#x2026;</button>
-        <button class="qa-btn" id="mm-uppercase">&#x1F520;  Change Case / Uppercase Tool&#x2026;</button>
-        <button class="qa-btn" id="mm-similar">&#x1F500;  Similar Move&#x2026;</button>
-        <button class="qa-btn" id="mm-copyto">&#x1F4CB;  Copy To&#x2026;</button>
-        <button class="qa-btn" id="mm-moveto">&#x2702;&#xFE0F;  Move To&#x2026;</button>
-        <button class="qa-btn" id="mm-apostille">&#x1F3DB;&#xFE0F;  Apostille Matcher&#x2026;</button>
-        <button class="qa-btn" id="mm-expand-all">&#x1F4C2;  Expand All Folders</button>
-        <button class="qa-btn" id="mm-collapse-all">&#x1F4C1;  Collapse All Folders</button>
-        <button class="qa-btn" id="mm-bulk-split">&#x2702;&#xFE0F;  Split Multi-page PDFs in Folder&#x2026;</button>
-        <button class="qa-btn" id="mm-zip-subfolders">&#x1F4E6;  Zip Each Subfolder</button>
-        <button class="qa-btn" id="mm-heatmap">&#x1F4CA;  Document Expiry Heatmap</button>
-        <button class="qa-btn" id="mm-report">&#x1F4CB;  Generate Checklist Report</button>
+      <div class="qa-list">
+        <div class="section-title" style="padding:4px 8px 2px">Rename</div>
+        ${item('mm-templates', 'templates', 'Document name templates&#x2026;')}
+        ${item('mm-uppercase', 'case', 'Change case&#x2026;', 'UPPER · Title · lower')}
+        <div class="section-title" style="padding:12px 8px 2px">Files</div>
+        ${item('mm-copyto', 'copy', 'Copy selection to&#x2026;')}
+        ${item('mm-moveto', 'folder-input', 'Move selection to&#x2026;')}
+        <div class="section-title" style="padding:12px 8px 2px">Folder tree</div>
+        ${item('mm-expand-all', 'chevrons-up-down', 'Expand all folders')}
+        ${item('mm-collapse-all', 'chevrons-down-up', 'Collapse all folders')}
       </div>`;
 
-    _openModal('more', 'More Actions', body, [
+    _openModal('more', 'More actions', body, [
       { label: 'Close', onClick: closeModal },
     ]);
+    const _mm = document.getElementById('modal-more');
+    if (_mm) _mm.style.width = 'min(420px, 94vw)';
 
     const wire = (id, fn) => {
       const e = document.getElementById(id);
       if (e) e.addEventListener('click', () => { closeModal(); setTimeout(fn, 50); });
     };
-    wire('mm-student-folders', () => openCreateStudentFolders(App.state.currentFolder || ''));
     wire('mm-templates', () => openTemplates());
     wire('mm-uppercase', () => openUppercase());
-    wire('mm-similar',   () => openSimilarMove(App.state.selectedPaths || []));
     wire('mm-copyto',    () => openCopyTo(App.state.selectedPaths || []));
     wire('mm-moveto',    () => openMoveTo(App.state.selectedPaths || []));
-    wire('mm-apostille', () => openApostille(App.state.currentFolder || ''));
     wire('mm-expand-all',    () => FileTree.expandAll());
     wire('mm-collapse-all',  () => FileTree.collapseAll());
-    wire('mm-bulk-split',    () => openBulkSplitPdfs(App.state.currentFolder || ''));
-    wire('mm-zip-subfolders',() => FileTree.zipEachSubfolder());
-    wire('mm-heatmap',   () => App.switchPanel('heatmap'));
-    wire('mm-report',    () => {
-      const f = App.state.currentFolder
-             || (App.state.focusedPath || '').replace(/[\\/][^\\/]+$/, '')
-             || '';
-      if (!f) { App.toast('Open a folder first', 'warning'); return; }
-      App.setStatus('Generating report…', true);
-      SFM.generateReport(f);
-      App.toast('Generating checklist report…', 'info');
-    });
   }
 
   // ── 17. Smart Split Progress ──────────────────────────────────────────────
   function openSmartSplitProgress(path) {
     const name = path.split(/[\\/]/).pop();
-    const body = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-        GPT-4o is identifying, splitting and merging pages in:<br>
-        <strong>${_esc(name)}</strong>
-      </p>
-      <div id="ss-log"
-           style="font-family:monospace;font-size:11px;line-height:1.6;
-                  background:var(--bg-app);border-radius:6px;padding:10px;
-                  height:260px;overflow-y:auto;white-space:pre-wrap;
-                  color:var(--text-primary)">Starting…\n</div>
-      <div id="ss-status"
-           style="font-size:12px;color:var(--accent);margin-top:8px;min-height:18px"></div>`;
+    const body = _jobBody('ss', 'AI identifies each document in the PDF, splits it and merges related pages. Files are saved next to the original.', 'Starting…\n', 'Analysing pages…');
 
     _openModal('smart-split', 'Smart Split & Merge', body, [
       { label: 'Close', onClick: () => {
@@ -1380,7 +749,7 @@ const Dialogs = (() => {
           closeModal();
         }
       },
-    ]);
+    ], { icon: 'sparkles', subtitle: name });
 
     const logEl    = document.getElementById('ss-log');
     const statusEl = document.getElementById('ss-status');
@@ -1396,11 +765,11 @@ const Dialogs = (() => {
       SFM.off('smart_rename_done', _onDone);
       App.setStatus('Ready');
       if (r.ok) {
-        if (statusEl) statusEl.textContent = '✅ Complete — files saved alongside original.';
+        _jobDone('ss', true, 'Smart Split complete', 'The new files are saved next to the original.');
         App.toast('Smart Split complete', 'success');
         FileTree.refresh();
       } else {
-        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + (r.error || 'Failed'); }
+        _jobDone('ss', false, 'Smart Split failed', r.error || 'Failed');
         App.toast('Smart Split failed: ' + r.error, 'error', 7000);
       }
     }
@@ -1415,20 +784,11 @@ const Dialogs = (() => {
   // ── 18. Copy To ─────────────────────────────────────────────────────────
   async function openCopyTo(paths) {
     if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = `
-      <p class="text-muted" style="font-size:12px">Copy ${paths.length} file(s) to a destination folder.</p>
-      <div style="margin-top:10px">
-        <label class="detail-label">Destination folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="ct-dest" class="input-text" placeholder="Select destination…" style="flex:1">
-          <button class="btn" id="ct-browse">Browse&#x2026;</button>
-        </div>
-      </div>
-      <div id="ct-status" style="font-size:12px;color:var(--accent);min-height:18px;margin-top:8px"></div>`;
+    const body = _destBody('ct', 'Copies are added to the destination; the originals stay where they are.');
 
-    _openModal('copyto', 'Copy To…', body, [
+    _openModal('copyto', 'Copy to folder', body, [
       { label: 'Cancel', onClick: closeModal },
-      { label: 'Copy', primary: true, onClick: async () => {
+      { label: 'Copy', primary: true, icon: 'copy', onClick: async () => {
         const dest = document.getElementById('ct-dest')?.value.trim();
         if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
         closeModal();
@@ -1438,7 +798,7 @@ const Dialogs = (() => {
         if (r.ok) { App.toast('Copied ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
         else       { App.toast('Copy failed: ' + r.error, 'error'); }
       }},
-    ]);
+    ], { icon: 'copy', subtitle: _countLabel(paths), size: 'sm' });
 
     document.getElementById('ct-browse')?.addEventListener('click', async () => {
       const r = await SFM.call('browse_for_folder');
@@ -1449,20 +809,11 @@ const Dialogs = (() => {
   // ── 19. Move To ───────────────────────────────────────────────────────────
   async function openMoveTo(paths) {
     if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = `
-      <p class="text-muted" style="font-size:12px">Move ${paths.length} file(s) to a destination folder.</p>
-      <div style="margin-top:10px">
-        <label class="detail-label">Destination folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="mv-dest" class="input-text" placeholder="Select destination…" style="flex:1">
-          <button class="btn" id="mv-browse">Browse…</button>
-        </div>
-      </div>
-      <div id="mv-status" style="font-size:12px;color:var(--accent);min-height:18px;margin-top:8px"></div>`;
+    const body = _destBody('mv', 'The files are moved out of the current folder. An existing file is never replaced.');
 
-    _openModal('moveto', 'Move To…', body, [
+    _openModal('moveto', 'Move to folder', body, [
       { label: 'Cancel', onClick: closeModal },
-      { label: 'Move', primary: true, onClick: async () => {
+      { label: 'Move', primary: true, icon: 'folder-input', onClick: async () => {
         const dest = document.getElementById('mv-dest')?.value.trim();
         if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
         closeModal();
@@ -1472,7 +823,7 @@ const Dialogs = (() => {
         if (r.ok) { App.toast('Moved ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
         else       { App.toast('Move failed: ' + r.error, 'error'); }
       }},
-    ]);
+    ], { icon: 'folder-input', subtitle: _countLabel(paths), size: 'sm' });
 
     document.getElementById('mv-browse')?.addEventListener('click', async () => {
       const r = await SFM.call('browse_for_folder');
@@ -1480,125 +831,22 @@ const Dialogs = (() => {
     });
   }
 
-  // ── 20. Create Student Folders (CORE FEATURE) ────────────────────────────
-  async function openCreateStudentFolders(dest) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Enter student names (one per line). A folder will be created for each name.</p>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Destination folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="sf-dest" class="input-text" value="${_esc(dest||'')}" style="flex:1">
-          <button class="btn" id="sf-browse">Browse…</button>
-        </div>
-      </div>
-      <div>
-        <label class="detail-label">Student names (one per line)</label>
-        <textarea id="sf-names" class="input-text" rows="10"
-          placeholder="AHMED ALI&#10;JOHN SMITH&#10;FATIMA KHAN"
-          style="width:100%;margin-top:4px;resize:vertical;font-family:monospace;font-size:12px"></textarea>
-      </div>
-      <div id="sf-status" style="font-size:12px;color:var(--accent);min-height:18px;margin-top:8px"></div>`;
-
-    _openModal('student-folders', 'Create Student Folders', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Create Folders', primary: true, onClick: async () => {
-        const destVal = document.getElementById('sf-dest')?.value.trim();
-        const raw     = document.getElementById('sf-names')?.value || '';
-        const names   = raw.split('\n').map(n => n.trim()).filter(Boolean);
-        if (!destVal) { App.toast('Set a destination folder', 'error'); return; }
-        if (names.length === 0) { App.toast('Enter at least one name', 'error'); return; }
-        const statusEl = document.getElementById('sf-status');
-        if (statusEl) statusEl.textContent = 'Creating ' + names.length + ' folders…';
-        App.setStatus('Creating folders…', true);
-        const r = await SFM.createStudentFolders(names, destVal);
-        App.setStatus('Ready');
-        if (r.ok) {
-          const created = r.created || names.length;
-          if (statusEl) statusEl.textContent = '✅ Created ' + created + ' folder(s)';
-          App.toast('Created ' + created + ' student folder(s)', 'success');
-          FileTree.refresh();
-          closeModal();
-        } else {
-          if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + r.error; }
-          App.toast('Failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    document.getElementById('sf-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('sf-dest').value = r.path;
-    });
-  }
-
-  // ── 21. PDF to Images ─────────────────────────────────────────────────────
-  async function openPdfToImages(path) {
-    const name = path.split(/[\\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Convert each page of <strong>${_esc(name)}</strong> to an image file.</p>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Format</label>
-        <select id="pi-fmt" class="input-text" style="margin-top:4px;width:100%">
-          <option value="png" selected>PNG (lossless)</option>
-          <option value="jpg">JPEG (smaller)</option>
-        </select>
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">DPI / Resolution</label>
-        <select id="pi-dpi" class="input-text" style="margin-top:4px;width:100%">
-          <option value="72">72 dpi (screen)</option>
-          <option value="150" selected>150 dpi (balanced)</option>
-          <option value="300">300 dpi (print quality)</option>
-        </select>
-      </div>
-      <div id="pi-status" style="font-size:12px;color:var(--accent);min-height:18px"></div>`;
-
-    _openModal('pdf-to-images', 'PDF → Images', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Convert', primary: true, onClick: async () => {
-        const fmt = document.getElementById('pi-fmt')?.value || 'png';
-        const dpi = +document.getElementById('pi-dpi')?.value || 150;
-        const statusEl = document.getElementById('pi-status');
-        if (statusEl) statusEl.textContent = 'Converting…';
-        App.setStatus('Converting PDF to images…', true);
-        const r = await SFM.pdfToImages(path, dpi, fmt);
-        App.setStatus('Ready');
-        if (r.ok) {
-          const n = (r.files || []).length;
-          if (statusEl) statusEl.textContent = '✅ ' + n + ' image(s) saved alongside PDF';
-          App.toast('Converted ' + n + ' page(s) to ' + fmt.toUpperCase(), 'success');
-          FileTree.refresh();
-        } else {
-          if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + r.error; }
-          App.toast('Conversion failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-  }
+  // ── 21. PDF to Images — implemented in convert-tools.js ──────────────────
+  function openPdfToImages(path) { return ConvertTools.openPdfToImages(path); }
 
   // ── 22. Split & Rename OCR Progress ──────────────────────────────────────
   function openSplitRenameOcrProgress(path) {
     const name = path.split(/[\\\/]/).pop();
-    const body = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-        OCR scanning and splitting: <strong>${_esc(name)}</strong>
-      </p>
-      <div id="sor-log"
-           style="font-family:monospace;font-size:11px;line-height:1.6;
-                  background:var(--bg-app);border-radius:6px;padding:10px;
-                  height:220px;overflow-y:auto;white-space:pre-wrap;
-                  color:var(--text-primary)">Starting OCR split…
-</div>
-      <div id="sor-status" style="font-size:12px;color:var(--accent);margin-top:8px;min-height:18px"></div>`;
+    const body = _jobBody('sor', 'Reads every page with OCR, splits the PDF into documents and names each one by its type.', 'Starting OCR split…\n', 'Reading pages…');
 
-    _openModal('split-ocr', 'Split & Rename by OCR', body, [
+    _openModal('split-ocr', 'Split & rename by OCR', body, [
       { label: 'Close', onClick: () => {
           SFM.off('ocr_rename_log', _onLog);
           SFM.off('ocr_rename_done', _onDone);
           closeModal();
         }
       },
-    ]);
+    ], { icon: 'scan-text', subtitle: name });
 
     const logEl    = document.getElementById('sor-log');
     const statusEl = document.getElementById('sor-status');
@@ -1613,11 +861,11 @@ const Dialogs = (() => {
       SFM.off('ocr_rename_done', _onDone);
       App.setStatus('Ready');
       if (r.ok) {
-        if (statusEl) statusEl.textContent = '✅ Done — ' + (r.files?.length || '?') + ' file(s) created';
+        _jobDone('sor', true, 'OCR split complete', (r.files?.length || '?') + ' file(s) created next to the original.');
         App.toast('OCR Split complete', 'success');
         FileTree.refresh();
       } else {
-        if (statusEl) { statusEl.style.color = 'var(--text-danger)'; statusEl.textContent = '❌ ' + (r.error || 'Failed'); }
+        _jobDone('sor', false, 'OCR split failed', r.error || 'Failed');
         App.toast('OCR Split failed: ' + r.error, 'error', 7000);
       }
     }
@@ -1628,204 +876,16 @@ const Dialogs = (() => {
     SFM.splitAndRenameOcr(path);
   }
 
-  // ── 23. ZIP Contents Viewer ──────────────────────────────────────────────
-  async function openZipContents(path) {
-    const name = path.split(/[\\\/]/).pop();
-    const body = `
-      <p class="text-muted" style="font-size:12px">Contents of: <strong>${_esc(name)}</strong></p>
-      <div id="zip-list" style="max-height:360px;overflow:auto;font-size:12px;
-           background:var(--bg-app);border-radius:6px;padding:10px;margin-top:10px;
-           min-height:60px;display:flex;align-items:center;justify-content:center">
-        <div class="loading-spinner"></div>
-      </div>`;
-
-    _openModal('zip-view', 'ZIP Contents', body, [
-      { label: 'Close', onClick: closeModal },
-      { label: 'Extract Here', primary: true, onClick: () => {
-        closeModal();
-        App.setStatus('Extracting…', true);
-        SFM.unzip(path);
-        App.toast('Extracting…', 'info');
-      }},
-    ]);
-
-    const el = document.getElementById('zip-list');
-    try {
-      const r = await SFM.listZip(path);
-      if (!r.ok) {
-        if (el) el.innerHTML = `<p style="color:var(--text-danger)">Error: ${_esc(r.error)}</p>`;
-        return;
-      }
-      const items = r.files || [];
-      if (items.length === 0) {
-        if (el) el.innerHTML = '<p class="text-muted">Archive is empty.</p>';
-        return;
-      }
-      const fmt = b => b < 1024 ? b + ' B'
-        : b < 1048576 ? (b/1024).toFixed(1) + ' KB'
-        : (b/1048576).toFixed(1) + ' MB';
-      if (el) el.innerHTML = `<div style="width:100%">
-        <div style="display:grid;grid-template-columns:1fr auto;gap:2px 16px;font-size:11px;
-             color:var(--text-muted);font-weight:600;padding:0 4px 6px;border-bottom:1px solid var(--border)">
-          <span>Name</span><span style="text-align:right">Size</span>
-        </div>
-        ${items.map(f => `
-          <div style="display:grid;grid-template-columns:1fr auto;gap:2px 16px;padding:3px 4px;border-bottom:1px solid var(--border);">
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(f.name||f)}">${_esc(f.name||f)}</span>
-            <span style="text-align:right;color:var(--text-muted);white-space:nowrap">${f.size != null ? fmt(f.size) : '—'}</span>
-          </div>`).join('')}
-        <div style="padding:6px 4px;font-size:11px;color:var(--text-muted)">${items.length} file(s)</div>
-      </div>`;
-    } catch(e) {
-      if (el) el.innerHTML = `<p style="color:var(--text-danger)">${_esc(String(e))}</p>`;
-    }
-  }
-
-  // ── 24. Bulk Split PDFs in Folder ───────────────────────────────────────
-  async function openBulkSplitPdfs(folder) {
-    const body = `
-      <p class="text-muted" style="font-size:12px">Split every multi-page PDF in a folder into single-page files.</p>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Source folder</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="bsp-folder" class="input-text" value="${_esc(folder||'')}" style="flex:1">
-          <button class="btn" id="bsp-browse">Browse…</button>
-        </div>
-      </div>
-      <div style="margin-bottom:10px">
-        <label style="display:flex;gap:8px;align-items:center;cursor:pointer">
-          <input type="checkbox" id="bsp-recursive"> Include subfolders
-        </label>
-      </div>
-      <div id="bsp-status" style="font-size:12px;color:var(--accent);min-height:18px"></div>`;
-
-    _openModal('bulk-split', 'Split Multi-page PDFs in Folder', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Split All', primary: true, onClick: async () => {
-        const f    = document.getElementById('bsp-folder')?.value.trim();
-        const rec  = document.getElementById('bsp-recursive')?.checked;
-        if (!f) { App.toast('Choose a folder', 'error'); return; }
-        const statusEl = document.getElementById('bsp-status');
-        if (statusEl) statusEl.textContent = 'Scanning PDFs…';
-        App.setStatus('Scanning…', true);
-
-        // List PDFs
-        const lr = rec ? await SFM.listFolderRec(f, 4) : await SFM.listFolder(f);
-        App.setStatus('Ready');
-        if (!lr.ok) { App.toast('Failed: ' + lr.error, 'error'); return; }
-        const pdfs = (lr.entries || []).filter(e => (e.ext||'').toLowerCase() === '.pdf');
-        if (!pdfs.length) { if(statusEl) statusEl.textContent = 'No PDFs found.'; return; }
-
-        if (statusEl) statusEl.textContent = 'Splitting ' + pdfs.length + ' PDF(s)…';
-        App.setStatus('Splitting…', true);
-        let done = 0, skipped = 0;
-        for (const pdf of pdfs) {
-          const cr = await SFM.getPdfPageCount(pdf.path);
-          if (!cr.ok || (cr.page_count || cr.count || 0) <= 1) { skipped++; continue; }
-          const outDir = pdf.path.replace(/[\\/][^\\/]+$/, '');
-          const r = await SFM.splitPdf(pdf.path, outDir);
-          if (r.ok) done++;
-          if (statusEl) statusEl.textContent = 'Split ' + done + '/' + pdfs.length + '…';
-        }
-        App.setStatus('Ready');
-        const msg = 'Split ' + done + ' PDF(s)' + (skipped ? ' (' + skipped + ' single-page skipped)' : '');
-        if (statusEl) statusEl.textContent = '✅ ' + msg;
-        App.toast(msg, 'success');
-        FileTree.refresh();
-        closeModal();
-      }},
-    ]);
-    document.getElementById('bsp-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('bsp-folder').value = r.path;
-    });
-  }
-
-  // ── 26. Image Adjustments (Brightness / Contrast) ───────────────────────
-  function openImageAdjust(path) {
-    const fname = path.split(/[\\/]/).pop();
-    const body = `
-      <div style="text-align:center;margin-bottom:12px">
-        <img id="adj-preview" src="" style="max-width:100%;max-height:260px;border-radius:6px;border:1px solid var(--border);object-fit:contain" alt="preview">
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Brightness: <span id="adj-b-val">1.0</span></label>
-        <input id="adj-b" type="range" min="0.1" max="3" step="0.05" value="1" style="width:100%;margin-top:4px">
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Contrast: <span id="adj-c-val">1.0</span></label>
-        <input id="adj-c" type="range" min="0.1" max="3" step="0.05" value="1" style="width:100%;margin-top:4px">
-      </div>
-      <div style="display:flex;gap:10px;margin-bottom:10px">
-        <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-          <input type="radio" name="adj-out" value="new" checked> Save as new file
-        </label>
-        <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-          <input type="radio" name="adj-out" value="overwrite"> Overwrite original
-        </label>
-      </div>
-      <div id="adj-status" style="font-size:12px;min-height:18px"></div>`;
-
-    _openModal('image-adjust', '🎨 Image Adjustments — ' + _esc(fname), body, [
-      { label: 'Reset', onClick: () => {
-        document.getElementById('adj-b').value = 1;
-        document.getElementById('adj-c').value = 1;
-        _updateAdjPreview();
-      }},
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Save', primary: true, onClick: async () => {
-        const b   = parseFloat(document.getElementById('adj-b')?.value) || 1;
-        const c   = parseFloat(document.getElementById('adj-c')?.value) || 1;
-        const ow  = document.querySelector('input[name="adj-out"]:checked')?.value === 'overwrite';
-        const stEl = document.getElementById('adj-status');
-        if (stEl) stEl.textContent = 'Saving…';
-        App.setStatus('Saving adjusted image…', true);
-        const r = await SFM.adjustImageSave(path, b, c, '', ow);
-        App.setStatus('Ready');
-        if (r.ok) {
-          if (stEl) stEl.innerHTML = '✅ Saved: <strong>' + _esc(r.out.split(/[\\/]/).pop()) + '</strong>';
-          App.toast('Saved: ' + r.out.split(/[\\/]/).pop(), 'success');
-          FileTree.refresh();
-        } else {
-          if (stEl) stEl.textContent = '❌ ' + r.error;
-          App.toast('Failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    // Load preview image
-    SFM.getImagePreview(path, 600).then(r => {
-      const img = document.getElementById('adj-preview');
-      if (img && r.ok) img.src = 'data:image/jpeg;base64,' + r.data;
-    });
-
-    function _updateAdjPreview() {
-      const b = parseFloat(document.getElementById('adj-b')?.value) || 1;
-      const c = parseFloat(document.getElementById('adj-c')?.value) || 1;
-      const img = document.getElementById('adj-preview');
-      if (img) img.style.filter = 'brightness(' + b + ') contrast(' + c + ')';
-      const bv = document.getElementById('adj-b-val');
-      const cv = document.getElementById('adj-c-val');
-      if (bv) bv.textContent = b.toFixed(2);
-      if (cv) cv.textContent = c.toFixed(2);
-    }
-    document.getElementById('adj-b')?.addEventListener('input', _updateAdjPreview);
-    document.getElementById('adj-c')?.addEventListener('input', _updateAdjPreview);
-  }
+  // ── 26b. Compress Image(s) — implemented in convert-tools.js ─────────────
+  function openCompressImages(paths) { return ConvertTools.openCompressImages(paths); }
 
   // ── 27. OCR Rename Progress ───────────────────────────────────────────────
   function openOcrRenameProgress(paths) {
-    const body = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
-        Renaming <strong>${paths.length}</strong> PDF(s) by detected document type using OCR.
-        This may take a few seconds per file.
-      </p>
-      <div id="ocr-log" style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:10px;height:200px;overflow-y:auto;font-family:monospace;font-size:11px;white-space:pre-wrap"></div>
-      <div id="ocr-status" style="margin-top:8px;font-size:12px;color:var(--accent);min-height:18px">Starting…</div>`;
+    const body = _jobBody('ocr', 'Each PDF is renamed by the document type detected with OCR. This takes a few seconds per file.', '', 'Starting…');
 
-    _openModal('ocr-rename-prog', '🔍 Rename by Document Type (OCR)', body, [
+    _openModal('ocr-rename-prog', 'Rename by document type', body, [
       { label: 'Close', onClick: closeModal },
-    ]);
+    ], { icon: 'scan-text', subtitle: _countLabel(paths, 'PDF') });
 
     const logEl  = document.getElementById('ocr-log');
     const statEl = document.getElementById('ocr-status');
@@ -1839,10 +899,10 @@ const Dialogs = (() => {
     const _unsubDone = SFM.on('ocr_rename_done', e => {
       _unsubLog(); _unsubDone();
       if (e.ok) {
-        if (statEl) statEl.textContent = '✅ Done — all files renamed.';
+        _jobDone('ocr', true, 'Rename complete', 'All files were renamed.');
         App.toast('OCR rename complete', 'success');
       } else {
-        if (statEl) statEl.textContent = '❌ Error: ' + (e.error || 'unknown');
+        _jobDone('ocr', false, 'Rename failed', e.error || 'unknown error');
         App.toast('OCR rename failed', 'error');
       }
       FileTree.refresh();
@@ -1850,129 +910,53 @@ const Dialogs = (() => {
 
     SFM.ocrRenameProgress(paths).catch(err => {
       _appendLog('Error starting: ' + err);
-      if (statEl) statEl.textContent = '❌ Could not start.';
+      if (statEl) _jobDone('ocr', false, 'Could not start', String(err));
     });
   }
 
-  // ── 25. Photo Sizer ──────────────────────────────────────────────────────
-  function openPhotoSizer(path) {
-    const PRESETS = [
-      { label: '35×45 mm', w: 35, h: 45, note: 'Standard passport (most countries)' },
-      { label: '25×35 mm', w: 25, h: 35, note: 'Small passport / visa (some countries)' },
-      { label: '40×60 mm', w: 40, h: 60, note: 'Large passport photo' },
-      { label: '30×40 mm', w: 30, h: 40, note: 'Indonesian passport / KTP' },
-      { label: '40×40 mm', w: 40, h: 40, note: 'Square (WhatsApp / social)' },
-      { label: '51×51 mm', w: 51, h: 51, note: 'US visa (2×2 inch)' },
-      { label: '33×48 mm', w: 33, h: 48, note: 'South Korean passport' },
-      { label: 'Custom',   w: null, h: null, note: '' },
-    ];
-
-    function _px(w, h, dpi) {
-      return Math.round(w * dpi / 25.4) + ' × ' + Math.round(h * dpi / 25.4) + ' px';
-    }
-
-    const presetBtns = PRESETS.map((p, i) =>
-      '<button class="btn' + (i===0?' primary':'') + '" id="ps-preset-' + i + '" style="margin:2px;padding:5px 10px;font-size:12px" title="' + _esc(p.note) + '">' + _esc(p.label) + '</button>'
-    ).join('');
-
-    const body = `
-      <div style="margin-bottom:12px">
-        <label class="detail-label">Preset sizes</label>
-        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:2px">${presetBtns}</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-        <div>
-          <label class="detail-label">Width (mm)</label>
-          <input id="ps-w" class="input-text" type="number" value="35" min="1" max="300" step="0.5" style="margin-top:4px">
+  // ── Shared bodies for the job / destination dialogs ──────────────────────
+  function _countLabel(paths, noun) {
+    const n = (paths || []).length;
+    if (n === 1) return String(paths[0]).split(/[\\/]/).pop();
+    return `${n} ${noun || 'file'}${n === 1 ? '' : 's'}`;
+  }
+  function _destBody(p, hint) {
+    return `
+      <div class="field">
+        <label class="field-label" for="${p}-dest">Destination folder</label>
+        <div class="field-row">
+          <div class="input-group flex-1">
+            <span class="input-icon">${Icons.svg('folder', 14)}</span>
+            <input id="${p}-dest" class="input-text" placeholder="Choose a folder…">
+          </div>
+          <button class="btn" id="${p}-browse">Browse&#x2026;</button>
         </div>
-        <div>
-          <label class="detail-label">Height (mm)</label>
-          <input id="ps-h" class="input-text" type="number" value="45" min="1" max="300" step="0.5" style="margin-top:4px">
-        </div>
-        <div>
-          <label class="detail-label">DPI</label>
-          <select id="ps-dpi" class="input-text" style="margin-top:4px">
-            <option value="72">72 (screen)</option>
-            <option value="150">150 (web)</option>
-            <option value="300" selected>300 (print)</option>
-            <option value="600">600 (high-res)</option>
-          </select>
-        </div>
+        <div class="field-hint">${hint}</div>
       </div>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Crop mode</label>
-        <div style="display:flex;gap:16px;margin-top:6px">
-          <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-            <input type="radio" name="ps-crop" value="center" checked> Center crop (fills frame, may trim edges)
-          </label>
-          <label style="cursor:pointer;display:flex;align-items:center;gap:6px">
-            <input type="radio" name="ps-crop" value="fit"> Fit + pad with white (no cropping)
-          </label>
-        </div>
+      <div id="${p}-status" class="progress-label"></div>`;
+  }
+  // Progress body: intro, indeterminate bar + status line, activity log.
+  function _jobBody(p, intro, logInit, statusText) {
+    return `
+      <p class="text-sm text-muted">${_esc(intro)}</p>
+      <div class="progress-block" id="${p}-progress">
+        <div class="progress-wrap"><div class="progress-bar indeterminate"></div></div>
+        <div class="progress-label" id="${p}-status"><span class="spinner"></span><span>${_esc(statusText || 'Working…')}</span></div>
       </div>
-      <div id="ps-info" style="font-size:12px;color:var(--accent);margin-bottom:8px;min-height:18px">
-        → 413 × 531 px @ 300 dpi
-      </div>
-      <div style="margin-bottom:10px">
-        <label class="detail-label">Output file (leave blank = auto)</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <input id="ps-out" class="input-text" placeholder="auto-named next to source" style="flex:1">
-        </div>
-      </div>
-      <div id="ps-result" style="font-size:12px;min-height:18px"></div>`;
-
-    _openModal('photo-sizer', '📐 Photo Sizer', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Resize & Save', primary: true, onClick: async () => {
-        const w   = parseFloat(document.getElementById('ps-w')?.value) || 35;
-        const h   = parseFloat(document.getElementById('ps-h')?.value) || 45;
-        const dpi = parseInt(document.getElementById('ps-dpi')?.value)  || 300;
-        const mode = document.querySelector('input[name="ps-crop"]:checked')?.value || 'center';
-        const out  = document.getElementById('ps-out')?.value.trim() || '';
-        const resEl = document.getElementById('ps-result');
-        if (resEl) resEl.textContent = 'Processing…';
-        App.setStatus('Resizing photo…', true);
-        const r = await SFM.resizePhotoToMm(path, w, h, dpi, out, mode);
-        App.setStatus('Ready');
-        if (r.ok) {
-          if (resEl) resEl.innerHTML = '✅ Saved: <strong>' + _esc(r.out.split(/[\\/]/).pop()) + '</strong>';
-          App.toast('Photo resized → ' + r.out.split(/[\\/]/).pop(), 'success');
-          FileTree.refresh();
-        } else {
-          if (resEl) resEl.textContent = '❌ ' + r.error;
-          App.toast('Failed: ' + r.error, 'error');
-        }
-      }},
-    ]);
-
-    // Wire presets
-    PRESETS.forEach((p, i) => {
-      document.getElementById('ps-preset-' + i)?.addEventListener('click', () => {
-        document.querySelectorAll('[id^="ps-preset-"]').forEach(b => b.classList.remove('primary'));
-        document.getElementById('ps-preset-' + i)?.classList.add('primary');
-        if (p.w !== null) {
-          document.getElementById('ps-w').value = p.w;
-          document.getElementById('ps-h').value = p.h;
-        }
-        _updateInfo();
-      });
-    });
-
-    // Live info updater
-    function _updateInfo() {
-      const w   = parseFloat(document.getElementById('ps-w')?.value) || 35;
-      const h   = parseFloat(document.getElementById('ps-h')?.value) || 45;
-      const dpi = parseInt(document.getElementById('ps-dpi')?.value)  || 300;
-      const px_w = Math.round(w * dpi / 25.4);
-      const px_h = Math.round(h * dpi / 25.4);
-      const infoEl = document.getElementById('ps-info');
-      if (infoEl) infoEl.textContent = '→ ' + px_w + ' × ' + px_h + ' px  @  ' + dpi + ' dpi  (' + w + '×' + h + ' mm)';
-    }
-    ['ps-w', 'ps-h', 'ps-dpi'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', _updateInfo);
-      document.getElementById(id)?.addEventListener('change', _updateInfo);
-    });
-    _updateInfo();
+      <div class="field">
+        <span class="field-label">Activity</span>
+        <div id="${p}-log" class="log-output log-tall">${_esc(logInit || '')}</div>
+      </div>`;
+  }
+  // Replace the progress bar + status with a success / error callout.
+  function _jobDone(p, ok, title, text) {
+    const prog = document.getElementById(p + '-progress');
+    const st = document.getElementById(p + '-status');
+    if (!prog || !st) return;
+    prog.querySelector('.progress-wrap')?.remove();
+    st.className = 'callout ' + (ok ? 'success' : 'error');
+    st.innerHTML = `${Icons.svg(ok ? 'check-circle' : 'alert-circle', 16)}
+      <div class="callout-body"><span class="callout-title">${_esc(title)}</span><span>${_esc(text || '')}</span></div>`;
   }
 
   // ── Helper ────────────────────────────────────────────────────────────────
@@ -1983,275 +967,28 @@ const Dialogs = (() => {
   }
 
 
-  // ── Crop Image ────────────────────────────────────────────────────────────
-  async function openCropImage(imagePath) {
-    const inf = await SFM.getImagePreview(imagePath, 2400);
-    if (!inf.ok) { App.toast('Cannot load image: ' + inf.error, 'error'); return; }
-
-    let _cropX = 0, _cropY = 0, _cropW = 0, _cropH = 0;
-    let _dragging = false, _dragStart = {x:0, y:0};
-    let _imgNatW = 0, _imgNatH = 0, _ratio = null;
-
-    const id = _nextId();
-    const z  = _nextZ();
-
-    const html = `
-<div class="modal-overlay" id="mo-${id}" style="z-index:${z}">
-<div class="modal" style="width:820px;max-width:98vw;max-height:94vh;display:flex;flex-direction:column;">
-  <div class="modal-header">
-    <span class="modal-title">✂️ Crop Image</span>
-    <button class="modal-close" onclick="Dialogs.closeModal('${id}')">&#x2715;</button>
-  </div>
-  <div style="display:flex;gap:8px;padding:8px 14px;background:var(--bg-surface-2);border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
-    <span style="font-size:12px;color:var(--text-secondary);">Ratio:</span>
-    <button class="btn btn-sm" id="cr-free-${id}">Free</button>
-    <button class="btn btn-sm" id="cr-11-${id}">1:1</button>
-    <button class="btn btn-sm" id="cr-43-${id}">4:3</button>
-    <button class="btn btn-sm" id="cr-34-${id}">3:4</button>
-    <button class="btn btn-sm" id="cr-pp-${id}">35x45</button>
-    <span style="margin-left:auto;font-size:12px;color:var(--text-muted);" id="cr-dims-${id}">Drag to select crop area</span>
-  </div>
-  <div style="flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:10px;background:#0d0d0d;min-height:280px;">
-    <div style="position:relative;display:inline-block;user-select:none;" id="cr-wrap-${id}">
-      <img id="cr-img-${id}" src="${inf.data_url}" draggable="false"
-           style="max-width:760px;max-height:54vh;display:block;cursor:crosshair;">
-      <canvas id="cr-canvas-${id}" style="position:absolute;top:0;left:0;cursor:crosshair;"></canvas>
-    </div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn" onclick="Dialogs.closeModal('${id}')">Cancel</button>
-    <button class="btn btn-primary" id="cr-save-${id}" disabled>Save Crop</button>
-  </div>
-</div></div>`;
-    document.body.insertAdjacentHTML('beforeend', html);
-    _attachClose(id);
-
-    const img     = document.getElementById('cr-img-'    + id);
-    const canvas  = document.getElementById('cr-canvas-' + id);
-    const ctx     = canvas.getContext('2d');
-    const dimsEl  = document.getElementById('cr-dims-'   + id);
-    const saveBtn = document.getElementById('cr-save-'   + id);
-
-    function _resize() {
-      canvas.width  = img.offsetWidth;
-      canvas.height = img.offsetHeight;
-      _draw();
-    }
-    function _draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (_cropW < 4 || _cropH < 4) return;
-      ctx.fillStyle = 'rgba(0,0,0,0.52)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.clearRect(_cropX, _cropY, _cropW, _cropH);
-      ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
-      ctx.strokeRect(_cropX + 1, _cropY + 1, _cropW - 2, _cropH - 2);
-      const hs = 7; ctx.fillStyle = '#58a6ff';
-      [[_cropX,_cropY],[_cropX+_cropW-hs,_cropY],[_cropX,_cropY+_cropH-hs],[_cropX+_cropW-hs,_cropY+_cropH-hs]]
-        .forEach(([x,y]) => ctx.fillRect(x, y, hs, hs));
-      const sx = _imgNatW / canvas.width, sy = _imgNatH / canvas.height;
-      dimsEl.textContent = Math.round(_cropW*sx) + ' x ' + Math.round(_cropH*sy) + ' px';
-      saveBtn.disabled = (_cropW < 4 || _cropH < 4);
-    }
-
-    function _init() {
-      _imgNatW = img.naturalWidth; _imgNatH = img.naturalHeight; _resize();
-    }
-    if (img.complete && img.naturalWidth) _init(); else img.onload = _init;
-
-    function _pos(e) {
-      const r = canvas.getBoundingClientRect();
-      return { x: Math.max(0,Math.min(canvas.width, e.clientX-r.left)),
-               y: Math.max(0,Math.min(canvas.height,e.clientY-r.top)) };
-    }
-    canvas.addEventListener('mousedown', e => {
-      if (e.button !== 0) return;
-      const p = _pos(e); _dragging = true; _dragStart = p;
-      _cropX=p.x; _cropY=p.y; _cropW=0; _cropH=0; _draw();
-    });
-    const _mm = e => {
-      if (!_dragging) return;
-      const p = _pos(e);
-      let dx = p.x - _dragStart.x, dy = p.y - _dragStart.y;
-      if (_ratio !== null) { const s = dy<0?-1:1; dy = s*Math.abs(dx)/_ratio; }
-      _cropX = dx>=0?_dragStart.x:_dragStart.x+dx;
-      _cropY = dy>=0?_dragStart.y:_dragStart.y+dy;
-      _cropW = Math.abs(dx); _cropH = Math.abs(dy); _draw();
-    };
-    const _mu = () => { _dragging = false; };
-    document.addEventListener('mousemove', _mm);
-    document.addEventListener('mouseup',   _mu);
-
-    // Clean up global listeners when dialog closes
-    const obs = new MutationObserver(() => {
-      if (!document.getElementById('mo-' + id)) {
-        document.removeEventListener('mousemove', _mm);
-        document.removeEventListener('mouseup',   _mu);
-        obs.disconnect();
-      }
-    });
-    obs.observe(document.body, {childList:true});
-
-    const ratios = {'cr-free':null,'cr-11':1,'cr-43':4/3,'cr-34':3/4,'cr-pp':35/45};
-    Object.entries(ratios).forEach(([k, r]) => {
-      const btn = document.getElementById(k+'-'+id);
-      if (!btn) return;
-      btn.addEventListener('click', () => {
-        _ratio = r;
-        Object.keys(ratios).forEach(k2 => document.getElementById(k2+'-'+id)?.classList.remove('active'));
-        btn.classList.add('active');
-      });
-    });
-    document.getElementById('cr-free-'+id)?.classList.add('active');
-
-    saveBtn.addEventListener('click', async () => {
-      const sx = _imgNatW/canvas.width, sy = _imgNatH/canvas.height;
-      const px=Math.round(_cropX*sx), py=Math.round(_cropY*sy);
-      const pw=Math.round(_cropW*sx), ph=Math.round(_cropH*sy);
-      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
-      const r = await SFM.cropImage(imagePath, px, py, pw, ph);
-      if (r.ok) { App.toast('Image cropped ✓', 'success'); Dialogs.closeModal(id); FileTree.refresh(); }
-      else       { App.toast('Crop failed: ' + r.error, 'error'); saveBtn.disabled=false; saveBtn.textContent='Save Crop'; }
-    });
-  }
-
-  // ── QR Overlay ─────────────────────────────────────────────────────────────
-  // Full-screen screenshot overlay: user clicks QR code → decode → open URL.
-  function openQrOverlay() {
-    const id = _modal('qr-overlay', {
-      title: '📷 QR Scanner — Click on a QR Code',
-      width: '96vw',
-      extraStyle: 'max-width:none;',
-      body: [
-        '<div id="qro-status" style="text-align:center;padding:10px 0;color:var(--accent);">',
-        '  Minimising window — please wait…',
-        '</div>',
-        '<div id="qro-img-wrap" style="display:none;position:relative;line-height:0;overflow:auto;max-height:70vh;">',
-        '  <img id="qro-img" style="max-width:100%;cursor:crosshair;display:block;user-select:none;" alt="Screen capture" />',
-        '  <div id="qro-crosshair" style="display:none;position:absolute;width:36px;height:36px;pointer-events:none;',
-        '    transform:translate(-50%,-50%);border:2px solid var(--accent);border-radius:50%;',
-        '    box-shadow:0 0 0 1px rgba(0,0,0,.6);"></div>',
-        '</div>',
-        '<div id="qro-result" style="display:none;margin-top:12px;padding:12px;',
-        '  background:var(--surface2,#1e1e2a);border-radius:8px;word-break:break-all;">',
-        '  <div id="qro-result-text" style="margin-bottom:8px;font-size:13px;line-height:1.5;"></div>',
-        '  <div style="display:flex;gap:8px;flex-wrap:wrap;">',
-        '    <button id="qro-open-btn" class="btn-primary" style="display:none;">🌐 Open Link</button>',
-        '    <button id="qro-copy-btn" class="btn-secondary">📋 Copy Text</button>',
-        '    <button id="qro-again-btn" class="btn-secondary">🔄 Click Another</button>',
-        '  </div>',
-        '</div>',
-      ].join('\n'),
-      footer: '<button id="qro-close" class="btn-secondary">Close</button>',
-    });
-
-    const statusEl  = document.getElementById('qro-status');
-    const imgWrap   = document.getElementById('qro-img-wrap');
-    const img       = document.getElementById('qro-img');
-    const crosshair = document.getElementById('qro-crosshair');
-    const resultEl  = document.getElementById('qro-result');
-    const resultTxt = document.getElementById('qro-result-text');
-    const openBtn   = document.getElementById('qro-open-btn');
-    const copyBtn   = document.getElementById('qro-copy-btn');
-    const againBtn  = document.getElementById('qro-again-btn');
-
-    document.getElementById('qro-close').addEventListener('click', () => closeModal(id));
-
-    let _screenW = 0, _screenH = 0, _lastText = '', _lastIsUrl = false;
-
-    // Listen for screenshot ready event from Python
-    const unsub = SFM.on('screen_capture_ready', r => {
-      if (!document.getElementById('mo-' + id)) { unsub(); return; }
-      if (!r.ok) {
-        statusEl.textContent = '❌ Screenshot failed: ' + (r.error || 'unknown error');
-        statusEl.style.color = 'var(--danger,#f55)';
-        return;
-      }
-      _screenW = r.width;
-      _screenH = r.height;
-      img.src  = r.data_url;
-      imgWrap.style.display = 'block';
-      statusEl.style.color  = '';
-      statusEl.textContent  = '👆 Click on the QR code in the screenshot below';
-    });
-
-    // Click on image -> compute real pixel coords -> decode
-    img.addEventListener('click', async e => {
-      const rect = img.getBoundingClientRect();
-      const relX = (e.clientX - rect.left) / rect.width;
-      const relY = (e.clientY - rect.top)  / rect.height;
-      const px   = Math.round(relX * _screenW);
-      const py   = Math.round(relY * _screenH);
-
-      // Show crosshair at click position
-      crosshair.style.left    = (e.clientX - rect.left) + 'px';
-      crosshair.style.top     = (e.clientY - rect.top)  + 'px';
-      crosshair.style.display = 'block';
-
-      statusEl.style.color   = '';
-      statusEl.textContent   = '🔍 Decoding…';
-      resultEl.style.display = 'none';
-
-      const r = await SFM.decodeQrAtPoint(px, py).catch(err => ({ ok: false, error: String(err) }));
-      if (r && r.ok) {
-        _lastText  = r.text  || '';
-        _lastIsUrl = r.is_url || false;
-        resultTxt.textContent      = _lastText;
-        openBtn.style.display      = _lastIsUrl ? 'inline-flex' : 'none';
-        resultEl.style.display     = 'block';
-        statusEl.textContent       = _lastIsUrl
-          ? '✅ URL decoded — click Open Link or click another QR'
-          : '✅ Decoded — click another QR code or close';
-        // Also populate rename bar
-        const ri = document.getElementById('rename-input');
-        if (ri && _lastText) ri.value = _lastText;
-      } else {
-        statusEl.style.color   = 'var(--danger,#f55)';
-        statusEl.textContent   = '❌ ' + (r && r.error ? r.error : 'No QR code found at that point');
-        crosshair.style.display = 'none';
-      }
-    });
-
-    openBtn.addEventListener('click', () => {
-      // Python already opened the browser; this is a fallback via window.open
-      if (_lastText) { try { window.open(_lastText, '_blank'); } catch(e) {} }
-    });
-
-    copyBtn.addEventListener('click', () => {
-      if (_lastText) {
-        SFM.setClipboard(_lastText).catch(() => {});
-        App.toast('Copied to clipboard', 'success', 2000);
-      }
-    });
-
-    againBtn.addEventListener('click', () => {
-      resultEl.style.display  = 'none';
-      crosshair.style.display = 'none';
-      statusEl.style.color    = '';
-      statusEl.textContent    = '👆 Click on another QR code in the screenshot';
-    });
-
-    // Start screen capture (minimise -> screenshot -> restore -> emit event)
-    SFM.getScreenCapture().catch(err => {
-      statusEl.style.color = 'var(--danger,#f55)';
-      statusEl.textContent = '❌ Failed to start capture: ' + err;
-    });
-  }
+  // ── Crop Image / QR screen overlay ───────────────────────────────────────
+  // Implemented in photo-tools.js (Cropper) and qr.js (QrScan); kept here so
+  // existing callers of Dialogs.openCropImage / openQrOverlay keep working.
+  function openCropImage(imagePath) { return Cropper.open(imagePath); }
+  function openQrOverlay() { return QrScan.pick(); }
 
   return {
-    openCombinePdf, openFullView, openArrangePages, openApostille,
-    openA4Placer, openIdCard, openPrint, openTemplates, openUppercase,
-    openCompressPdf, openSettings, openExtractPages, openDuplicatePages,
-    openSimilarMove, openPassportCheck, openMoreMenu,
+    openCombinePdf, openFullView, openArrangePages,
+    openTemplates, openUppercase,
+    openCompressPdf, openSettings, openExtractPages, openMoreMenu,
     openSmartSplitProgress,
-    openCopyTo, openMoveTo, openCreateStudentFolders,
+    openCopyTo, openMoveTo,
     openPdfToImages, openSplitRenameOcrProgress,
-    openZipContents,
-    openBulkSplitPdfs,
-    openPhotoSizer,
     openCropImage,
-    openImageAdjust,
+    openCompressImages,
     openOcrRenameProgress,
     openQrOverlay,
     closeModal, closeAllModals,
+    ask, confirm: confirmDialog,
+    openModal: _openModal,
+    modal: _modal,   // _modal(name, {title, icon, subtitle, width, extraStyle, body, footer}) → id (for qr.js / photo-tools.js)
+    header: _header, // header HTML for dialogs that build their own overlay (pdf-tools, rename-templates)
+    setBtn: _setBtn, // setBtn(button, label, icon) — relabel without losing the icon
   };
 })();

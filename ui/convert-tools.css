@@ -1,0 +1,78 @@
+/* convert-tools.css — conversion & compression dialogs (ui/js/convert-tools.js).
+   Layout comes from the shared components in style.css (.field, .field-grid,
+   .segmented, .option-card, .reorder-list, .result-list, .callout, .progress-block).
+   Only feature-specific tweaks live here; tokens only. */
+
+.cvt-modal { width: min(580px, 96vw); }
+.cvt-modal .modal-body { gap: var(--space-4); }
+
+/* Images → PDF order list */
+.cvt-list { max-height: 232px; }
+
+/* Hint / error line (callout with an icon + span); hidden while empty */
+.cvt-note:has(> span:empty) { display: none; }
+
+/* Quality slider */
+.cvt-range { width: 100%; accent-color: var(--accent); margin: 2px 0 0; }
+.cvt-range:disabled { cursor: not-allowed; }
+.cvt-range-scale { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* Results list sits under the summary callout */
+.cvt-modal .result-list { max-height: 180px; }
+
+/* ── Compress dialog (ConvertTools.openCompress) ─────────────────────────── */
+.cvt-modal.cmp-modal { width: min(660px, 96vw); }
+
+/* Target size: compact radio cards in one row */
+.cmp-targets { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
+.cmp-target {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; min-height: 52px; padding: var(--space-2) var(--space-1); cursor: pointer; text-align: center;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--bg-surface);
+  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+}
+.cmp-target:hover { border-color: color-mix(in srgb, var(--border-strong) 50%, var(--text-muted)); }
+.cmp-target > input { position: absolute; opacity: 0; pointer-events: none; }
+.cmp-target-title { font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cmp-target-desc { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.cmp-target:first-child .cmp-target-title { font-size: var(--fs-base); }
+.cmp-target:has(input:checked) { border-color: var(--accent); background: var(--bg-selected-2); box-shadow: 0 0 0 1px var(--accent) inset; }
+.cmp-target:has(input:checked) .cmp-target-title { color: var(--accent-text); }
+.cmp-target:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+.cmp-target-hint, .cmp-total { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.cmp-custom { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.cmp-custom .field-label { margin: 0; white-space: nowrap; }
+.cmp-custom .input-text { width: 120px; }
+.cmp-custom .segmented { width: 96px; }
+
+.cmp-quality { display: flex; flex-direction: column; gap: var(--space-4); }
+.cmp-target.is-unreachable .cmp-target-desc { color: var(--yellow); }
+
+/* Live size predictions ("≈ 340 KB −62%") */
+.cmp-est:empty { display: none; }
+.cmp-est, .cmp-readout { font-variant-numeric: tabular-nums; }
+.cmp-readout {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary);
+}
+.cmp-readout .text-muted { font-weight: var(--fw-regular); font-size: var(--fs-sm); }
+.cmp-spin { width: 10px; height: 10px; border-width: 1.5px; }
+.cmp-readout .cmp-spin { width: 12px; height: 12px; }
+.cmp-est-tag { font-weight: var(--fw-regular); opacity: .8; }
+.cmp-level-card { grid-column: 1 / -1; }
+.cmp-level { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
+.cmp-level.hidden { display: none; }
+.cmp-level .field-label, .cmp-quality .section-head .field-label { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* File rows: name + status line, size / result on the right */
+.cvt-modal .cmp-files { max-height: 220px; }
+.cmp-files .result-row { min-height: 44px; }
+.cmp-name { display: flex; flex-direction: column; gap: 1px; }
+.cmp-name > span, .cmp-name > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-name > small { font-size: var(--fs-xs); color: var(--text-muted); }
+.result-row.warn .cmp-name > small { color: var(--text-secondary); }
+
+@media (max-width: 640px) {
+  .cmp-targets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
