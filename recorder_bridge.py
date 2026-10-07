@@ -466,6 +466,32 @@ class RecorderBridgeMixin:
         except Exception as exc:
             return _err(str(exc))
 
+    def rec_window(self, action: str = "") -> dict:
+        """'minimize' the app while recording, 'restore' it afterwards
+        (back to maximised if it was maximised)."""
+        try:
+            if action not in ("minimize", "restore"):
+                return _err("Unknown action")
+            form = getattr(self._window, "native", None)
+            if form is None:
+                return _err("No window")
+            from System import Func, Type  # type: ignore
+
+            def _apply():
+                if action == "minimize":
+                    import System.Windows.Forms as WinForms  # type: ignore
+                    form.WindowState = WinForms.FormWindowState.Minimized
+                else:
+                    import ctypes
+                    hwnd = int(form.Handle.ToInt64())
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)          # SW_RESTORE
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+
+            form.Invoke(Func[Type](_apply))
+            return _ok()
+        except Exception as exc:
+            return _err(str(exc))
+
     # -- screenshots ---------------------------------------------------------
     def _rec_hide_app(self, hide: bool) -> bool:
         """Make the app window invisible (opacity 0) for a capture. Best effort."""
