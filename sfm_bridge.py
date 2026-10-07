@@ -120,9 +120,10 @@ from cloud_bridge import CloudBridgeMixin  # noqa: E402  (account / subscription
 from office_bridge import OfficeBridgeMixin  # noqa: E402  (office + shared drive methods)
 from archive_bridge import ArchiveBridgeMixin  # noqa: E402  (zip / unzip / ZIP + PDF passwords)
 from recorder_bridge import RecorderBridgeMixin  # noqa: E402  (screen recording + screenshots)
+from doc_preview_bridge import DocPreviewBridgeMixin  # noqa: E402  (PDF text layer, Word/Excel previews)
 
 
-class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin):
+class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().
@@ -520,6 +521,14 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, CloudBridgeMixin, Offi
             e = _file_entry(path)
             if e["ext"] == ".pdf":
                 e["page_count"] = _fo.pdf_page_count(path)
+                if e["page_count"] > 0:
+                    e["pages"] = e["page_count"]
+            else:
+                try:
+                    import doc_preview as _dp
+                    e.update(_dp.quick_stats(path))     # pages / words / slides / sheets
+                except Exception:
+                    pass
             return _ok(**e)
         except Exception as exc:
             return _err(str(exc))

@@ -61,6 +61,8 @@ datas = [
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
     ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
+    ("doc_preview.py",       "."),   # PDF text layer + Word/Excel/Office previews
+    ("doc_preview_bridge.py", "."),
     ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
@@ -93,6 +95,8 @@ hiddenimports = [
     "archive_tools",
     "archive_bridge",
     "recorder_bridge",
+    "doc_preview",
+    "doc_preview_bridge",
     "screen_pick",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
