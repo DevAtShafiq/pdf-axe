@@ -1114,7 +1114,9 @@ var Annotate = (() => {
       else renderProps();
     }
     ov.querySelector('.an-bar').addEventListener('click', e => {
-      const tb = e.target.closest('[data-tool]');
+      // Only real tool buttons: the editor root also carries data-tool (the
+      // current tool), which used to swallow Undo/Redo/zoom/page clicks.
+      const tb = e.target.closest('.an-tool[data-tool]');
       if (tb) {
         const t = tb.dataset.tool;
         if (t === 'stamp') { stampMenu ? closeStampMenu() : openStampMenu(); return; }
