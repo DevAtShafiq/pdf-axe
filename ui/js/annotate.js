@@ -643,8 +643,10 @@ var Annotate = (() => {
       closeStampMenu();
       const pt = toUnits(e, p);
       const hEl = e.target.closest('[data-handle]');
+      // Ignore the live/ghost preview (stamp or signature following the mouse,
+      // id "_ghost"/"_live"): it is not an annotation and has no entry in anns.
       const aEl = e.target.closest('.an-a');
-      const hitId = aEl ? aEl.dataset.id : null;
+      const hitId = aEl && !aEl.closest('.an-live') && byId(aEl.dataset.id) ? aEl.dataset.id : null;
       view.focus({ preventScroll: true });
 
       if (tool === 'eraser') {

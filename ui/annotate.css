@@ -226,3 +226,7 @@
 .an-sig-use img { width: 100%; height: 100%; object-fit: contain; }
 .an-sig-forget { position: absolute; top: -6px; right: -6px; background: var(--bg-surface); border: 1px solid var(--border); }
 .an-sig-remember { margin-right: auto; }
+
+/* The live/ghost preview (shape being drawn, stamp or signature following the
+   mouse) must never catch clicks — the click belongs to the page underneath. */
+.an-live, .an-live * { pointer-events: none; }
