@@ -132,9 +132,7 @@ def family_for(name: str, flags: int = 0, text: str = "") -> str:
     """Closest Windows family for a PDF font name."""
     n = clean_font_name(name).lower().replace(" ", "")
     if _CJK.search(text or "") or any(k in n for k in ("malgun", "gulim", "batang", "dotum", "gungsuh",
-                                                      "nanum", "hy", "cid", "kozmin", "kozgo", "simsun",
-                                                      "mingliu", "msgothic", "msmincho", "yu")) and (
-            _CJK.search(text or "") or any(k in n for k in ("malgun", "gulim", "batang", "dotum", "gungsuh", "nanum"))):
+                                                      "nanum", "hygothic", "hymyeongjo")):
         return CJK_FAMILY
     if "calibri" in n or "carlito" in n:
         return "Calibri"
@@ -213,21 +211,11 @@ def _disp_rect(page, r):
     return (fitz.Rect(r) * page.rotation_matrix).normalize()
 
 
-def _disp_pt(page, p):
+def _vec(m, d) -> tuple:
+    """Direction vector *d* through the linear part of matrix *m*."""
     fitz = _fitz()
-    return fitz.Point(p) * page.rotation_matrix
-
-
-def _disp_dir(page, d) -> tuple:
-    fitz = _fitz()
-    m = page.rotation_matrix
     v = fitz.Point(d) * m - fitz.Point(0, 0) * m
     return (round(v.x, 3), round(v.y, 3))
-
-
-def _unrot_rect(page, r):
-    fitz = _fitz()
-    return (fitz.Rect(r) * page.derotation_matrix).normalize()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,7 +273,9 @@ def is_scanned(page, images=None) -> bool:
     return area >= 0.5 * pr.width * pr.height
 
 
-def _line_info(page, line) -> dict | None:
+def _line_info(line, md, mu) -> dict | None:
+    """One text line; *md* maps the dict's coordinates to display space, *mu* to
+    unrotated page space (where redaction annotations live)."""
     fitz = _fitz()
     spans = []
     for s in line.get("spans") or []:
@@ -295,7 +285,7 @@ def _line_info(page, line) -> dict | None:
         spans.append(s)
     if not spans:
         return None
-    text = "".join(s["text"] for s in spans)
+    text = "".join(s["text"] for s in spans).translate(_NORM)
     if not text.strip():
         return None
     dom = max(spans, key=lambda s: len((s.get("text") or "").strip()))
@@ -306,12 +296,13 @@ def _line_info(page, line) -> dict | None:
             bbox |= fitz.Rect(s["bbox"])
     if bbox.is_empty:
         bbox = fitz.Rect(line["bbox"])
-    d = _disp_dir(page, line.get("dir") or (1, 0))
-    origin = _disp_pt(page, dom.get("origin") or spans[0].get("origin"))
-    first_origin = _disp_pt(page, spans[0].get("origin"))
+    ldir = line.get("dir") or (1, 0)
+    d = _vec(md, ldir)
+    origin = fitz.Point(dom.get("origin") or spans[0].get("origin")) * md
+    first_origin = fitz.Point(spans[0].get("origin")) * md
     return {
         "text": text.rstrip("\n"),
-        "bbox": _r4(_disp_rect(page, bbox)),
+        "bbox": _r4((bbox * md).normalize()),
         "origin": [round(first_origin.x, 2), round(origin.y, 2)],
         "font": clean_font_name(dom.get("font", "")),
         "raw_font": dom.get("font", ""),
@@ -320,7 +311,7 @@ def _line_info(page, line) -> dict | None:
         "bold": bold, "italic": italic,
         "flags": int(dom.get("flags") or 0),
         "dir": d,
-        "_spans": [(fitz.Rect(s["bbox"]), tuple(line.get("dir") or (1, 0)), float(s.get("size") or 0))
+        "_spans": [((fitz.Rect(s["bbox"]) * mu).normalize(), _vec(mu, ldir), float(s.get("size") or 0))
                    for s in spans],
     }
 
@@ -348,11 +339,31 @@ def _detect_align(page, lines: list) -> str:
     return "left"
 
 
+def _textdict(page) -> dict:
+    """get_text('dict') of the page *contents only* — text drawn by form fields
+    and annotations is not part of the page and can't be edited here.
+    → (dict, matrix to display space, matrix to unrotated page space)."""
+    fitz = _fitz()
+    flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_MEDIABOX_CLIP
+    try:
+        dl = page.get_displaylist(annots=False)
+        tp = dl.get_textpage(flags)
+        if not isinstance(tp, fitz.TextPage):
+            tp = fitz.TextPage(tp)
+        tp.parent = page
+        # a display list is built in display (rotated) space
+        return tp.extractDICT(), fitz.Identity, page.derotation_matrix
+    except Exception:
+        return page.get_text("dict", flags=flags), page.rotation_matrix, fitz.Identity
+
+
+_NORM = str.maketrans({0x00A0: " ", 0x00AD: "-"})   # no-break space, soft hyphen
+
+
 def _units(page) -> list:
     """Editable blocks of *page* (internal: keeps the raw span rects)."""
     fitz = _fitz()
-    flags = (fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_MEDIABOX_CLIP)
-    d = page.get_text("dict", flags=flags)
+    d, md, mu = _textdict(page)
     units = []
     for blk in d.get("blocks") or []:
         if blk.get("type") != 0:
@@ -360,7 +371,7 @@ def _units(page) -> list:
         cur = []
         prev = None
         for line in blk.get("lines") or []:
-            li = _line_info(page, line)
+            li = _line_info(line, md, mu)
             if not li:
                 continue
             if prev is not None:
@@ -534,17 +545,28 @@ class _Fonts:
             return self._orig[key]
         pick = None
         want = clean_font_name(raw_name)
+        def squash(s):      # 'Arial-BoldMT' == 'Arial Bold', 'ArialMT' == 'Arial Regular'
+            s = re.sub(r"[^a-z0-9]", "", clean_font_name(s).lower())
+            return re.sub(r"(psmt|mt|ps|regular|roman|std)$", "", s)
         try:
             for f in page.get_fonts(full=False):
-                xref, ext, _typ, basefont = f[0], f[1], f[2], f[3]
-                if clean_font_name(basefont) != want and clean_font_name(basefont).replace(" ", "") != want.replace(" ", ""):
+                xref, ext, basefont = f[0], f[1], f[3]
+                if ext in ("n/a", "", None):
                     continue
-                if _SUBSET.match(basefont or "") or ext in ("n/a", "", None):
-                    break
-                _bn, fext, _ft, content = self.doc.extract_font(xref)
+                try:
+                    _bn, fext, _ft, content = self.doc.extract_font(xref)
+                except Exception:
+                    continue
                 if not content or fext not in ("ttf", "otf", "cff"):
-                    break
-                font = fitz.Font(fontbuffer=content)
+                    continue
+                try:
+                    font = fitz.Font(fontbuffer=content)
+                except Exception:
+                    continue
+                if squash(basefont) != squash(want) and squash(font.name) != squash(want):
+                    continue
+                if _SUBSET.match(basefont or ""):
+                    break                    # subset: glyphs for new text are missing
                 pick = _FontPick(self._alias(), font, want, True, buffer=content)
                 break
         except Exception:
@@ -686,16 +708,16 @@ def _layout(page, font, b: dict | None, e: dict, text: str) -> tuple:
     return size, out, align
 
 
-def _write_lines(page, pick: _FontPick, size: float, color, lines: list):
+def _write_lines(page, pick: _FontPick, size: float, color, lines: list, used: dict):
+    """Draw *lines* [(x, baseline_y, text)] (display coords) upright on *page*.
+    *used* collects {font xref: (fitz.Font, set(chars))} for the ToUnicode fix."""
     fitz = _fitz()
+    xref = 0
     if pick.alias != "helv":
-        try:
-            if pick.buffer is not None:
-                page.insert_font(fontname=pick.alias, fontbuffer=pick.buffer)
-            else:
-                page.insert_font(fontname=pick.alias, fontfile=pick.fontfile)
-        except Exception:
-            raise
+        if pick.buffer is not None:
+            xref = page.insert_font(fontname=pick.alias, fontbuffer=pick.buffer)
+        else:
+            xref = page.insert_font(fontname=pick.alias, fontfile=pick.fontfile)
     dm = page.derotation_matrix
     for x, y, t in lines:
         if not t.strip():
@@ -703,6 +725,44 @@ def _write_lines(page, pick: _FontPick, size: float, color, lines: list):
         pt = fitz.Point(x, y) * dm
         page.insert_text(pt, t, fontsize=size, fontname=pick.alias, color=color,
                          rotate=page.rotation)
+        if xref:
+            used.setdefault(xref, (pick.font, set()))[1].update(t)
+
+
+def _fix_tounicode(doc, used: dict):
+    """MuPDF builds the ToUnicode map of an inserted TrueType font from the font's
+    cmap, so glyphs shared by several code points (space / no-break space,
+    hyphen / soft hyphen) copy out as the wrong character. Rewrite the map for
+    exactly the characters we wrote (plain character wins for a shared glyph)."""
+    for xref, (font, chars) in used.items():
+        try:
+            t, v = doc.xref_get_key(xref, "ToUnicode")
+            m = re.match(r"(\d+) 0 R", v or "")
+            if t != "xref" or not m:
+                continue
+            pairs = {}
+            for ch in chars:
+                gid = font.has_glyph(ord(ch))
+                if gid and (gid not in pairs or ord(ch) < ord(pairs[gid])):
+                    pairs[gid] = ch
+            if not pairs:
+                continue
+            items = sorted(pairs.items())
+            body = []
+            for i in range(0, len(items), 100):
+                chunk = items[i:i + 100]
+                body.append(f"{len(chunk)} beginbfchar")
+                body += [f"<{gid:04x}> <{ch.encode('utf-16-be').hex()}>" for gid, ch in chunk]
+                body.append("endbfchar")
+            cmap = ("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+                    "/CIDSystemInfo <</Registry(Adobe)/Ordering(UCS)/Supplement 0>> def\n"
+                    "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+                    "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+                    + "\n".join(body)
+                    + "\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
+            doc.update_stream(int(m.group(1)), cmap.encode("ascii"))
+        except Exception:
+            continue
 
 
 def _redact_rect(r, d, size):
@@ -824,6 +884,7 @@ def _edit_bytes(path: str, edits: list) -> tuple:
     doc = _open(path)
     try:
         fonts = _Fonts(doc)
+        used = {}
         substituted, warnings = [], []
         count = 0
         by_page = {}
@@ -908,7 +969,7 @@ def _edit_bytes(path: str, edits: list) -> tuple:
                 pick, wanted = _choose_font(fonts, page, b, e, nt)
                 size, lines, _align = _layout(page, pick.font, b, e, nt)
                 color = _hex_rgb(e.get("color") or b["color"])
-                _write_lines(page, pick, size, color, lines)
+                _write_lines(page, pick, size, color, lines, used)
                 if not pick.original:
                     substituted.append({"block_id": b["id"], "page": pno, "wanted": wanted, "used": pick.used})
             for e in pedits:
@@ -921,7 +982,7 @@ def _edit_bytes(path: str, edits: list) -> tuple:
                     raise PdfEditError("A new text box has no position", "bad_edit")
                 pick, wanted = _choose_font(fonts, page, None, e, t)
                 size, lines, _align = _layout(page, pick.font, None, e, t)
-                _write_lines(page, pick, size, _hex_rgb(e.get("color") or "#000000"), lines)
+                _write_lines(page, pick, size, _hex_rgb(e.get("color") or "#000000"), lines, used)
                 if str(e.get("font") or "Arial") not in pick.used:
                     substituted.append({"block_id": "", "page": pno, "wanted": wanted, "used": pick.used})
                 count += 1
@@ -930,10 +991,12 @@ def _edit_bytes(path: str, edits: list) -> tuple:
                     raise PdfEditError(f"Unknown edit: {e['type']}", "bad_edit")
 
         _set_metadata(doc)
-        try:
-            doc.subset_fonts()
-        except Exception:
-            pass
+        if used:
+            try:
+                doc.subset_fonts()
+            except Exception:
+                pass
+            _fix_tounicode(doc, used)
         buf = io.BytesIO()
         doc.save(buf, garbage=3, deflate=True)
         return buf.getvalue(), substituted, warnings, count
