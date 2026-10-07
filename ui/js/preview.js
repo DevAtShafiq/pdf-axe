@@ -339,7 +339,7 @@ const Preview = (() => {
   async function _openDocx(path, tok) {
     _docLoading('Reading document…');
     let r;
-    try { r = await SFM.call('docx_preview_html', path); } catch (e) { r = { ok: false, error: String(e) }; }
+    try { r = await SFM.docxPreviewHtml(path); } catch (e) { r = { ok: false, error: String(e) }; }
     if (tok !== _token) return;
     if (!r.ok) { return _officeOrNoPreview(path, tok, r.error); }
     _applyZoomDoc();
@@ -374,7 +374,7 @@ const Preview = (() => {
     if (!keepTabs) _docLoading('Reading workbook…');
     else docEl().querySelector('.xl-scroll')?.classList.add('is-loading');
     let r;
-    try { r = await SFM.call('sheet_preview_html', path, sheet || ''); } catch (e) { r = { ok: false, error: String(e) }; }
+    try { r = await SFM.sheetPreviewHtml(path, sheet || ''); } catch (e) { r = { ok: false, error: String(e) }; }
     if (tok !== _token) return;
     if (!r.ok) { return _officeOrNoPreview(path, tok, r.error); }
     const tabs = (r.sheets || []).length > 1 || _ext !== '.csv'
@@ -405,7 +405,7 @@ const Preview = (() => {
   async function _openOffice(path, tok) {
     _showOnly('empty');
     let info;
-    try { info = await SFM.call('office_preview_info', path); } catch (e) { info = { ok: false }; }
+    try { info = await SFM.officePreviewInfo(path); } catch (e) { info = { ok: false }; }
     if (tok !== _token) return;
     if (info && info.ok && info.cached_pdf) {      // converted before — show right away
       return _openPdf(info.cached_pdf, true);
@@ -415,7 +415,7 @@ const Preview = (() => {
 
   async function _officeOrNoPreview(path, tok, error = '', info = null) {
     if (!info) {
-      try { info = await SFM.call('office_preview_info', path); } catch (e) { info = { ok: false }; }
+      try { info = await SFM.officePreviewInfo(path); } catch (e) { info = { ok: false }; }
       if (tok !== _token) return;
     }
     const name = path.split(/[\\/]/).pop();
@@ -447,7 +447,7 @@ const Preview = (() => {
       + `<p class="empty-state-title">Preparing preview via ${_esc(app)}…</p>`
       + `<p class="empty-state-text">This can take a few seconds the first time.</p>`;
     let r;
-    try { r = await SFM.call('office_preview_pdf', path); } catch (e) { r = { ok: false, error: String(e) }; }
+    try { r = await SFM.officePreviewPdf(path); } catch (e) { r = { ok: false, error: String(e) }; }
     if (tok !== _token) return;
     if (!r.ok) {
       App.toast(`Preview via ${app} failed: ${r.error}`, 'error', 6000);

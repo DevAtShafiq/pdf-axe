@@ -63,7 +63,7 @@ const PdfText = (() => {
     box.dataset.textLayer = 'loading';
     const path = box.dataset.path, page = +box.dataset.page;
     let r;
-    try { r = await SFM.call('pdf_text_layer', path, page); } catch (e) { r = null; }
+    try { r = await SFM.pdfTextLayer(path, page); } catch (e) { r = null; }
     if (!box.isConnected) return;
     if (!r || !r.ok) { box.dataset.textLayer = 'error'; return; }
     box.dataset.ptWidth = r.width;
@@ -216,7 +216,7 @@ const PdfText = (() => {
 
   async function copyPage(path, page) {
     if (!path) return;
-    const r = await SFM.call('pdf_page_text', path, page);
+    const r = await SFM.pdfPageText(path, page);
     if (!r || !r.ok) { App.toast('Could not read the page text: ' + ((r && r.error) || ''), 'error'); return; }
     return copyText(r.text, 'This page has no selectable text (it may be a scanned image)');
   }
@@ -225,7 +225,7 @@ const PdfText = (() => {
     if (!path) return;
     App.setStatus && App.setStatus('Reading text…', true);
     let r;
-    try { r = await SFM.call('pdf_all_text', path); }
+    try { r = await SFM.pdfAllText(path); }
     finally { App.setStatus && App.setStatus('Ready'); }
     if (!r || !r.ok) { App.toast('Could not read the text: ' + ((r && r.error) || ''), 'error'); return; }
     return copyText(r.text, 'This PDF has no selectable text (it may be scanned)');

@@ -120,6 +120,14 @@ const SFM = (() => {
     // Previews
     getImagePreview:     (path, maxDim=1200)       => call('get_image_preview', path, maxDim),
     getTextPreview:      (path)                    => call('get_text_preview', path),
+    // Selectable PDF text + Word / Excel / Office previews (doc_preview_bridge.py)
+    pdfTextLayer:        (path, page=0)            => call('pdf_text_layer', path, page),
+    pdfPageText:         (path, page=0)            => call('pdf_page_text', path, page),
+    pdfAllText:          (path)                    => call('pdf_all_text', path),
+    docxPreviewHtml:     (path)                    => call('docx_preview_html', path),
+    sheetPreviewHtml:    (path, sheet='')          => call('sheet_preview_html', path, sheet),
+    officePreviewInfo:   (path)                    => call('office_preview_info', path),
+    officePreviewPdf:    (path)                    => call('office_preview_pdf', path),
     // PDF ops
     mergePdfs:           (paths, out)              => call('merge_pdfs', paths, out),
     splitPdf:            (path, dir)               => call('split_pdf_pages', path, dir),
