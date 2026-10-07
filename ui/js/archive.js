@@ -784,8 +784,9 @@ const Archive = (() => {
     else (document.getElementById('details-content') || document.body).appendChild(sec);
     return sec;
   }
-  const qa = (act, icon, label, extra = '') =>
-    `<button class="qa-btn${extra}" data-ax="${act}"><span class="icon">${ic(icon, 16)}</span> ${esc(label)}</button>`;
+  // label = short text for the details grid; tip = full description (tooltip)
+  const qa = (act, icon, label, extra = '', tip = '') =>
+    `<button class="qa-btn${extra}" data-ax="${act}" title="${esc(tip || label)}"><span class="icon">${ic(icon, 16)}</span> ${esc(label)}</button>`;
   function _addRow(label, value) {
     const c = document.getElementById('detail-rows');
     if (!c) return;
@@ -817,11 +818,11 @@ const Archive = (() => {
       const paths = multi.map(x => typeof x === 'string' ? x : x.path).filter(Boolean);
       const zips = paths.filter(isZip);
       if (zips.length === paths.length) {
-        render('Archive', qa('xall', 'package-open', `Extract all (${zips.length})…`, ' primary'));
+        render('Archive', qa('xall', 'package-open', `Extract all (${zips.length})`, ' primary', `Extract all ${zips.length} ZIP files`));
         bind({ xall: () => extractAll(zips) });
       } else {
-        render('Archive', qa('zip', 'package', `Compress ${paths.length} items to ZIP…`)
-          + (multi.every(x => x.is_dir) ? qa('each', 'folder-archive', 'Zip each separately') : ''));
+        render('Archive', qa('zip', 'package', `Zip ${paths.length} items`, '', `Compress ${paths.length} items into one ZIP`)
+          + (multi.every(x => x.is_dir) ? qa('each', 'folder-archive', 'Zip each', '', 'Zip each folder separately') : ''));
         bind({ zip: () => openZip(paths), each: () => zipEach(paths) });
       }
       return;
@@ -836,12 +837,12 @@ const Archive = (() => {
         _addRow('Unpacked', esc(fmtSize(info.total_size) + (saved > 0 ? ` (${saved}% smaller zipped)` : '')));
         const pill = info.encrypted ? `<span class="pill pill-yellow ax-pill">${ic('lock', 12)}Password protected</span>` : '';
         render('Archive',
-          qa('here', 'package-open', 'Extract here', ' primary')
-          + qa('folder', 'folder-archive', `Extract to “${stemOf(p)}”`)
-          + qa('to', 'folder-input', 'Extract to…')
-          + qa('view', 'list', 'View contents…')
-          + qa('pw', 'lock', info.encrypted ? 'Change password…' : 'Add password…')
-          + (info.encrypted ? qa('unpw', 'lock-open', 'Remove password…') : ''), pill);
+          qa('here', 'package-open', 'Extract here', ' primary', 'Extract into this folder')
+          + qa('folder', 'folder-archive', 'To folder', '', `Extract to “${stemOf(p)}”`)
+          + qa('to', 'folder-input', 'Extract to…', '', 'Extract to a folder you choose')
+          + qa('view', 'list', 'Contents', '', 'View the files inside')
+          + qa('pw', 'lock', info.encrypted ? 'New password' : 'Password', '', info.encrypted ? 'Change the ZIP password' : 'Protect the ZIP with a password')
+          + (info.encrypted ? qa('unpw', 'lock-open', 'Unlock', '', 'Remove the ZIP password') : ''), pill);
         bind({
           here: () => extract(p, { mode: 'here' }), folder: () => extract(p), to: () => extractTo(p),
           view: () => viewContents(p), pw: () => zipPassword(p), unpw: () => zipRemovePassword(p),
@@ -852,20 +853,20 @@ const Archive = (() => {
     if (!entry.is_dir && isPdf(p)) {
       SFM.pdfPreviewState(p).then(st => {
         if (tok !== _detTok || !st || !st.ok) return;
-        const zipBtn = qa('zip', 'package', 'Compress to ZIP…');
+        const zipBtn = qa('zip', 'package', 'Zip', '', 'Compress to ZIP');
         if (st.encrypted) {
           _addRow('Security', esc(st.needs_password ? 'Password to open' : 'Restrictions (owner password)'));
-          render('Security', qa('unpw', 'lock-open', 'Remove password…') + qa('pw', 'lock', 'Change password…') + zipBtn,
+          render('Security', qa('unpw', 'lock-open', 'Unlock', '', 'Remove the PDF password') + qa('pw', 'lock', 'New password', '', 'Change the PDF password') + zipBtn,
             `<span class="pill pill-yellow ax-pill">${ic('lock', 12)}Password protected</span>`);
         } else {
-          render('Security', qa('pw', 'lock', 'Protect with password…') + zipBtn);
+          render('Security', qa('pw', 'lock', 'Password', '', 'Protect with a password') + zipBtn);
         }
         bind({ pw: () => pdfProtect(p), unpw: () => pdfRemovePassword(p), zip: () => openZip([p]) });
       }).catch(() => {});
       return;
     }
-    render('Archive', qa('zip', 'package', 'Compress to ZIP…')
-      + (entry.is_dir ? qa('each', 'folder-archive', 'Zip each sub-folder…') : ''));
+    render('Archive', qa('zip', 'package', 'Zip', '', 'Compress to ZIP')
+      + (entry.is_dir ? qa('each', 'folder-archive', 'Zip each', '', 'Zip each sub-folder separately') : ''));
     bind({ zip: () => openZip([p]), each: () => zipEachSubfolder(p) });
   }
 

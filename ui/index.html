@@ -328,30 +328,32 @@
 
           <!-- Quick actions -->
           <div class="detail-section" id="quick-actions">
-            <div class="detail-section-title">Actions</div>
-            <div class="qa-list">
-              <button class="qa-btn primary" id="qa-open"><span class="icon"><i data-icon="external-link"></i></span> Open</button>
-              <button class="qa-btn"         id="qa-opendir"><span class="icon"><i data-icon="folder-open"></i></span> Show in folder</button>
-              <button class="qa-btn"         id="qa-copy-path"><span class="icon"><i data-icon="copy"></i></span> Copy path</button>
-              <button class="qa-btn"         id="qa-rename" title="Rename in the file list (F2) · Tab moves on to the next file"><span class="icon"><i data-icon="text-cursor"></i></span> Rename (F2)</button>
-              <button class="qa-btn hidden"  id="qa-convert-pdf" title="Convert this image to PDF"><span class="icon"><i data-icon="file-pdf"></i></span> Convert to PDF</button>
-              <button class="qa-btn hidden"  id="qa-convert-img" title="Convert to JPG / PNG / WEBP / BMP / TIFF"><span class="icon"><i data-icon="convert"></i></span> Convert format…</button>
-              <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon"><i data-icon="images"></i></span> PDF to images…</button>
-              <button class="qa-btn hidden"  id="qa-compress" title="Make a smaller copy"><span class="icon"><i data-icon="compress"></i></span> Compress…</button>
-              <button class="qa-btn hidden"  id="qa-annotate" title="Highlight, comment, draw, stamp and sign (Ctrl+Shift+A)"><span class="icon"><i data-icon="annotate"></i></span> Annotate…</button>
-              <button class="qa-btn danger"  id="qa-delete" title="Move to the _to_review folder (nothing is deleted)"><span class="icon"><i data-icon="archive"></i></span> Move to review</button>
+            <!-- Everyday file actions: one compact row -->
+            <div class="qa-quick" role="toolbar" aria-label="File actions">
+              <button class="qa-tile primary" id="qa-open" title="Open with the default app"><i data-icon="external-link" data-size="18"></i><span>Open</span></button>
+              <button class="qa-tile" id="qa-opendir" title="Show in folder (Windows Explorer)"><i data-icon="folder-open" data-size="18"></i><span>Folder</span></button>
+              <button class="qa-tile" id="qa-copy-path" title="Copy the full path"><i data-icon="copy" data-size="18"></i><span>Copy</span></button>
+              <button class="qa-tile" id="qa-rename" title="Rename in the file list (F2) · Tab moves on to the next file"><i data-icon="text-cursor" data-size="18"></i><span>Rename</span></button>
+            </div>
+            <div class="detail-section-title qa-tools-title">Tools</div>
+            <div class="qa-list qa-grid">
+              <button class="qa-btn hidden"  id="qa-annotate" title="Annotate: highlight, comment, draw, stamp, sign, add photo (Ctrl+Shift+A)"><span class="icon"><i data-icon="annotate"></i></span> Annotate</button>
+              <button class="qa-btn hidden"  id="qa-compress" title="Compress: make a smaller copy"><span class="icon"><i data-icon="compress"></i></span> Compress</button>
+              <button class="qa-btn hidden"  id="qa-convert-pdf" title="Convert this image to PDF"><span class="icon"><i data-icon="file-pdf"></i></span> To PDF</button>
+              <button class="qa-btn hidden"  id="qa-convert-img" title="Convert to JPG / PNG / WEBP / BMP / TIFF"><span class="icon"><i data-icon="convert"></i></span> Convert</button>
+              <button class="qa-btn hidden"  id="qa-pdf-images" title="Save PDF pages as images"><span class="icon"><i data-icon="images"></i></span> To images</button>
             </div>
           </div>
 
           <!-- PDF pages: merge / split / arrange / extract (js/pdf-tools.js) -->
           <div class="detail-section hidden" id="pdf-tools-section">
-            <div class="detail-section-title">PDF pages</div>
-            <div class="qa-list">
-              <button class="qa-btn" id="qa-pdf-arrange"><span class="icon"><i data-icon="layers"></i></span> Arrange pages…</button>
-              <button class="qa-btn" id="qa-pdf-split"><span class="icon"><i data-icon="scissors"></i></span> Split PDF…</button>
-              <button class="qa-btn" id="qa-pdf-extract"><span class="icon"><i data-icon="extract"></i></span> Extract pages…</button>
-              <button class="qa-btn" id="qa-pdf-merge"><span class="icon"><i data-icon="merge"></i></span> Merge with other files…</button>
-              <button class="qa-btn hidden" id="qa-pdf-merge-sel"><span class="icon"><i data-icon="merge"></i></span> Merge selected…</button>
+            <div class="detail-section-title">Pages</div>
+            <div class="qa-list qa-grid">
+              <button class="qa-btn" id="qa-pdf-arrange" title="Arrange pages: reorder, rotate, delete, insert"><span class="icon"><i data-icon="layers"></i></span> Arrange</button>
+              <button class="qa-btn" id="qa-pdf-split" title="Split PDF into several files"><span class="icon"><i data-icon="scissors"></i></span> Split</button>
+              <button class="qa-btn" id="qa-pdf-extract" title="Extract pages into a new PDF"><span class="icon"><i data-icon="extract"></i></span> Extract</button>
+              <button class="qa-btn" id="qa-pdf-merge" title="Merge with other files"><span class="icon"><i data-icon="merge"></i></span> Merge</button>
+              <button class="qa-btn hidden" id="qa-pdf-merge-sel" title="Merge the selected files"><span class="icon"><i data-icon="merge"></i></span> Merge selected</button>
             </div>
           </div>
 
@@ -409,6 +411,11 @@
               <button class="qa-btn hidden" id="ai-compare" title="Before / after slider"><span class="icon"><i data-icon="compare"></i></span> Compare with original</button>
               <button class="qa-btn" id="ai-crop"><span class="icon"><i data-icon="crop"></i></span> Crop…</button>
             </div>
+          </div>
+
+          <!-- Kept apart from everyday actions -->
+          <div class="detail-footer">
+            <button class="qa-btn danger" id="qa-delete" title="Move to the _to_review folder next to it (nothing is deleted)"><span class="icon"><i data-icon="archive"></i></span> Move to review</button>
           </div>
 
         </div>
