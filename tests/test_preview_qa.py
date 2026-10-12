@@ -43,6 +43,7 @@ def test_broken_image_preview_has_a_readable_error(tmp_path):
 
 
 def test_broken_docx_error_does_not_dump_the_path(tmp_path):
+    pytest.importorskip("docx")          # without python-docx the error is 'missing_dep'
     p = tmp_path / "broken.docx"
     p.write_bytes(b"PK\x03\x04garbage")
     with pytest.raises(dp.PreviewError) as ei:
