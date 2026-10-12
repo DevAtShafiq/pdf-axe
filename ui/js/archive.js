@@ -44,7 +44,11 @@ const Archive = (() => {
   }
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : (many || one + 's'));
   const cleanName = n => String(n || '').trim().replace(/\.zip$/i, '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[ .]+$/, '').trim();
-  const stripSuffix = s => s.replace(/_(protected|unlocked)$/i, '') || s;
+  // Mirrors archive_tools._strip_suffixes: 'doc_protected (2)' -> 'doc'.
+  const stripSuffix = s => {
+    const m = /^(.*)_(protected|unlocked)$/i.exec(s.replace(/ \(\d+\)$/, ''));
+    return (m && m[1]) || s;
+  };
   function store(key, val) {
     try {
       if (val === undefined) return localStorage.getItem('archive.' + key);

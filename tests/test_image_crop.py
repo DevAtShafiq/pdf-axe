@@ -41,7 +41,7 @@ def test_crop_writes_new_file_and_never_overwrites(tmp_path):
     assert ok, out1
     assert os.path.basename(out1) == "photo_cropped.jpg"
     ok, out2 = image_crop.crop_image(str(src), 0, 0, 100, 80)
-    assert os.path.basename(out2) == "photo_cropped-2.jpg"
+    assert os.path.basename(out2) == "photo_cropped (2).jpg"
     # explicit out_path pointing at the original is refused (numbered instead)
     ok, out3 = image_crop.crop_image(str(src), 0, 0, 50, 50, out_path=str(src))
     assert ok and os.path.normcase(out3) != os.path.normcase(str(src))

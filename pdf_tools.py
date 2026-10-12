@@ -248,7 +248,8 @@ def image_to_pdf_doc(path: str):
     """Return a 1+ page in-memory PDF made from an image file (EXIF-rotated).
 
     Page size follows the image DPI (default 150 dpi), so a 1240×1754 px scan
-    becomes an A4-sized page. Multi-frame TIFF/GIF becomes several pages.
+    becomes an A4-sized page. Multi-page TIFF becomes several pages (an
+    animated GIF gives its first frame only).
     """
     fitz = _fitz()
     Image, ImageOps = _pil()
@@ -649,6 +650,8 @@ def thumbnails(path: str, pages: list, width: int = 160) -> dict:
     """
     width = max(40, min(int(width or 160), 1200))
     path = os.path.abspath(str(path or ""))
+    if not os.path.isfile(path):
+        raise PdfToolsError(f"File not found: {_name(path)}")
     fkey = _file_key(path)
     result: dict[int, str] = {}
     todo: list[int] = []

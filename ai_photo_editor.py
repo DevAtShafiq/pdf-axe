@@ -370,15 +370,19 @@ def _openai_client():
 
 
 def _unique_ai_sidecar_path(original_path: str, suffix: str = "_ai") -> str:
-    """``<stem><suffix><ext>`` next to *original_path*; ``-2``, ``-3`` ... when taken."""
+    """``<stem><suffix><ext>`` next to *original_path*; `` (2)``, `` (3)`` ... when taken."""
     original_path = os.path.abspath(os.path.normpath(original_path))
     d, base = os.path.dirname(original_path), os.path.basename(original_path)
     stem, ext = os.path.splitext(base)
     if not ext:
         ext = ".png"
+    if not suffix:
+        m = re.match(r"^(.*) \((\d+)\)$", stem)
+        if m:
+            stem = m.group(1)
     n = 1
     while True:
-        tag = suffix if n == 1 else f"{suffix}-{n}"
+        tag = suffix if n == 1 else f"{suffix} ({n})"
         cand = os.path.join(d, f"{stem}{tag}{ext}")
         if not os.path.exists(cand):
             return cand
@@ -592,7 +596,17 @@ def run_ai_edit(
                 out_path = _unique_ai_sidecar_path(out_path, "")
             fmt = "PNG"
         save_kw: dict = {"quality": 95} if fmt in ("JPEG", "WEBP") else {}
-        result_img.save(out_path, format=fmt, **save_kw)
+        if fmt == "GIF":
+            result_img = result_img.convert("P", palette=Image.Palette.ADAPTIVE)
+        buf = io.BytesIO()
+        result_img.save(buf, format=fmt, **save_kw)
+        for _ in range(1000):                 # exclusive create: never clobbers
+            try:
+                with open(out_path, "xb") as f:
+                    f.write(buf.getvalue())
+                break
+            except FileExistsError:           # appeared while the API was running
+                out_path = _unique_ai_sidecar_path(out_path, "")
     except Exception as e:
         return False, f"Could not process API result image: {e}"
     return True, out_path

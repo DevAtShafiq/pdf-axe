@@ -107,7 +107,7 @@ def test_never_overwrites(scan_pdf, tmp_path):
     taken = tmp_path / "scan_compressed.pdf"
     taken.write_bytes(b"keep")
     r = mc.compress_pdf(scan_pdf, "ebook")
-    assert os.path.basename(r["out"]) == "scan_compressed-2.pdf"
+    assert os.path.basename(r["out"]) == "scan_compressed (2).pdf"
     assert taken.read_bytes() == b"keep"
     with pytest.raises(mc.ConvertError):
         mc.compress_pdf(scan_pdf, "ebook", out_path=scan_pdf)
@@ -254,7 +254,7 @@ def test_target_never_overwrites(photo_pdf, tmp_path):
     taken = tmp_path / "photos_compressed.pdf"
     taken.write_bytes(b"keep")
     r = mc.compress_pdf(photo_pdf, target_kb=200)
-    assert os.path.basename(r["out"]) == "photos_compressed-2.pdf"
+    assert os.path.basename(r["out"]) == "photos_compressed (2).pdf"
     assert taken.read_bytes() == b"keep"
     with pytest.raises(mc.ConvertError):
         mc.compress_pdf(photo_pdf, out_path=photo_pdf, target_kb=200)

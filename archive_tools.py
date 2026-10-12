@@ -604,6 +604,7 @@ def extract_zip(path: str, dest_dir: Optional[str] = None, password=None, member
                 n_dirs += 1
                 continue
             os.makedirs(os.path.dirname(target), exist_ok=True)
+            final = None
             try:
                 final, fh = _create_exclusive(target)
                 if final != os.path.abspath(target):
@@ -619,10 +620,19 @@ def extract_zip(path: str, dest_dir: Optional[str] = None, password=None, member
                         done += len(buf)
                         if progress:
                             progress(done, total, display_name(i))
-            except ArchiveError:
-                raise
-            except Exception as exc:
-                raise _read_error(exc, _is_encrypted(i), display_name(i)) from exc
+            except BaseException as exc:
+                # Never leave a half-written file under its real name: it would
+                # look like a good copy. Rename it (never delete) and say so.
+                err = exc if isinstance(exc, ArchiveError) else (
+                    _read_error(exc, _is_encrypted(i), display_name(i)) if isinstance(exc, Exception) else None)
+                if final and os.path.exists(final):
+                    aside = _set_aside(final)
+                    if err is not None and aside != final:
+                        err = ArchiveError(f"{err} (the incomplete file was renamed {os.path.basename(aside)})",
+                                           err.code)
+                if err is None:
+                    raise
+                raise err from (None if isinstance(exc, ArchiveError) else exc)
             ts = _to_epoch(i.date_time)
             if ts:
                 try:

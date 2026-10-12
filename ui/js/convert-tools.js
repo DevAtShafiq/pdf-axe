@@ -11,7 +11,7 @@
  *   ConvertTools.openCompressImages(paths)        thin wrapper → openCompress (images only)
  *
  * Backend: media_convert.py via sfm_bridge (SFM.* wrappers in bridge.js).
- * Every operation keeps the originals and never overwrites (name-2, name-3 …).
+ * Every operation keeps the originals and never overwrites (name (2), name (3) …).
  * Long jobs use the media_progress / media_done events, tagged with a job id.
  */
 

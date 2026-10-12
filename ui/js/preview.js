@@ -542,6 +542,7 @@ const Preview = (() => {
   }
 
   // ── PDF contextual toolbar ────────────────────────────────────────────────
+  const _escTxt = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   function _initPdfToolbar() {
     const wire = (id, fn) => { const el = $(id); if(el) el.addEventListener('click', fn); };
     const editable = () => _path && _pdfSrc && !_converted;
@@ -549,22 +550,21 @@ const Preview = (() => {
     wire('pdf-rotate-cw',  async () => {
       if (!editable()) return;
       const r = await SFM.rotatePage(_pdfSrc, _pdfCurPage, 90);
-      if (!r || !r.ok) { App.toast('Rotate failed: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
+      if (!r || !r.ok) { App.toast('Rotate failed: ' + _escTxt(r && r.error), 'error', 6000); return; }
       _loadVisiblePages();
     });
     wire('pdf-rotate-ccw', async () => {
       if (!editable()) return;
       const r = await SFM.rotatePage(_pdfSrc, _pdfCurPage, -90);
-      if (!r || !r.ok) { App.toast('Rotate failed: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
+      if (!r || !r.ok) { App.toast('Rotate failed: ' + _escTxt(r && r.error), 'error', 6000); return; }
       _loadVisiblePages();
     });
     wire('pdf-del-page', async () => {
       if (!editable()) return;
-      if (_pdfCount <= 1) { App.toast('A PDF needs at least one page', 'info'); return; }
-      if (!(await Dialogs.confirm({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${_pdfCurPage + 1} of ${_pdfCount} from this PDF?`, detail: 'This changes the PDF file itself.' }))) return;
+      if (_pdfCount <= 1) { App.toast('Cannot delete the only page', 'error'); return; }
+      if (!(await Dialogs.confirm({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${_pdfCurPage + 1} of ${_pdfCount} from this PDF?`, detail: 'This changes the PDF file itself. The previous version is kept in “_to_review”.' }))) return;
       const r = await SFM.deletePage(_pdfSrc, _pdfCurPage);
-      // A failed delete (file in use, locked PDF) used to drop a page from view anyway.
-      if (!r || !r.ok) { App.toast('Delete page failed: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
+      if (!r || !r.ok) { App.toast('Delete page failed: ' + _escTxt(r && r.error), 'error', 6000); return; }
       _pdfCount--;
       _pdfCurPage = Math.min(_pdfCurPage, _pdfCount - 1);
       _loadVisiblePages();

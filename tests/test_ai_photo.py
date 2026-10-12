@@ -98,7 +98,7 @@ def test_second_run_gets_unique_name(isolated_env, monkeypatch):
     ok1, out1 = ape.run_ai_edit(src, "wear_suit")
     ok2, out2 = ape.run_ai_edit(src, "wear_suit")
     assert ok1 and ok2 and out1 != out2
-    assert [os.path.basename(out1), os.path.basename(out2)] == ["student_suit.jpg", "student_suit-2.jpg"]
+    assert [os.path.basename(out1), os.path.basename(out2)] == ["student_suit.jpg", "student_suit (2).jpg"]
     assert os.path.isfile(out1) and os.path.isfile(out2)
 
 
@@ -288,4 +288,4 @@ def test_bridge_runs_with_options(isolated_env, monkeypatch):
     assert payload["out"].endswith("student_suit.jpg") and payload["src"] == src
     assert "medium grey" in calls[0]["prompt"]
     est = b.ai_photo_estimate(src, {"quality": "medium"})
-    assert est["ok"] and est["out_name"] == "student_suit-2.jpg"
+    assert est["ok"] and est["out_name"] == "student_suit (2).jpg"

@@ -458,53 +458,12 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         With replace=True the result atomically replaces out_path (in-place
         arrange save, old '_save_arrange_inplace'); otherwise it is written as
         a new file (old '_ok_merge' / extract).
+
+        Same engine as pdf_build (pdf_tools.build_pdf): a new file never
+        overwrites an existing one (" (2)" is added), and replace=True first
+        copies the old version into _to_review/.
         """
-        tmp = None
-        try:
-            fitz = _fo.get_fitz()
-            if not fitz:
-                return _err("Install PyMuPDF (pip install pymupdf).")
-            if not pages:
-                return _err("No pages to save.")
-            out_path = os.path.abspath(os.path.normpath(out_path))
-            _log.info("build_pdf_from_pages: %d page(s) -> %s (replace=%s)",
-                      len(pages), out_path, replace)
-            target = out_path
-            if replace:
-                tmp = out_path + ".sfm_tmp"
-                target = tmp
-            out_doc = fitz.open()
-            for it in pages:
-                sp = os.path.abspath(os.path.normpath(str(it.get("path", ""))))
-                pi = int(it.get("page", 0))
-                rot = int(it.get("rotate", 0)) % 360
-                src = fitz.open(sp)
-                try:
-                    out_doc.insert_pdf(src, from_page=pi, to_page=pi)
-                finally:
-                    src.close()
-                if rot:
-                    # Rotate relative to the page's existing /Rotate so the UI's
-                    # "turn this page" matches what the user sees in the tile.
-                    pg = out_doc[-1]
-                    pg.set_rotation((pg.rotation + rot) % 360)
-            out_doc.save(target)
-            out_doc.close()
-            if replace:
-                # Release preview/render handles so os.replace can win on Windows.
-                _fo.release_pdf_handles_for_paths((out_path,))
-                os.replace(tmp, out_path)
-                tmp = None
-            return _ok(out_path=out_path, page_count=len(pages))
-        except Exception as exc:
-            _log.error("build_pdf_from_pages failed: %s", exc)
-            # Clean up our own half-written temp file (old system did the same).
-            try:
-                if tmp and os.path.isfile(tmp):
-                    os.remove(tmp)
-            except OSError:
-                pass
-            return _err(str(exc))
+        return self.pdf_build(pages, out_path, bool(replace))
 
     def get_desktop(self) -> dict:
         return _ok(path=os.path.join(os.path.expanduser("~"), "Desktop"))
@@ -999,20 +958,14 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
     # PDF OPERATIONS
     # =========================================================================
 
+    # Old entry points, kept for any leftover caller. They use the pdf_tools
+    # engine, so nothing is ever overwritten (the old writers replaced an
+    # existing output file).
     def merge_pdfs(self, paths: list, out_path: str) -> dict:
-        try:
-            _check(_fo.pdf_merge_ordered_paths(paths, out_path), "PDF merge failed")
-            return _ok(out_path=out_path)
-        except Exception as exc:
-            return _err(str(exc))
+        return self.pdf_merge(list(paths or []), out_path or "", False)
 
     def split_pdf_pages(self, path: str, out_dir: str) -> dict:
-        try:
-            # pdf_split_each_page requires a log callback (3rd positional arg)
-            _check(_fo.pdf_split_each_page(path, out_dir, _noop_log), "PDF split failed")
-            return _ok(files=[])
-        except Exception as exc:
-            return _err(str(exc))
+        return self.pdf_split(path, "each", 1, "", out_dir or "")
 
     def compress_pdf(self, path: str, out_path: str = "", preset: str = "ebook",
                      target_kb: float = 0, save_smallest: bool = False,
@@ -1113,56 +1066,30 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             return _err(str(exc))
 
     def delete_pdf_page(self, path: str, page: int) -> dict:
+        """Delete one page from the PDF itself. The previous version is first
+        copied into _to_review/ next to it (nothing is ever lost)."""
         try:
+            import pdf_tools as _pt
+            backup = _pt.backup_to_review(path)
             _check(_fo.pdf_delete_page(path, page), "Delete page failed")
-            return _ok()
+            return _ok(backup=backup)
         except Exception as exc:
             return _err(str(exc))
 
     def reorder_pdf_pages(self, path: str, new_order: list, out_path: str) -> dict:
-        # pdf_reorder_pages works IN PLACE. If out_path is given, copy the
-        # original there first and reorder the copy, so the original is kept
-        # (the UI promises "saved alongside the original").
+        """Old entry point: pages of *path* in *new_order* (0-based) → a NEW
+        file (out_path, or '<name>_arranged.pdf'); the original is kept."""
         _log.info("reorder_pdf_pages: %s order=%s out=%s", path, new_order, out_path)
-        try:
-            target = path
-            if out_path and os.path.abspath(out_path) != os.path.abspath(path):
-                import shutil
-                base, ext = os.path.splitext(out_path)
-                final, i = out_path, 2
-                while os.path.exists(final):
-                    final = f"{base}-{i}{ext}"
-                    i += 1
-                shutil.copy2(path, final)
-                target = final
-            _check(_fo.pdf_reorder_pages(target, new_order), "Reorder failed")
-            return _ok(out_path=target)
-        except Exception as exc:
-            _log.error("reorder_pdf_pages failed: %s", exc)
-            return _err(str(exc))
+        out = out_path or ""
+        if not out or os.path.normcase(os.path.abspath(out)) == os.path.normcase(os.path.abspath(path)):
+            stem = os.path.splitext(os.path.abspath(path))[0]
+            out = stem + "_arranged.pdf"
+        pages = [{"path": path, "page": int(p), "rotate": 0} for p in (new_order or [])]
+        return self.pdf_build(pages, out, False)
 
     def extract_pdf_pages(self, path: str, page_spec: str, out_path: str) -> dict:
-        try:
-            # parse_pdf_page_range_input also returns (ok, pages_or_error)
-            pages = _check(_fo.parse_pdf_page_range_input(
-                page_spec, _fo.pdf_page_count(path)), "Invalid page range")
-            # Returns (ok, temp_pdf_path); previously the temp file was created
-            # and abandoned — nothing was ever written to out_path.
-            tmp = _check(_fo.pdf_export_selected_pages_to_tempfile(path, pages),
-                         "Page extraction failed")
-            if out_path:
-                import shutil
-                base, ext = os.path.splitext(out_path)
-                final, i = out_path, 2
-                while os.path.exists(final):
-                    final = f"{base}-{i}{ext}"
-                    i += 1
-                shutil.move(tmp, final)
-            else:
-                final = tmp
-            return _ok(pages=pages, out_path=final)
-        except Exception as exc:
-            return _err(str(exc))
+        """Old entry point → pdf_extract (new file, never overwrites)."""
+        return self.pdf_extract(path, page_spec, out_path or "")
 
     def pdf_to_images(self, path: str, dpi: int = 150, fmt: str = "png",
                       pages: str = "", quality: int = 90) -> dict:
