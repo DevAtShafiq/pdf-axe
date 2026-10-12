@@ -334,3 +334,14 @@ def test_bridge_signatures(tmp_path):
     assert b.annot_signature_save(sig)["signatures"] == [sig]          # no duplicates
     assert not b.annot_signature_save("javascript:alert(1)")["ok"]
     assert b.annot_signature_forget(0)["signatures"] == []
+
+
+def test_bridge_signature_forget_index_matches_shown_list():
+    """Regression: forget() popped from the raw settings list while the pad
+    showed the filtered one, so a stray entry made it drop the wrong signature."""
+    b = _Bridge()
+    s1, s2 = sig_png(), sig_png().replace("A", "B", 1)
+    b.settings["annot_signatures"] = [None, "junk", s1, s2]
+    shown = b.annot_signatures()["signatures"]
+    assert shown == [s1, s2]
+    assert b.annot_signature_forget(0)["signatures"] == [s2]

@@ -171,7 +171,9 @@ class AnnotateBridgeMixin:
     def annot_signature_forget(self, index: int) -> dict:
         """Drop a remembered signature from the settings list (no file is touched)."""
         try:
-            sigs = list(self._load_settings().get("annot_signatures") or [])
+            # same filtered list annot_signatures() showed, so the index matches
+            sigs = [s for s in (self._load_settings().get("annot_signatures") or [])
+                    if isinstance(s, str) and s.startswith("data:image/")]
             i = int(index)
             if 0 <= i < len(sigs):
                 sigs.pop(i)
