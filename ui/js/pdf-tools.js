@@ -6,6 +6,8 @@
  *   PdfTools.openExtract(path, {page})       page ranges → new PDF
  *   PdfTools.extractPage(path, page)         one page (0-based) → new PDF
  *   PdfTools.openArrange(paths, {mode})      visual page-grid editor
+ *   PdfTools.openArrange([path], {embed})    PDF Studio: inside embed.host,
+ *                                            resolves to a controller
  *   PdfTools.onDetails(entry|null, multi)    details-pane quick actions
  *
  * Backend: pdf_tools_bridge.py (SFM.pdf* wrappers in bridge.js). Outputs are
@@ -516,6 +518,7 @@ const PdfTools = (() => {
   async function openArrange(pathsIn, opts) {
     const paths = (Array.isArray(pathsIn) ? pathsIn : [pathsIn]).filter(Boolean);
     if (!paths.length) return;
+    const embed = (opts && opts.embed) || null;
     const mode = (opts && opts.mode) || (paths.length > 1 ? 'merge' : 'arrange');
     const primary = paths[0];
     const canOverwrite = mode === 'arrange' && isPdf(primary);
@@ -562,8 +565,8 @@ const PdfTools = (() => {
 
     // ── DOM ─────────────────────────────────────────────────────────────────
     const ov = document.createElement('div');
-    ov.className = 'modal-overlay pt-overlay';
-    ov.style.zIndex = 9500 + _mstack.length * 20;
+    ov.className = embed ? 'pt-overlay pt-embedded' : 'modal-overlay pt-overlay';
+    if (!embed) ov.style.zIndex = 9500 + _mstack.length * 20;
     const defName = (opts && opts.name) || stemOf(primary) + (mode === 'merge' ? '_merged' : '_arranged');
     const defDir  = (opts && opts.folder) || dirOf(primary);
     ov.innerHTML = `
@@ -619,14 +622,14 @@ const PdfTools = (() => {
           <button class="btn btn-primary" id="pt-a-save">${ic('check')}Save</button>
         </div>
       </div>`;
-    document.body.appendChild(ov);
+    (embed ? embed.host : document.body).appendChild(ov);
     const $ = s => ov.querySelector(s);
     const grid = $('#pt-a-grid'), caret = $('#pt-a-caret');
     const self = {
       busy: false,
       close() {                          // Escape (via the shared modal stack)
         if (drag) { cancelDrag(); return; }
-        tryClose();
+        if (embed) embed.onKey('close'); else tryClose();
       },
     };
     _mstack.push(self);
@@ -729,6 +732,7 @@ const PdfTools = (() => {
       ov.querySelector('[data-a="all"] .pt-all-label').textContent = (n && n === slots.length) ? 'Select none' : 'Select all';
       ['rotl', 'rotr', 'dup', 'del'].forEach(a => { ov.querySelector(`[data-a="${a}"]`).disabled = !targets().length; });
       $('#pt-a-save').disabled = !slots.length;
+      if (embed && embed.onChange) embed.onChange();
     }
 
     // ── edit operations ─────────────────────────────────────────────────────
@@ -998,11 +1002,11 @@ const PdfTools = (() => {
       if (!document.body.contains(ov) || _mstack[_mstack.length - 1] !== self) return;
       const inInput = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '');
       const ctrl = e.ctrlKey || e.metaKey, k = e.key;
-      if (ctrl && (k === 's' || k === 'S')) { e.preventDefault(); e.stopPropagation(); save(); return; }
+      if (ctrl && (k === 's' || k === 'S')) { e.preventDefault(); e.stopPropagation(); if (embed) embed.onKey('save'); else save(); return; }
       if (inInput) { if (k === 'Enter') { e.preventDefault(); save(); } return; }
       const handled = () => { e.preventDefault(); e.stopPropagation(); };
-      if (ctrl && (k === 'z' || k === 'Z') && !e.shiftKey) { handled(); undo(); }
-      else if (ctrl && (k === 'y' || k === 'Y' || ((k === 'z' || k === 'Z') && e.shiftKey))) { handled(); redo(); }
+      if (ctrl && (k === 'z' || k === 'Z') && !e.shiftKey) { handled(); if (embed && !undoStack.length) embed.onKey('undo'); else undo(); }
+      else if (ctrl && (k === 'y' || k === 'Y' || ((k === 'z' || k === 'Z') && e.shiftKey))) { handled(); if (embed && !redoStack.length) embed.onKey('redo'); else redo(); }
       else if (ctrl && (k === 'a' || k === 'A')) { handled(); sel = new Set(slots.map(s => s.id)); render(); }
       else if (ctrl && (k === 'd' || k === 'D')) { handled(); duplicate(targets()); }
       else if (k === 'Delete' || k === 'Backspace') { handled(); remove(targets()); }
@@ -1032,6 +1036,20 @@ const PdfTools = (() => {
 
     render();
     grid.focus();
+    if (!embed) return;
+    // PDF Studio: write the arranged pages into a new step file.
+    return {
+      kind: 'pages',
+      dirty, canUndo: () => undoStack.length > 0, canRedo: () => redoStack.length > 0,
+      undo, redo, close: forceClose, focus: () => grid.focus(), busy: () => busy,
+      page: () => 0, goPage: () => {},
+      async commit(out) {
+        if (!dirty()) return { ok: true, unchanged: true };
+        if (!slots.length) return { ok: false, error: 'A PDF needs at least one page' };
+        const r = await runBuild(payload(slots.map((_, i) => i)), out, false, 'Applying page changes…');
+        return r || { ok: false, error: 'Busy' };
+      },
+    };
   }
 
   // =========================================================================

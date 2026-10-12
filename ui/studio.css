@@ -1,0 +1,109 @@
+/* ============================================================
+   studio.css — PDF Studio window (ui/js/studio.js).
+   The embedded editors (annotate.css, pdf-edit.css, pdf-tools.css)
+   keep their own styles; here they lose their title and save bars
+   and fill the Studio's middle area.
+   ============================================================ */
+
+.st-overlay { z-index: 9400; }   /* below the editors' own pop-ups (insert pages 9500+, signature pad 10050) */
+.st-window {
+  position: relative;
+  width: calc(100vw - 24px); height: calc(100vh - 24px);
+  display: flex; flex-direction: column;
+  background: var(--bg-surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-popup);
+  animation: modal-in .16s var(--ease);
+}
+.st-head {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.st-head .modal-heading { min-width: 0; max-width: 40vw; }
+.st-head-group { display: flex; align-items: center; gap: 2px; }
+.st-spacer { flex: 1; }
+
+.st-main { flex: 1; display: flex; min-height: 0; }
+
+/* ── tool rail ───────────────────────────────────────────────── */
+.st-rail {
+  width: 176px; flex-shrink: 0; overflow-y: auto;
+  padding: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2);
+  background: var(--bg-sidebar); border-right: 1px solid var(--border);
+}
+.st-group { display: flex; flex-direction: column; gap: 1px; }
+.st-group-label {
+  padding: var(--space-1) var(--space-2) 2px; font-size: var(--fs-xs); font-weight: 600;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em;
+}
+.st-tool {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  padding: 6px var(--space-2); border: none; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--fs-sm);
+  text-align: left; cursor: pointer;
+}
+.st-tool:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.st-tool.active { background: var(--accent-subtle); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent-ring, var(--accent)); }
+.st-tool:disabled { opacity: .5; cursor: default; }
+.st-tool-danger:hover:not(:disabled), .st-tool-danger.active { color: var(--red); }
+
+/* ── middle: the active tool ─────────────────────────────────── */
+.st-host { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; outline: none; }
+.st-center { margin: auto; display: flex; align-items: center; gap: var(--space-2); color: var(--text-muted); }
+
+.an-overlay.an-embedded, .pt-overlay.pt-embedded {
+  position: static; inset: auto; background: none; backdrop-filter: none;
+  flex: 1; min-height: 0; display: flex; padding: 0; z-index: auto;
+}
+.an-embedded .an-editor, .pt-embedded .pt-org {
+  width: 100%; height: 100%; border: none; border-radius: 0; box-shadow: none; animation: none;
+}
+.an-embedded .an-head, .an-embedded .an-foot,
+.pt-embedded .pt-org-head, .pt-embedded .pt-org-foot { display: none; }
+/* The Studio's own Undo / Redo cover both the tool and earlier versions. */
+.an-embedded .an-bar [data-a="undo"], .an-embedded .an-bar [data-a="redo"],
+.pt-embedded .pt-org-bar [data-a="undo"], .pt-embedded .pt-org-bar [data-a="redo"] { display: none; }
+
+/* ── Read & copy ─────────────────────────────────────────────── */
+.st-reader { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.st-read-view { flex: 1; overflow: auto; background: var(--bg-sidebar); outline: none; }
+.st-read-pages { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-3); }
+.st-read-slot { background: var(--bg-surface); border-radius: 2px; box-shadow: var(--shadow-lg); flex-shrink: 0; }
+.st-read-page { box-shadow: var(--shadow-lg); flex-shrink: 0; }
+
+/* ── Save panel ──────────────────────────────────────────────── */
+.st-sheet {
+  width: 340px; flex-shrink: 0; display: flex; flex-direction: column;
+  background: var(--bg-panel); border-left: 1px solid var(--border);
+}
+.st-sheet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4); border-bottom: 1px solid var(--border);
+}
+.st-sheet-title { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; }
+.st-sheet-body { flex: 1; overflow-y: auto; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+.st-sheet .segmented .seg-btn { white-space: nowrap; }
+.st-fields { display: flex; flex-direction: column; gap: var(--space-1); }
+.st-fields .field-row { display: flex; gap: var(--space-2); align-items: center; }
+.st-fields .input-text { flex: 1; min-width: 0; }
+.st-fields.is-dim { opacity: .5; }
+.st-over-note { display: flex; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-secondary); }
+.st-over-note svg { flex-shrink: 0; margin-top: 2px; }
+.st-opt { display: flex; flex-direction: column; gap: var(--space-2); }
+.st-sub { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; padding-left: var(--space-1); }
+#st-pw-rows { flex-direction: column; align-items: stretch; }
+.st-kb { width: 96px; }
+.st-sheet-foot { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }
+
+/* ── busy veil, password prompt ──────────────────────────────── */
+.st-busy {
+  position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  background: color-mix(in srgb, var(--bg-surface) 55%, transparent); color: var(--text-secondary); cursor: progress;
+}
+.st-unlock {
+  margin: auto; width: min(360px, 90%); padding: var(--space-5);
+  display: flex; flex-direction: column; gap: var(--space-3); align-items: stretch; text-align: center;
+}
+.st-unlock-icon { color: var(--text-muted); }
+.st-unlock-title { font-weight: 600; }
+.st-unlock-btns { display: flex; justify-content: flex-end; gap: var(--space-2); }

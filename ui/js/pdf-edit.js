@@ -3,6 +3,10 @@
  *
  *   PdfEdit.open(path)      open the editor for a PDF
  *   PdfEdit.canEdit(path)   true for PDFs
+ *   PdfEdit.open(path, {embed})  PDF Studio: lives inside embed.host without
+ *                           its title and save bars; open() resolves to a
+ *                           controller. Save / close / "nothing left to undo"
+ *                           go to embed.onKey('save'|'close'|'undo'|'redo').
  *
  * Click a text block to edit it in place (Enter = new line, Esc = cancel,
  * click outside = keep). Drag a block to move it; the handle on its right edge
@@ -50,8 +54,11 @@ var PdfEdit = (() => {
   }
 
   // =========================================================================
-  async function open(path) {
+  async function open(path, opts) {
+    const embed = (opts && opts.embed) || null;
     if (!isPdf(path)) { App.toast('Edit text works with PDF files', 'info'); return; }
+    // Opens in PDF Studio (all PDF tools, one Undo and one Save).
+    if (!embed && window.Studio && !(opts && opts.standalone)) return Studio.open(path, { tool: 'edit' });
     if (_open) { _open.focus(); return; }
     if (!_fonts) {
       const fr = await SFM.pdfeditFonts().catch(() => null);
@@ -59,7 +66,7 @@ var PdfEdit = (() => {
     }
 
     const ov = document.createElement('div');
-    ov.className = 'modal-overlay an-overlay pe-overlay';
+    ov.className = embed ? 'an-overlay pe-overlay an-embedded' : 'modal-overlay an-overlay pe-overlay';
     const fontOpts = `<option value="original">Original font</option>` +
       _fonts.map(f => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join('');
     ov.innerHTML = `
@@ -139,7 +146,7 @@ var PdfEdit = (() => {
           <button class="btn btn-primary" id="pe-save">${ic('save')}Save</button>
         </div>
       </div>`;
-    document.body.appendChild(ov);
+    (embed ? embed.host : document.body).appendChild(ov);
     const $ = s => ov.querySelector(s);
     const $$ = s => Array.from(ov.querySelectorAll(s));
     const root = $('.pe-editor'), view = $('#pe-view'), pagesEl = $('#pe-pages');
@@ -458,6 +465,7 @@ var PdfEdit = (() => {
       $('#pe-status').className = 'pill ' + (n ? 'pill-yellow' : 'pill-neutral');
       ov.querySelector('[data-a="undo"]').disabled = busy || !undoStack.length;
       ov.querySelector('[data-a="redo"]').disabled = busy || !redoStack.length;
+      if (embed && embed.onChange) embed.onChange();
     }
     function syncToolbar() {
       const s = sel, e = s && s.kind !== 'image' ? eff(s) : null;
@@ -721,18 +729,19 @@ var PdfEdit = (() => {
       const ctrl = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
       e.stopPropagation();
       const handled = () => e.preventDefault();
-      if (ctrl && k === 's') { handled(); commitEdit(); save(); return; }
+      if (ctrl && k === 's') { handled(); commitEdit(); if (embed) embed.onKey('save'); else save(); return; }
       if (k === 'escape') {
         handled();
         if (editing) { cancelEdit(); return; }
         if (typing) { t.blur(); view.focus(); return; }
         if (mode !== 'select') { setMode('select'); return; }
         if (sel) { select(null); return; }
-        tryClose(); return;
+        if (embed) embed.onKey('close'); else tryClose();
+        return;
       }
       if (typing) return;
-      if (ctrl && k === 'z' && !e.shiftKey) { handled(); undo(); return; }
-      if (ctrl && (k === 'y' || (k === 'z' && e.shiftKey))) { handled(); redo(); return; }
+      if (ctrl && k === 'z' && !e.shiftKey) { handled(); if (embed && !undoStack.length) embed.onKey('undo'); else undo(); return; }
+      if (ctrl && (k === 'y' || (k === 'z' && e.shiftKey))) { handled(); if (embed && !redoStack.length) embed.onKey('redo'); else redo(); return; }
       if (ctrl && (k === '=' || k === '+')) { handled(); zoomStep(1); return; }
       if (ctrl && k === '-') { handled(); zoomStep(-1); return; }
       if (ctrl && k === '0') { handled(); fitWidth(); return; }
@@ -891,8 +900,31 @@ var PdfEdit = (() => {
       renderAll();
       return true;
     }
+    // ── PDF Studio: write the text edits into a new step file ──────────────
+    async function commit(outPath) {
+      if (busy || !info) return { ok: false, error: 'Busy' };
+      commitEdit();
+      const edits = buildEdits();
+      if (!edits.length) return { ok: true, unchanged: true };
+      setBusy(true);
+      const r = await SFM.pdfeditApply(src, edits, { mode: 'new', out_path: outPath }).catch(e => ({ ok: false, error: String(e) }));
+      setBusy(false);
+      return r || { ok: false, error: 'Could not apply the text edits' };
+    }
+    const controller = {
+      kind: 'edit',
+      dirty: () => { commitEdit(); return dirty(); },
+      canUndo: () => undoStack.length > 0, canRedo: () => redoStack.length > 0,
+      undo, redo, commit, close: forceClose, focus: () => view.focus({ preventScroll: true }),
+      page: () => curPage, goPage: p => goPage(p),
+      tool: t => setMode(t === 'add' ? 'add' : 'select'),
+      busy: () => busy,
+    };
+
     if (!(await load(path))) { forceClose(); return; }
+    if (embed && Number.isInteger(embed.page) && embed.page > 0) goPage(embed.page);
     view.focus({ preventScroll: true });
+    return controller;
   }
 
   // =========================================================================
