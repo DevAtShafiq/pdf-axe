@@ -336,9 +336,12 @@ class Database:
             ).fetchall()
 
     def files_under(self, user_id: int, folder: str, trashed: bool | None = False):
-        """Files whose path starts with 'folder/'."""
-        q = "SELECT * FROM files WHERE user_id=? AND path LIKE ? ESCAPE '\\'"
-        args: list = [user_id, escape_like(folder) + "/%"]
+        """Files whose path starts with 'folder/'. Case-sensitive: SQLite's LIKE
+        ignores ASCII case, so 'Work' would otherwise also match 'work/…'."""
+        pre = folder + "/"
+        q = ("SELECT * FROM files WHERE user_id=? AND path LIKE ? ESCAPE '\\' "
+             "AND substr(path, 1, ?) = ?")
+        args: list = [user_id, escape_like(folder) + "/%", len(pre), pre]
         if trashed is not None:
             q += " AND trashed=?"
             args.append(1 if trashed else 0)
@@ -411,6 +414,11 @@ class Database:
         now = time.time()
         with self.connect() as con:
             try:
+                # Two passes, so a file can take a name another moving file is leaving
+                # (moving "a/a" up to "a": "a/a/a/x" -> "a/a/x" while "a/a/x" -> "a/x")
+                for fid, _new in moves:
+                    con.execute("UPDATE files SET path=? WHERE user_id=? AND id=?",
+                                (f"//moving//{int(fid)}", user_id, fid))
                 for fid, new_path in moves:
                     con.execute(
                         "UPDATE files SET path=?, updated_at=? WHERE user_id=? AND id=?",
