@@ -293,6 +293,7 @@ const SFM = (() => {
     sharedSearch:        (query)                   => call('shared_search', query),
     sharedActivity:      (limit=50)                => call('shared_activity', limit),
     sharedUsage:         ()                        => call('shared_usage'),
+    sharedCancel:        (jobId)                   => call('shared_cancel', jobId),
   };
 })();
 

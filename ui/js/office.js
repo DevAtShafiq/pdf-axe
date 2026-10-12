@@ -129,7 +129,8 @@ const Office = (() => {
   const enforce = () => settings().enforce_hierarchy !== false;
   const canStructure = () => isAdmin() || !enforce();           // countries & programs
   const canModify = path => depth(path) >= 3 || canStructure();  // rename / move / trash
-  const canUploadInto = dir => depth(dir) >= 3 || (canStructure() && depth(dir) >= 1);
+  // Server rule: with enforce_hierarchy files live inside a student (depth ≥ 4) for every role
+  const canUploadInto = dir => depth(dir) >= 3 || !enforce();
   const canMkdirIn = dir => depth(dir) >= 3 || canStructure();
   function locked() { const p = st.office && st.office.plan; return !!(p && p.active === false); }
   function levelOf(item) {
@@ -139,7 +140,7 @@ const Office = (() => {
   function programsFor(country, s = settings()) {
     const p = s.programs;
     if (Array.isArray(p)) return p;
-    if (p && typeof p === 'object') return p[country] || [];
+    if (p && typeof p === 'object') return [...(p[country] || []), ...(p['*'] || [])];   // '*' = every country
     return [];
   }
 
@@ -694,10 +695,16 @@ const Office = (() => {
     if (!ids.length) return;
     const r = await SFM.sharedRestore(ids);
     if (!r || r.ok === false) { toast('Restore failed: ' + err(r), 'error', 5000); return; }
-    toast(`Restored ${ids.length} item${ids.length === 1 ? '' : 's'}`, 'success');
+    const done = Array.isArray(r.restored) ? r.restored : [];
+    const fails = Array.isArray(r.errors) ? r.errors : [];
+    const n = done.length;
+    toast(`Restored ${n} item${n === 1 ? '' : 's'}`, fails.length ? 'warning' : 'success');
+    if (fails.length) toast(`${fails.length} could not be restored: ${fails[0].error}`, 'error', 6000);
+    const renamed = done.find(d => { const t = (st.trash || []).find(x => x.id === d.id); return t && t.path !== d.path; });
+    if (renamed) toast(`A newer item had the same name, so it came back as “${baseName(renamed.path)}”`, 'info', 6000);
     st.trashSel.clear();
+    invalidate(done.flatMap(d => [d.path, ...(d.created || [])]));
     loadTrash();
-    invalidate((st.trash || []).filter(t => ids.includes(t.id)).map(t => t.path));
     loadUsage();
   }
 
@@ -798,9 +805,16 @@ const Office = (() => {
               ${j.total_bytes ? `<span class="acct-hint">${esc(fmtSize(j.bytes))} / ${esc(fmtSize(j.total_bytes))}</span>` : ''}</div>
             <div class="cloud-usage-bar"><div class="cloud-usage-fill" style="width:${pct.toFixed(1)}%"></div></div>
           </div>
-          <span class="acct-hint ofx-progress-pct">${Math.round(pct)}%</span></div>`;
+          <span class="acct-hint ofx-progress-pct">${Math.round(pct)}%</span>
+          <button class="btn btn-sm btn-ghost" data-cancel-job="${esc(id)}" ${j.cancelling ? 'disabled' : ''}>${j.cancelling ? 'Cancelling…' : 'Cancel'}</button></div>`;
     });
     el.innerHTML = h;
+    el.querySelectorAll('[data-cancel-job]').forEach(b => b.addEventListener('click', () => {
+      const j = st.jobs.get(b.dataset.cancelJob);
+      if (j) j.cancelling = true;
+      SFM.sharedCancel(b.dataset.cancelJob).catch(() => {});
+      renderTransfers();
+    }));
   }
   function newJobId(kind) { return `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`; }
 
@@ -1931,14 +1945,16 @@ const Office = (() => {
   function renderMDanger() {
     const el = $('ofx-m-danger');
     const owner = isOwner();
+    const alone = (Number(st.office.member_count) || 0) <= 1;
     el.innerHTML = `
       <div class="card-title">${owner ? 'Ownership' : 'Leave office'}</div>
       ${owner ? `<div class="card-row"><div class="flex-1"><div class="ofx-danger-title">Transfer ownership</div>
             <div class="acct-hint">Make another member the owner. You stay in the office as an admin.</div></div>
           <button class="btn" data-act="transfer">${Icons.svg('crown', 16)}Transfer…</button></div>
         <div class="card-row"><div class="flex-1"><div class="ofx-danger-title">Leave office</div>
-            <div class="acct-hint">The owner can't leave — transfer ownership first.</div></div>
-          <button class="btn btn-danger" disabled>${Icons.svg('log-out', 16)}Leave office</button></div>`
+            <div class="acct-hint">${alone ? 'You are the only member. Leaving closes the office; its files are kept on the server.'
+              : 'The owner can\'t leave while others are in the office — transfer ownership first.'}</div></div>
+          <button class="btn btn-danger" ${alone ? 'data-act="leave"' : 'disabled'}>${Icons.svg('log-out', 16)}Leave office</button></div>`
       : `<div class="card-row"><div class="flex-1"><div class="acct-hint">You lose access to the office drive. Files stay in the office for everyone else.</div></div>
           <button class="btn btn-danger" data-act="leave">${Icons.svg('log-out', 16)}Leave office</button></div>`}`;
   }
@@ -2094,6 +2110,7 @@ const Office = (() => {
       const n = (r && r.uploaded) || 0;
       const errs = (r && r.errors) || [];
       if (r && r.ok && !errs.length) toast(`Uploaded ${n} file${n === 1 ? '' : 's'}${j ? ' to ' + crumbText(j.dir) : ''}`, 'success');
+      else if (r && r.cancelled && !errs.length) toast(`Upload cancelled after ${n} file${n === 1 ? '' : 's'}`, 'info');
       else {
         const first = errs[0] ? (errs[0].error || errs[0]) : (r && r.error) || 'unknown error';
         toast(`Uploaded ${n}, ${errs.length || 'some'} failed: ${first}`, 'error', 7000);
@@ -2115,6 +2132,7 @@ const Office = (() => {
       const n = Array.isArray(r && r.files) ? r.files.length : Number(r && r.files) || 0;
       const errs = (r && r.errors) || [];
       if (r && r.ok && !errs.length) toast(`Downloaded ${n} file${n === 1 ? '' : 's'}${j && j.dest ? ' to ' + j.dest : ''}`, 'success', 4500);
+      else if (r && r.cancelled && !errs.length) toast(`Download cancelled after ${n} file${n === 1 ? '' : 's'}`, 'info');
       else toast(`Downloaded ${n}, ${errs.length || 'some'} failed: ${errs[0] ? (errs[0].error || errs[0]) : (r && r.error) || 'unknown error'}`, 'error', 6000);
       if (j && j.dest && App.state.currentFolder === j.dest) { try { FileTree.refresh(); } catch (e) {} }
     });
