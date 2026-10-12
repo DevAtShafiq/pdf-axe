@@ -2107,7 +2107,8 @@ const Office = (() => {
       st.jobs.delete(r && r.job_id);
       renderTransfers();
       App.setStatus('Ready');
-      const n = (r && r.uploaded) || 0;
+      // shared_upload_done sends the uploaded paths as a list
+      const n = Array.isArray(r && r.uploaded) ? r.uploaded.length : Number(r && r.uploaded) || 0;
       const errs = (r && r.errors) || [];
       if (r && r.ok && !errs.length) toast(`Uploaded ${n} file${n === 1 ? '' : 's'}${j ? ' to ' + crumbText(j.dir) : ''}`, 'success');
       else if (r && r.cancelled && !errs.length) toast(`Upload cancelled after ${n} file${n === 1 ? '' : 's'}`, 'info');
