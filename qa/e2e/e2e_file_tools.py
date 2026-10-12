@@ -104,7 +104,7 @@ BIG = photo_pdf("scan.pdf", 3)
 
 @step("merge dialog")
 def t_merge(page):
-    page.evaluate("([a, b, d]) => PdfTools.openMerge([a, b], d)", [A, B, D])
+    page.evaluate("([a, b, d]) => void PdfTools.openMerge([a, b], d)", [A, B, D])
     page.wait_for_function("() => !document.querySelector('#pt-m-go').disabled")
     page.fill("#pt-m-name", "merged_qa")
     page.click("#pt-m-go")
@@ -114,7 +114,7 @@ def t_merge(page):
     assert "Page 1 of beta.pdf" in doc[4].get_text()
     assert [t[1] for t in doc.get_toc() if t[0] == 1] == ["alpha", "beta"]
     # same name again -> " (2)"
-    page.evaluate("([a, b, d]) => PdfTools.openMerge([a, b], d)", [A, B, D])
+    page.evaluate("([a, b, d]) => void PdfTools.openMerge([a, b], d)", [A, B, D])
     page.wait_for_function("() => !document.querySelector('#pt-m-go').disabled")
     page.fill("#pt-m-name", "merged_qa")
     page.click("#pt-m-go")
@@ -123,7 +123,7 @@ def t_merge(page):
 
 @step("split every 3")
 def t_split(page):
-    page.evaluate("a => PdfTools.openSplit(a)", A)
+    page.evaluate("a => void PdfTools.openSplit(a)", A)
     page.wait_for_selector("#pt-s-every")
     page.click('.pt-mode[data-mode="every"]')
     page.fill("#pt-s-every", "3")
@@ -136,7 +136,7 @@ def t_split(page):
 
 @step("split bad range shows error")
 def t_split_bad(page):
-    page.evaluate("a => PdfTools.openSplit(a)", A)
+    page.evaluate("a => void PdfTools.openSplit(a)", A)
     page.wait_for_selector("#pt-s-ranges")
     page.click('.pt-mode[data-mode="ranges"]')
     page.fill("#pt-s-ranges", "1-2, 9")
@@ -146,7 +146,7 @@ def t_split_bad(page):
 
 @step("extract 3,1")
 def t_extract(page):
-    page.evaluate("a => PdfTools.openExtract(a)", A)
+    page.evaluate("a => void PdfTools.openExtract(a)", A)
     page.wait_for_selector("#pt-e-spec")
     page.fill("#pt-e-spec", "3,1")
     page.wait_for_function("() => !document.querySelector('#pt-e-go').disabled")
@@ -158,7 +158,7 @@ def t_extract(page):
 
 @step("arrange rotate+delete+save new")
 def t_arrange(page):
-    page.evaluate("a => PdfTools.openArrange([a])", A)
+    page.evaluate("a => void PdfTools.openArrange([a])", A)
     page.wait_for_selector(".pt-tile")
     tiles = page.locator(".pt-tile")
     assert tiles.count() == 4
@@ -182,7 +182,7 @@ def t_arrange(page):
 @step("arrange overwrite original keeps backup")
 def t_arrange_over(page):
     src = mkpdf("over.pdf", 3)
-    page.evaluate("a => PdfTools.openArrange([a])", src)
+    page.evaluate("a => void PdfTools.openArrange([a])", src)
     page.wait_for_selector(".pt-tile")
     page.locator(".pt-tile").nth(2).click()
     page.keyboard.press("Delete")
@@ -200,7 +200,7 @@ def t_arrange_over(page):
 
 @step("images to pdf (combine, A4)")
 def t_i2p(page):
-    page.evaluate("([a, b]) => ConvertTools.openImagesToPdf([a, b])", [IMG1, IMG2])
+    page.evaluate("([a, b]) => void ConvertTools.openImagesToPdf([a, b])", [IMG1, IMG2])
     page.wait_for_selector("#i2p-size")
     page.select_option("#i2p-size", "a4")
     btn(page, "Convert").click()
@@ -212,7 +212,7 @@ def t_i2p(page):
 
 @step("pdf to images (jpg, range)")
 def t_p2i(page):
-    page.evaluate("a => ConvertTools.openPdfToImages(a)", A)
+    page.evaluate("a => void ConvertTools.openPdfToImages(a)", A)
     page.wait_for_selector('[data-seg-for="p2i-which"]')
     page.click('[data-seg-for="p2i-fmt"] [data-v="jpg"]')
     page.click('[data-seg-for="p2i-which"] [data-v="range"]')
@@ -227,7 +227,7 @@ def t_p2i(page):
 @step("compress: live preview + custom level + 300 KB target")
 def t_compress(page):
     before = os.path.getsize(BIG)
-    page.evaluate("a => ConvertTools.openCompress([a])", BIG)
+    page.evaluate("a => void ConvertTools.openCompress([a])", BIG)
     # live estimates fill in for every preset
     page.wait_for_function("() => ['screen','ebook','printer','lossless'].every(k => /≈/.test(document.querySelector('#pc-est-' + k).textContent))", timeout=60000)
     page.check('input[name="pc-preset"][value="level"]', force=True)
@@ -252,7 +252,7 @@ def t_compress(page):
 
 @step("crop (Enter saves full-res crop)")
 def t_crop(page):
-    page.evaluate("a => Cropper.open(a)", IMG1)
+    page.evaluate("a => void Cropper.open(a)", IMG1)
     page.wait_for_selector(".crop-presets [data-preset='1:1']")
     page.click(".crop-presets [data-preset='1:1']")
     page.locator(".crop-stage canvas").focus()
@@ -264,7 +264,7 @@ def t_crop(page):
 
 @step("zip with AES password + extract with prompt")
 def t_zip(page):
-    page.evaluate("p => Archive.openZip([p])", A)
+    page.evaluate("p => { Archive.openZip([p]); }", A)
     page.wait_for_selector("#ax-zip-name")
     page.fill("#ax-zip-name", "alpha_pw")
     page.evaluate("() => { const c = document.querySelector('#ax-pw-on'); c.checked = true; c.dispatchEvent(new Event('change')); }")
@@ -290,7 +290,7 @@ def t_zip(page):
 
 @step("pdf protect + remove password")
 def t_pdfpw(page):
-    page.evaluate("p => Archive.pdfProtect(p)", B)
+    page.evaluate("p => { Archive.pdfProtect(p); }", B)
     page.wait_for_selector("#ax-pp-user")
     page.fill("#ax-pp-user", "open123")
     page.fill("#ax-pp-user2", "open123")
@@ -299,7 +299,7 @@ def t_pdfpw(page):
     out = wait_file(os.path.join(D, "beta_protected.pdf"))
     doc = pymupdf.open(out)
     assert doc.needs_pass and doc.authenticate("open123")
-    page.evaluate("p => Archive.pdfRemovePassword(p)", out)
+    page.evaluate("p => { Archive.pdfRemovePassword(p); }", out)
     page.wait_for_selector(".ax-ask input[type=password]")
     page.fill(".ax-ask input[type=password]", "open123")
     btn(page, "Remove password").click()
