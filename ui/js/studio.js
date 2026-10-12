@@ -145,6 +145,7 @@ var Studio = (() => {
     // ── tool switching ─────────────────────────────────────────────────────
     // Write the active tool's changes into a new step. false = stay put.
     async function settle() {
+      if (ctl && ctl.flush) ctl.flush();        // finish typing in an open text box
       if (!ctl || !ctl.dirty()) return true;
       const n = await SFM.studioNextStep(sess.session).catch(e => ({ ok: false, error: String(e) }));
       if (!n || !n.ok) { App.toast(esc((n && n.error) || 'Could not prepare the next version'), 'error', 7000); return false; }
@@ -361,6 +362,7 @@ var Studio = (() => {
     async function tryClose() {
       if (busy) return;
       if (!$('#st-sheet').classList.contains('hidden')) { closeSheet(); return; }
+      if (ctl && ctl.flush) ctl.flush();
       if (sess && unsaved() && !(await Dialogs.confirm({ title: 'Unsaved changes', icon: 'alert-triangle', tone: 'warning', okLabel: 'Close without saving',
             message: 'Close PDF Studio without saving?', detail: 'Your changes are not in any file yet. Your original PDF is unchanged.' }))) return;
       forceClose();

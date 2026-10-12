@@ -913,7 +913,7 @@ var PdfEdit = (() => {
     }
     const controller = {
       kind: 'edit',
-      dirty: () => { commitEdit(); return dirty(); },
+      dirty, flush: commitEdit,          // dirty() has no side effects (it runs on every refresh)
       canUndo: () => undoStack.length > 0, canRedo: () => redoStack.length > 0,
       undo, redo, commit, close: forceClose, focus: () => view.focus({ preventScroll: true }),
       page: () => curPage, goPage: p => goPage(p),
