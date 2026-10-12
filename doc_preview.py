@@ -807,7 +807,10 @@ def docx_to_html(path: str, max_blocks: int = MAX_DOCX_BLOCKS) -> dict:
     try:
         document = docx.Document(path)
     except Exception as exc:
-        raise PreviewError(f"Could not read the Word document: {exc}", "bad_file") from exc
+        msg = str(exc)
+        if "Package not found" in msg or isinstance(exc, (zipfile.BadZipFile, KeyError)):
+            msg = "the file is damaged or is not a real Word document"
+        raise PreviewError(f"Could not read the Word document: {msg}", "bad_file") from exc
     rnd = _DocxRenderer(document)
     out: list[str] = []
     body = document.element.body
@@ -1355,6 +1358,9 @@ def preview_cache_dir() -> str:
     if not base:
         root = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
         base = os.path.join(root, "OfficeAxe", "preview_cache")
+    # PowerPoint's SaveAs refuses a path with forward slashes ("can't save ^0
+    # to ^1"), so always hand Office a normalised absolute Windows path.
+    base = os.path.abspath(os.path.normpath(base))
     os.makedirs(base, exist_ok=True)
     return base
 
@@ -1479,7 +1485,7 @@ def office_to_pdf(path: str, timeout: float = OFFICE_TIMEOUT, *, app: str | None
         def work():
             try:
                 with _convert_lock:
-                    conv(app, os.path.abspath(path), dst)
+                    conv(app, os.path.abspath(path), os.path.abspath(dst))
                 result["ok"] = True
             except Exception as exc:     # noqa: BLE001
                 result["error"] = exc
