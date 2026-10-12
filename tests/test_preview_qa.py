@@ -126,3 +126,26 @@ def test_previewed_pdf_is_not_locked_and_reloads_after_external_save(tmp_path):
     assert SFMBridge.get_pdf_page_as_png(b, p, 1, 72)["ok"]
     os.rename(p, p + ".x")
     os.rename(p + ".x", p)
+
+
+def test_docx_only_web_links_are_clickable(tmp_path):
+    docx = pytest.importorskip("docx")
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    d = docx.Document()
+    rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+    for url, text in (("https://example.com/word", "web link"), ("mailto:a@example.com", "mail link")):
+        par = d.add_paragraph()
+        h = OxmlElement("w:hyperlink")
+        h.set(qn("r:id"), par.part.relate_to(url, rel, is_external=True))
+        r = OxmlElement("w:r")
+        t = OxmlElement("w:t")
+        t.text = text
+        r.append(t)
+        h.append(r)
+        par._p.append(h)
+    p = tmp_path / "links.docx"
+    d.save(str(p))
+    html = dp.docx_to_html(str(p))["html"]
+    assert 'data-href="https://example.com/word"' in html
+    assert "mailto:" not in html and "mail link" in html

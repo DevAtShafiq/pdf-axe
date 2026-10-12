@@ -823,7 +823,7 @@ var PdfEdit = (() => {
       App.toast(over ? `Saved <b>${esc(name)}</b> · backup in _to_review/` : `Saved edited copy → <b>${esc(name)}</b>`, 'success', 5000);
       try { if (FileTree.refreshAndSelect) FileTree.refreshAndSelect(r.out_path); else FileTree.refresh(); } catch (_) {}
       try {
-        if (over && Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === src.toLowerCase()) Preview.previewFile(src, '.pdf');
+        if (over && Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === src.toLowerCase()) Preview.previewFile(src, '.pdf', { reload: true });
       } catch (_) {}
       // re-render from the saved file
       const subs = r.substituted || [], warns = r.warnings || [];

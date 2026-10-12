@@ -77,8 +77,10 @@ const Preview = (() => {
   }
 
   // ── Main entry ────────────────────────────────────────────────────────────
-  async function previewFile(path, ext) {
-    if (_path === path) return;   // already showing
+  // opts.reload: show the file again even if it is the current one (it was
+  // just saved over — otherwise the old pages stayed on screen).
+  async function previewFile(path, ext, opts = {}) {
+    if (_path === path && !(opts && opts.reload)) return;   // already showing
     const tok = ++_token;
     _path = path;
     _ext  = (ext || '').toLowerCase();
@@ -284,7 +286,12 @@ const Preview = (() => {
     });
     docEl().addEventListener('click', e => {
       const a = e.target.closest && e.target.closest('[data-href]');
-      if (a) { e.preventDefault(); SFM.qrOpenUrl(a.dataset.href); }
+      if (a) {
+        e.preventDefault();
+        SFM.qrOpenUrl(a.dataset.href).then(r => {
+          if (!r || !r.ok) App.toast('Cannot open link: ' + ((r && r.error) || 'unknown error'), 'error');
+        }).catch(err => App.toast('Cannot open link: ' + err, 'error'));
+      }
     });
 
     const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
@@ -541,18 +548,23 @@ const Preview = (() => {
 
     wire('pdf-rotate-cw',  async () => {
       if (!editable()) return;
-      await SFM.rotatePage(_pdfSrc, _pdfCurPage, 90);
+      const r = await SFM.rotatePage(_pdfSrc, _pdfCurPage, 90);
+      if (!r || !r.ok) { App.toast('Rotate failed: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
       _loadVisiblePages();
     });
     wire('pdf-rotate-ccw', async () => {
       if (!editable()) return;
-      await SFM.rotatePage(_pdfSrc, _pdfCurPage, -90);
+      const r = await SFM.rotatePage(_pdfSrc, _pdfCurPage, -90);
+      if (!r || !r.ok) { App.toast('Rotate failed: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
       _loadVisiblePages();
     });
     wire('pdf-del-page', async () => {
       if (!editable()) return;
+      if (_pdfCount <= 1) { App.toast('A PDF needs at least one page', 'info'); return; }
       if (!(await Dialogs.confirm({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${_pdfCurPage + 1} of ${_pdfCount} from this PDF?`, detail: 'This changes the PDF file itself.' }))) return;
-      await SFM.deletePage(_pdfSrc, _pdfCurPage);
+      const r = await SFM.deletePage(_pdfSrc, _pdfCurPage);
+      // A failed delete (file in use, locked PDF) used to drop a page from view anyway.
+      if (!r || !r.ok) { App.toast('Delete page failed: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
       _pdfCount--;
       _pdfCurPage = Math.min(_pdfCurPage, _pdfCount - 1);
       _loadVisiblePages();

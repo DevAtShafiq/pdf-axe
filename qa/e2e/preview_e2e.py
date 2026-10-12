@@ -328,8 +328,16 @@ def step_stale(pg, F):
     tmp = p + ".new"
     d.save(tmp)
     d.close()
-    os.replace(tmp, p)
+    os.replace(tmp, p)                       # failed with the old file lock
     check("stale: previewed PDF can be replaced on disk", True)
+    # What annotate / pdf-edit / pdf-tools do after saving over the file.
+    pg.evaluate("p => Preview.previewFile(p, '.pdf', { reload: true })", p)
+    ok = wait(pg, "Preview.getPdfCount() === 2 && document.querySelector('#pdf-canvas-wrap .pdf-page')?.dataset.textLayer === 'ready'", None, 8)
+    check("stale: reload shows the new pages", ok, pg.evaluate("Preview.getPdfCount()"))
+    txt = pg.evaluate("document.querySelector('#pdf-canvas-wrap .pdf-page .pdf-text-layer')?.textContent || ''")
+    check("stale: reload shows the new text", "second" in txt, txt)
+    pg.evaluate("p => Preview.previewFile(p, '.pdf')", p)   # plain re-select: no flicker
+    check("stale: plain re-select keeps the view", pg.evaluate("document.querySelectorAll('#pdf-canvas-wrap .pdf-page').length") >= 1)
 
 
 STEPS = {"pdf": step_pdf, "errors": step_errors, "images": step_images, "text": step_text,

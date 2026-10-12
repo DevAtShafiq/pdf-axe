@@ -550,7 +550,9 @@ class _DocxRenderer:
                     except Exception:
                         link = None
                 inner = self.render_runs(el)
-                if link and re.match(r"^(https?:|mailto:)", link, re.I):
+                # Only web links are clickable: the opener refuses anything but
+                # http(s), so a mailto: link looked clickable and did nothing.
+                if link and re.match(r"^https?:", link, re.I):
                     parts.append(f'<a data-href="{_e(link)}" class="doc-link" title="{_e(link)}">{inner}</a>')
                 else:
                     parts.append(inner)
