@@ -47,6 +47,7 @@ def main(out: str) -> None:
     im.save(os.path.join(out, "img.png"))
     im.save(os.path.join(out, "img.jpg"))
     im.save(os.path.join(out, "img.tiff"))
+    im.save(os.path.join(out, "img.tif"), format="TIFF")
     im.save(os.path.join(out, "img.webp"))
     im.convert("P").save(os.path.join(out, "img.gif"))
     with open(os.path.join(out, "broken.png"), "wb") as f:

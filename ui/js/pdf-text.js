@@ -351,11 +351,24 @@ const PdfText = (() => {
       if (e.button !== 0) return;
       const t = e.target;
       if (!(t instanceof Element)) return;
-      if (t.closest('.pdf-text-layer span')) return;           // starting a text selection
+      if (t.closest('.pdf-text-layer span')) {                 // starting a text selection
+        // Pressing on already-selected words would start a text drag and keep
+        // the old selection (e.g. the whole page after Ctrl+A), so a drag
+        // over one word still copied the page. Start a fresh selection.
+        if (!e.shiftKey) {
+          const sel = window.getSelection();
+          if (sel && !sel.isCollapsed) sel.removeAllRanges();
+        }
+        return;
+      }
       if (!t.closest('.pdf-page')) return;
       const canPan = scroller.scrollHeight > scroller.clientHeight + 1 || scroller.scrollWidth > scroller.clientWidth + 1;
       if (!canPan) return;
       e.preventDefault();                                       // no selection / image drag
+      // preventDefault also stops the click from moving focus here, so
+      // Ctrl+A / Ctrl+C kept going to the file list (selected every file).
+      const focusable = scroller.closest('[tabindex]');
+      if (focusable && document.activeElement !== focusable) focusable.focus({ preventScroll: true });
       window.getSelection()?.removeAllRanges();
       drag = { x: e.clientX, y: e.clientY, l: scroller.scrollLeft, t: scroller.scrollTop };
       scroller.classList.add('is-panning');

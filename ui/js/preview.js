@@ -32,7 +32,7 @@ const Preview = (() => {
   const ZOOM_MIN   = 0.2;
   const ZOOM_MAX   = 4.0;
 
-  const IMG_EXT   = ['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tiff'];
+  const IMG_EXT   = ['.jpg','.jpeg','.png','.bmp','.webp','.gif','.tiff','.tif'];
   const TEXT_EXT  = ['.txt','.md','.log','.py','.js','.json','.xml','.html','.ini','.bat'];
   const DOCX_EXT  = ['.docx','.dotx'];
   const SHEET_EXT = ['.xlsx','.xlsm','.xltx','.xltm','.csv','.tsv'];
@@ -514,7 +514,7 @@ const Preview = (() => {
     _zoomTimer = setTimeout(() => {
       if (_view === 'pdf') _loadVisiblePages();
       else if (_view === 'doc') _applyZoomDoc();
-      else if (['.jpg','.jpeg','.png','.bmp','.webp','.gif'].includes(_ext)) {
+      else if (_view === 'img') {   // every image type (.tiff did not zoom)
         const img = imgEl();
         img.style.transform = `scale(${_zoom})`;
       }
