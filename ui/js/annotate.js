@@ -1433,7 +1433,7 @@ var Annotate = (() => {
       App.toast(over ? `Saved <b>${name}</b> · backup in _to_review/` : `Saved annotations → <b>${name}</b>`, 'success', 5000);
       if (FileTree.refreshAndSelect) FileTree.refreshAndSelect(r.out_path); else FileTree.refresh();
       try {
-        if (over && Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === path.toLowerCase()) Preview.previewFile(path, extOf(path));
+        if (over && Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === path.toLowerCase()) Preview.previewFile(path, extOf(path), { reload: true });
       } catch (_) {}
     }
     function forceClose() {

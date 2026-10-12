@@ -827,7 +827,7 @@ const PdfTools = (() => {
         if (!r.ok) { finish(r); return; }
         forceClose();
         finish(r, `Saved <b>${esc(baseOf(primary))}</b> · backup in _to_review/`, primary);
-        try { if (Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === primary.toLowerCase()) Preview.previewFile(primary, '.pdf'); } catch (_) {}
+        try { if (Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === primary.toLowerCase()) Preview.previewFile(primary, '.pdf', { reload: true }); } catch (_) {}
         return;
       }
       const out = outPath();

@@ -550,7 +550,9 @@ class _DocxRenderer:
                     except Exception:
                         link = None
                 inner = self.render_runs(el)
-                if link and re.match(r"^(https?:|mailto:)", link, re.I):
+                # Only web links are clickable: the opener refuses anything but
+                # http(s), so a mailto: link looked clickable and did nothing.
+                if link and re.match(r"^https?:", link, re.I):
                     parts.append(f'<a data-href="{_e(link)}" class="doc-link" title="{_e(link)}">{inner}</a>')
                 else:
                     parts.append(inner)
@@ -807,7 +809,10 @@ def docx_to_html(path: str, max_blocks: int = MAX_DOCX_BLOCKS) -> dict:
     try:
         document = docx.Document(path)
     except Exception as exc:
-        raise PreviewError(f"Could not read the Word document: {exc}", "bad_file") from exc
+        msg = str(exc)
+        if "Package not found" in msg or isinstance(exc, (zipfile.BadZipFile, KeyError)):
+            msg = "the file is damaged or is not a real Word document"
+        raise PreviewError(f"Could not read the Word document: {msg}", "bad_file") from exc
     rnd = _DocxRenderer(document)
     out: list[str] = []
     body = document.element.body
@@ -857,7 +862,14 @@ def _load_wb(path: str):
     import openpyxl
     big = os.path.getsize(path) > 15 * 1024 * 1024
     try:
-        wb = openpyxl.load_workbook(path, data_only=True, read_only=big, keep_links=False)
+        # A read-only workbook keeps its source open until closed; the cached
+        # one would lock the file (rename / move / delete fail with
+        # WinError 32). Read it from memory instead.
+        src = path
+        if big:
+            with open(path, "rb") as f:
+                src = io.BytesIO(f.read())
+        wb = openpyxl.load_workbook(src, data_only=True, read_only=big, keep_links=False)
     except Exception as exc:
         raise PreviewError(f"Could not read the workbook: {exc}", "bad_file") from exc
     with _WB_LOCK:
@@ -1097,8 +1109,13 @@ def _sheet_extent(ws, max_rows: int, max_cols: int) -> tuple[int, int, int, int]
     """(rows_used, cols_used, rows_shown, cols_shown) — trailing blanks trimmed."""
     mr = ws.max_row or 0
     mc = ws.max_column or 0
+    # A read-only sheet without a <dimension> reports 0 × 0; iter_rows(max_row=0)
+    # would then read the WHOLE sheet. Scan up to the caps instead.
+    unknown = not mr or not mc
+    scan_r = max_rows if unknown else min(mr, max_rows)
+    scan_c = max_cols if unknown else min(mc, max_cols)
     last_r = last_c = 0
-    for row in ws.iter_rows(min_row=1, max_row=min(mr, max_rows), max_col=min(mc, max_cols)):
+    for row in ws.iter_rows(min_row=1, max_row=scan_r, max_col=scan_c):
         for c in row:
             if c.value is not None and c.value != "":
                 rr = getattr(c, "row", None)
@@ -1114,6 +1131,8 @@ def _sheet_extent(ws, max_rows: int, max_cols: int) -> tuple[int, int, int, int]
                 last_c = max(last_c, min(rng.max_col, max_cols))
     except Exception:
         pass
+    if unknown:
+        mr, mc = last_r, last_c
     return mr, mc, last_r, last_c
 
 
@@ -1179,14 +1198,12 @@ def _grid_html_ws(ws, nr: int, nc: int) -> str:
         out.append(f'<th class="xl-ch">{col_letter(c)}</th>')
     out.append("</tr></thead><tbody>")
     if nr and nc:
-        for row in ws.iter_rows(min_row=1, max_row=nr, max_col=nc):
+        for rnum, row in enumerate(ws.iter_rows(min_row=1, max_row=nr, max_col=nc), start=1):
+            # Row number from the position: a read-only sheet yields EmptyCell
+            # objects without .row for blank rows (they were numbered wrong).
             cells = list(row)
-            rnum = None
-            for c in cells:
-                rnum = getattr(c, "row", None)
-                if rnum:
-                    break
-            rnum = rnum or (len(out))
+            if len(cells) < nc:
+                cells += [None] * (nc - len(cells))
             out.append(f'<tr><th class="xl-rh">{rnum}</th>')
             for ci, cell in enumerate(cells, start=1):
                 if (rnum, ci) in merged_skip:
@@ -1355,6 +1372,9 @@ def preview_cache_dir() -> str:
     if not base:
         root = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
         base = os.path.join(root, "OfficeAxe", "preview_cache")
+    # PowerPoint's SaveAs refuses a path with forward slashes ("can't save ^0
+    # to ^1"), so always hand Office a normalised absolute Windows path.
+    base = os.path.abspath(os.path.normpath(base))
     os.makedirs(base, exist_ok=True)
     return base
 
@@ -1479,7 +1499,7 @@ def office_to_pdf(path: str, timeout: float = OFFICE_TIMEOUT, *, app: str | None
         def work():
             try:
                 with _convert_lock:
-                    conv(app, os.path.abspath(path), dst)
+                    conv(app, os.path.abspath(path), os.path.abspath(dst))
                 result["ok"] = True
             except Exception as exc:     # noqa: BLE001
                 result["error"] = exc

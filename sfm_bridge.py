@@ -971,7 +971,12 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
     def get_image_preview(self, path: str, max_dim: int = 1200) -> dict:
         """Load an image file and return as base64 for preview."""
         try:
+            if not os.path.isfile(path):
+                return _err(f"File not found: {os.path.basename(path)}")
             pil = _fo.pil_image_load_full_rgb(path)
+            if pil is None:
+                return _err("Could not read this image — the file may be damaged "
+                            "or not a supported image format")
             if max(pil.width, pil.height) > max_dim:
                 ratio = max_dim / max(pil.width, pil.height)
                 pil = pil.resize((int(pil.width * ratio), int(pil.height * ratio)))
