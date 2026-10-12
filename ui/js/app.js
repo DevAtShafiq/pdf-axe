@@ -295,11 +295,15 @@ const App = (() => {
       if (ctrl && key === 'z' && !shift) { e.preventDefault(); undo(); return; }
       if (ctrl && (key === 'y' || (key === 'z' && shift))) { e.preventDefault(); redo(); return; }
       if (ctrl && key === 'c' && !shift) {
-        // Copy what the user last worked with: after a click in the file list,
-        // copy the selected FILES (a text selection left over in the preview
-        // must not win); after selecting text elsewhere (PDF text layer,
-        // Word/Excel preview …) let the browser copy that text.
+        // Selected words in a PDF, Word file, or text preview go to the
+        // Windows clipboard. A PDF selection often has no toString() because
+        // the words sit in positioned spans, so ask the text layer too.
+        // A click in the file list still copies the selected files.
         const sel = window.getSelection();
+        const anchor = sel && sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+        const inPreview = !!(anchor && anchor.closest && anchor.closest('#preview-body, #fullview-wrap'));
+        const previewText = inPreview && window.PdfText && PdfText.selectedText ? PdfText.selectedText() : '';
+        if (previewText.trim()) return;
         const onList = _lastZone === 'list' ||
           (t && (t.id === 'filelist-list' || t.id === 'filelist-thumb'));
         if (!onList && sel && !sel.isCollapsed && sel.toString().trim()) return;
@@ -394,26 +398,25 @@ const App = (() => {
     wire('btn-view-thumb',  () => FileTree.setViewMode('thumb'));
     wire('btn-combine-pdf', () => FileTree.combineSelected());
     wire('btn-smart-split', () => {
-      const p = state.focusedPath || state.selectedPaths[0];
-      if (!p) { toast('Select a PDF first', 'warning'); return; }
-      Dialogs.openSmartSplitProgress(p);
+      const pdfs = _fileSel().filter(_isPdfPath);
+      if (!pdfs.length) { toast('Select a PDF first', 'warning'); return; }
+      Dialogs.openSmartSplitProgress(pdfs[0]);
     });
     wire('btn-compress-pdf', () => {
-      const p = state.focusedPath || state.selectedPaths[0];
-      if (!p) { toast('Select a PDF or image first', 'warning'); return; }
-      // One dialog for PDFs, images or a mix (target size or quality).
-      const all = (state.selectedPaths || []).length ? state.selectedPaths : [p];
+      const all = _fileSel().filter(p => _isPdfPath(p) || _isImagePath(p));
+      if (!all.length) { toast('Select a PDF or image first', 'warning'); return; }
       ConvertTools.openCompress(all);
     });
     wire('btn-convert', () => {
-      const p = state.focusedPath || state.selectedPaths[0];
-      const all  = (state.selectedPaths || []).length ? state.selectedPaths : (p ? [p] : []);
-      const imgs = all.filter(ConvertTools.isImage);
-      const pdfs = all.filter(ConvertTools.isPdf);
-      if (imgs.length && (ConvertTools.isImage(p) || !pdfs.length)) { ConvertTools.openImagesToPdf(imgs); return; }
-      if (pdfs.length) { ConvertTools.openPdfToImages(ConvertTools.isPdf(p) ? p : pdfs[0]); return; }
+      const all  = _fileSel();
+      const imgs = all.filter(p => typeof ConvertTools !== 'undefined' ? ConvertTools.isImage(p) : _isImagePath(p));
+      const pdfs = all.filter(p => typeof ConvertTools !== 'undefined' ? ConvertTools.isPdf(p) : _isPdfPath(p));
+      const focus = state.focusedPath;
+      if (imgs.length && ((focus && imgs.includes(focus)) || !pdfs.length)) { ConvertTools.openImagesToPdf(imgs); return; }
+      if (pdfs.length) { ConvertTools.openPdfToImages(pdfs.includes(focus) ? focus : pdfs[0]); return; }
       toast('Select image(s) to make a PDF, or a PDF to save its pages as images', 'warning', 4500);
     });
+    syncFileTools();
     // QR: native pick overlay — click a code anywhere on screen (qr.js / qr_pick.py)
     wire('btn-qr',    () => QrScan.pick());
     wire('btn-more',  () => Dialogs.openMoreMenu());
@@ -467,6 +470,32 @@ const App = (() => {
     });
   }
 
+  // Highlighted rows only. A keyboard-focus ring is not a selection, so
+  // Convert / Compress / Zip / Merge / Split must not run on it.
+  function _fileSel() { return (state.selectedPaths || []).slice(); }
+  const _pathExt = p => (String(p || '').match(/\.[^.\\/]+$/) || [''])[0].toLowerCase();
+  const _isPdfPath = p => _pathExt(p) === '.pdf';
+  const _isImagePath = p => ['.jpg', '.jpeg', '.jfif', '.png', '.bmp', '.webp', '.gif', '.tif', '.tiff', '.heic', '.heif'].includes(_pathExt(p));
+
+  function _gateTool(id, on, need) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!el.dataset.titleOn) el.dataset.titleOn = el.title || '';
+    el.disabled = !on;
+    el.title = on ? el.dataset.titleOn : need;
+  }
+
+  function syncFileTools() {
+    const sel = _fileSel();
+    const media = sel.some(p => _isPdfPath(p) || _isImagePath(p));
+    const pdf = sel.some(_isPdfPath);
+    _gateTool('btn-convert', media, 'Select image(s) or a PDF first');
+    _gateTool('btn-compress-pdf', media, 'Select a PDF or image first');
+    _gateTool('btn-zip', sel.length > 0, 'Select files or folders to zip');
+    _gateTool('btn-combine-pdf', media, 'Select PDF or image files first');
+    _gateTool('btn-smart-split', pdf, 'Select a PDF first');
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
   // These initialisers were previously defined but never invoked, which left
   // keyboard shortcuts, toolbar buttons, Python→JS event handlers,
@@ -489,6 +518,6 @@ const App = (() => {
     state,
     navigate, toast, setStatus, setStatusFolder,
     setStatusSelection, pushUndo, undo, redo,
-    switchPanel, navBack, navForward, navUp, applyTheme,
+    switchPanel, navBack, navForward, navUp, applyTheme, syncFileTools,
   };
 })();

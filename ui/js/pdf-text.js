@@ -73,6 +73,7 @@ const PdfText = (() => {
     layer.className = 'pdf-text-layer';
     layer.setAttribute('aria-label', `Text of page ${page + 1}`);
     _build(layer, r);
+    _bindLinks(layer, r.links || []);
     box.appendChild(layer);
     if (!r.has_text && r.scanned) {
       const hint = document.createElement('div');
@@ -100,11 +101,74 @@ const PdfText = (() => {
         const m = _measure(t, h);
         const sx = m > 0 ? len / m : 1;
         s.style.transform = rot + `scaleX(${sx.toFixed(4)})`;
+        const uri = _linkAtBox(data.links || [], x + len / 2, y + h / 2);
+        if (uri) { s.classList.add('is-link'); s.title = 'Ctrl+click to open ' + uri; }
         frag.appendChild(s);
       });
       frag.appendChild(document.createElement('br'));
     }
+    _linkLines(frag, data);
     layer.appendChild(frag);
+  }
+
+  // One line under the whole link. A border on each word left a gap
+  // between "Click" and "here", which is not how the page looks in Acrobat.
+  function _linkLines(frag, data) {
+    const W = data.width || 1, H = data.height || 1;
+    for (const L of data.links || []) {
+      if (!L.uri || !(L.w > 0)) continue;
+      const line = document.createElement('div');
+      line.className = 'pdf-link-line';
+      line.style.left = (L.x / W * 100).toFixed(4) + '%';
+      line.style.width = (L.w / W * 100).toFixed(4) + '%';
+      line.style.top = ((L.y + L.h) / H * 100).toFixed(4) + '%';
+      frag.appendChild(line);
+    }
+  }
+
+  // Web links (URI annotations and addresses written as text). Ctrl+click
+  // opens http(s) in the default browser; a plain click still selects text.
+  function _linkAtBox(links, x, y) {
+    for (const L of links) {
+      if (x >= L.x && x <= L.x + L.w && y >= L.y && y <= L.y + L.h) return L.uri || '';
+    }
+    return '';
+  }
+
+  function _linkAtEvent(layer, e) {
+    const box = layer.getBoundingClientRect();
+    const W = +layer.parentElement?.dataset.ptWidth || 0;
+    const H = +layer.parentElement?.dataset.ptHeight || 0;
+    if (!box.width || !box.height || !W || !H) return '';
+    const x = (e.clientX - box.left) / box.width * W;
+    const y = (e.clientY - box.top) / box.height * H;
+    return _linkAtBox(layer._links || [], x, y);
+  }
+
+  function _bindLinks(layer, links) {
+    layer._links = links;
+    if (!links.length) return;
+    layer.addEventListener('mousedown', e => {
+      if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
+      if (!_linkAtEvent(layer, e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    layer.addEventListener('click', e => {
+      if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
+      const uri = _linkAtEvent(layer, e);
+      if (!uri) return;
+      e.preventDefault();
+      e.stopPropagation();
+      SFM.qrOpenUrl(uri).then(r => {
+        if (!r || !r.ok) App.toast('Cannot open link: ' + ((r && r.error) || 'unknown error'), 'error');
+        else App.toast('Opened link', 'success', 1800);
+      }).catch(err => App.toast('Cannot open link: ' + err, 'error'));
+    });
+    layer.addEventListener('mousemove', e => {
+      layer.classList.toggle('pdf-link-hot', !!(e.ctrlKey || e.metaKey) && !!_linkAtEvent(layer, e));
+    });
+    layer.addEventListener('mouseleave', () => layer.classList.remove('pdf-link-hot'));
   }
 
   // ── Selection helpers ─────────────────────────────────────────────────────
@@ -160,21 +224,21 @@ const PdfText = (() => {
     return _selInLayers(sel) ? _rangeText(sel.getRangeAt(0)) : sel.toString();
   }
 
-  // Ctrl+C / Copy on a PDF text selection → clean text; any preview copy → toast.
+  // Ctrl+C in the preview. clipboardData alone never reaches the Windows
+  // clipboard inside WebView2, so the words also go through the bridge.
   document.addEventListener('copy', e => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
     const anchor = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
     const inPreview = anchor && anchor.closest && anchor.closest('#preview-body, #fullview-wrap');
-    if (_selInLayers(sel)) {
-      const text = _rangeText(sel.getRangeAt(0));
-      e.clipboardData.setData('text/plain', text);
-      e.preventDefault();
-      if (text) App.toast(`Copied ${_plural(text.length, 'character')}`, 'success', 1800);
-    } else if (inPreview) {
-      const n = sel.toString().length;
-      if (n) App.toast(`Copied ${_plural(n, 'character')}`, 'success', 1800);
-    }
+    const text = _selInLayers(sel) ? _rangeText(sel.getRangeAt(0)) : (inPreview ? sel.toString() : '');
+    if (!text) return;
+    e.preventDefault();
+    try { e.clipboardData.setData('text/plain', text); } catch (_) {}
+    SFM.copyText(text).then(ok => {
+      App.toast(ok ? `Copied ${_plural(text.length, 'character')}` : 'Could not copy to the clipboard',
+                ok ? 'success' : 'error', 1800);
+    });
   });
 
   function selectPage(box) {

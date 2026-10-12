@@ -104,7 +104,8 @@ const SFM = (() => {
     openNative:          (path)                    => call('open_native', path),
     openFolder:          (path)                    => call('open_folder_in_explorer', path),
     getOpenWithCommands: (path)                    => call('get_open_with_commands', path),
-    runOpenWith:         (argv, path)               => call('_run_open_with', argv, path),
+    runOpenWith:         (argv, path)               => call('run_open_with', argv, path),
+    openWithPicker:      (path)                     => call('open_with_picker', path),
     showContextMenu:     (path, x, y)              => call('show_native_context_menu', path, x, y),
     // File ops
     renameFile:          (old, name)               => call('rename_file', old, name),

@@ -51,11 +51,7 @@ const Archive = (() => {
       localStorage.setItem('archive.' + key, String(val));
     } catch (_) { return null; }
   }
-  const selection = () => {
-    const sel = (App.state.selectedPaths || []).slice();
-    if (sel.length) return sel;
-    return App.state.focusedPath ? [App.state.focusedPath] : [];
-  };
+  const selection = () => (App.state.selectedPaths || []).slice();
   const isDirPath = p => {
     try {
       const e = (FileTree.getFocusedEntry && FileTree.getFocusedEntry());

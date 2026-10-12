@@ -75,6 +75,29 @@ def test_text_layer_words_match_search_boxes(text_pdf):
     assert len(layer["lines"]) == 2 and all(l["a"] == 0 for l in layer["lines"])
 
 
+def test_pdf_links_are_http_only(tmp_path):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Click here", fontsize=14)
+    hot = page.search_for("Click here")[0]
+    page.insert_link({"kind": pymupdf.LINK_URI, "from": hot, "uri": "https://example.com/here"})
+    page.insert_text((72, 140), "See https://example.com/docs today", fontsize=12)
+    page.insert_text((72, 180), "www.example.org/help", fontsize=12)
+    bad = pymupdf.Rect(72, 200, 220, 220)
+    page.insert_link({"kind": pymupdf.LINK_URI, "from": bad, "uri": "javascript:alert(1)"})
+    path = tmp_path / "links.pdf"
+    doc.save(str(path))
+    layer = dp.pdf_text_layer(str(path), 0)
+    uris = [item["uri"] for item in layer["links"]]
+    assert "https://example.com/here" in uris
+    assert "https://example.com/docs" in uris
+    assert "https://www.example.org/help" in uris
+    assert all(u.startswith("https://") for u in uris)
+    assert not any("javascript" in u for u in uris)
+    here = next(item for item in layer["links"] if item["uri"].endswith("/here"))
+    assert here["w"] > 10 and here["h"] > 4
+
+
 def test_text_layer_rotated_page(text_pdf):
     layer = dp.pdf_text_layer(text_pdf, 1)
     assert layer["rotation"] == 90

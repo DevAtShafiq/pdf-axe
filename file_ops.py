@@ -6858,18 +6858,21 @@ def _win_expand_cmd(cmd: str) -> str:
 
 
 def _win_substitute_file_in_command(cmd: str, path: str) -> str:
-    """Replace %1 / %L / %V etc. with a quoted path; append path if no placeholder."""
+    """Replace %1 / %L / %u etc. with one quoted path; append the path if none was present.
+
+    Quoted placeholders such as ``"%u"`` must be replaced as a whole. Replacing
+    only the ``%u`` inside the quotes turns them into ``""C:\\path with spaces""``,
+    which later splits into several arguments.
+    """
     np = os.path.normpath(path)
     quoted = f'"{np}"'
     s = _win_expand_cmd(cmd)
     if not s:
         return quoted
-    if any(x in s for x in ('"', "%1", "%L", "%V", "%*", "%u", "%U")):
-        s = s.replace('"%1"', quoted).replace('"%L"', quoted).replace('"%V"', quoted).replace('"%*"', quoted)
-        s = s.replace("%1", quoted).replace("%L", quoted).replace("%V", quoted)
-        s = s.replace("%*", quoted)
-        s = s.replace("%u", quoted).replace("%U", quoted)
-    if np not in s and quoted.strip('"') not in s:
+    for token in ("%1", "%L", "%V", "%*", "%u", "%U"):
+        s = s.replace(f'"{token}"', quoted)
+        s = s.replace(token, quoted)
+    if np not in s:
         s = f"{s.rstrip()} {quoted}"
     return s
 
@@ -6963,20 +6966,124 @@ def _win_enum_openwith_list_exes(ext: str) -> list[str]:
     return out
 
 
+def _win_load_indirect(src: str) -> str:
+    """Resolve a ``@{package?ms-resource://...}`` string to display text."""
+    src = (src or "").strip()
+    if not src.startswith("@"):
+        return src
+    try:
+        import ctypes
+        from ctypes import wintypes
+        shlwapi = ctypes.WinDLL("shlwapi", use_last_error=True)
+        shlwapi.SHLoadIndirectString.argtypes = [
+            wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.UINT, ctypes.c_void_p,
+        ]
+        shlwapi.SHLoadIndirectString.restype = ctypes.c_long
+        buf = ctypes.create_unicode_buffer(1024)
+        if shlwapi.SHLoadIndirectString(src, buf, len(buf), None) == 0 and buf.value.strip():
+            return buf.value.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _win_file_description(exe: str) -> str:
+    """FileDescription from an exe's version resource, or ''."""
+    if not exe or not os.path.isfile(exe):
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        ver = ctypes.WinDLL("version", use_last_error=True)
+        ver.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+        ver.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+        ver.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+        ver.GetFileVersionInfoW.restype = wintypes.BOOL
+        ver.VerQueryValueW.argtypes = [
+            ctypes.c_void_p, wintypes.LPCWSTR,
+            ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT),
+        ]
+        ver.VerQueryValueW.restype = wintypes.BOOL
+        size = ver.GetFileVersionInfoSizeW(exe, None)
+        if not size:
+            return ""
+        buf = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(exe, 0, size, buf):
+            return ""
+        ptr = ctypes.c_void_p()
+        ulen = wintypes.UINT()
+        if not ver.VerQueryValueW(buf, "\\VarFileInfo\\Translation", ctypes.byref(ptr), ctypes.byref(ulen)):
+            return ""
+        pair = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_uint16))
+        sub = "\\StringFileInfo\\%04x%04x\\FileDescription" % (pair[0], pair[1])
+        if not ver.VerQueryValueW(buf, sub, ctypes.byref(ptr), ctypes.byref(ulen)) or not ulen.value:
+            return ""
+        return ctypes.wstring_at(ptr, ulen.value).rstrip("\x00").strip()
+    except Exception:
+        return ""
+
+
+def _tidy_app_name(desc: str) -> str:
+    s = " ".join((desc or "").split()).strip(" .")
+    low = s.lower()
+    if not s or "operating system" in low:
+        return ""
+    if low in ("windows wordpad application", "wordpad"):
+        return "WordPad"
+    if low == "windows explorer":
+        return "File Explorer"
+    return s
+
+
+def _label_is_junk(label: str) -> bool:
+    s = (label or "").strip()
+    if not s or s.startswith("@") or s.startswith("AppX") or s.startswith("{"):
+        return True
+    return len(s) > 36 and " " not in s
+
+
+def _label_is_file_type(label: str) -> bool:
+    low = (label or "").lower().strip()
+    return low.endswith((
+        " document", " file", " worksheet", " folder", " source file", " spreadsheet",
+    ))
+
+
+def _app_label(label: str, exe: str) -> str:
+    """Prefer the installed program's name over a file-type or AppX id."""
+    desc = _tidy_app_name(_win_file_description(exe))
+    if _label_is_junk(label):
+        return desc or _label_for_openwith_exe(exe)
+    if desc and _label_is_file_type(label):
+        return desc
+    return label
+
+
 def _win_progid_friendly_name(progid: str) -> str:
     import winreg
 
+    name = ""
     try:
         with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, progid) as k:
             try:
                 d = winreg.QueryValue(k, None)
-                if d and isinstance(d, str) and not d.startswith("@"):
-                    return d.strip() or progid
+                if d and isinstance(d, str) and d.strip() and not d.startswith("@"):
+                    name = d.strip()
             except OSError:
                 pass
     except OSError:
         pass
-    return progid
+    if _label_is_junk(name):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, progid + r"\Application") as k:
+                app, _ = winreg.QueryValueEx(k, "ApplicationName")
+                if isinstance(app, str):
+                    resolved = _win_load_indirect(app)
+                    if resolved and not resolved.startswith("@"):
+                        name = resolved
+        except OSError:
+            pass
+    return name or progid
 
 
 def _win_read_open_command(progid_or_path: str, *, under_applications: bool = False) -> str | None:
@@ -7029,6 +7136,29 @@ def _win_resolve_exe(argv0: str) -> str | None:
     return None
 
 
+def _skip_unusable_opener(exe: str, path: str) -> bool:
+    """Python registered for a photo or PDF tries to execute the file and exits."""
+    base = os.path.basename(exe or "").lower()
+    if base not in ("python.exe", "pythonw.exe"):
+        return False
+    return os.path.splitext(path)[1].lower() not in (".py", ".pyw", ".pyz")
+
+
+def _normalize_open_argv(argv: list[str], path: str) -> list[str]:
+    """Turn a parsed Open command into something CreateProcess / ShellExecute can run.
+
+    Explorer's zip handler is ``Explorer.exe /idlist,%I,%L``. ``%I`` is filled in
+    only by the shell, so launching that string does not open the archive.
+    """
+    if not argv:
+        return argv
+    exe = argv[0]
+    rest = " ".join(str(a) for a in argv[1:])
+    if os.path.basename(exe).lower() == "explorer.exe" and ("%I" in rest or "/idlist" in rest.lower()):
+        return [exe, os.path.normpath(path)]
+    return argv
+
+
 def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[tuple[str, list[str]]]:
     """Build the right-click 'Open with X' submenu for a file.
 
@@ -7044,7 +7174,17 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
     if not ext:
         return []
     seen_exes: set[str] = set()
+    seen_bases: set[str] = set()
     items: list[tuple[str, list[str]]] = []
+
+    def _take(exe: str) -> bool:
+        key = exe.lower()
+        base = os.path.basename(key)
+        if key in seen_exes or base in seen_bases:
+            return False
+        seen_exes.add(key)
+        seen_bases.add(base)
+        return True
 
     # 1) UserChoice ProgID (default app)
     try:
@@ -7059,10 +7199,9 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
                     argv = [resolved]
                 if argv:
                     exe = _win_resolve_exe(argv[0])
-                    if exe and exe.lower() not in seen_exes:
-                        seen_exes.add(exe.lower())
+                    if exe and not _skip_unusable_opener(exe, path) and _take(exe):
                         argv[0] = exe
-                        items.append((_win_progid_friendly_name(progid), argv))
+                        items.append((_app_label(_win_progid_friendly_name(progid), exe), _normalize_open_argv(argv, path)))
     except Exception:
         pass
 
@@ -7082,12 +7221,10 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
             if not argv:
                 continue
             exe = _win_resolve_exe(argv[0])
-            if not exe or exe.lower() in seen_exes:
+            if not exe or _skip_unusable_opener(exe, path) or not _take(exe):
                 continue
-            seen_exes.add(exe.lower())
             argv[0] = exe
-            label = _win_progid_friendly_name(progid)
-            items.append((label, argv))
+            items.append((_app_label(_win_progid_friendly_name(progid), exe), _normalize_open_argv(argv, path)))
     except Exception:
         pass
 
@@ -7105,16 +7242,14 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
                     argv = [resolved]
                 if argv:
                     exe = _win_resolve_exe(argv[0])
-                    if exe and exe.lower() not in seen_exes:
-                        seen_exes.add(exe.lower())
+                    if exe and not _skip_unusable_opener(exe, path) and _take(exe):
                         argv[0] = exe
-                        items.append((_label_for_openwith_exe(exe_hint), argv))
+                        items.append((_app_label(_label_for_openwith_exe(exe_hint), exe), _normalize_open_argv(argv, path)))
                         continue
             # Fallback: try to resolve the exe by name and pass the path directly.
             exe = _win_resolve_exe(exe_hint)
-            if exe and exe.lower() not in seen_exes:
-                seen_exes.add(exe.lower())
-                items.append((_label_for_openwith_exe(exe_hint), [exe, path]))
+            if exe and not _skip_unusable_opener(exe, path) and _take(exe):
+                items.append((_app_label(_label_for_openwith_exe(exe_hint), exe), [exe, path]))
     except Exception:
         pass
 

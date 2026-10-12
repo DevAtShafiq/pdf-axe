@@ -361,17 +361,22 @@ const Dialogs = (() => {
       inner.innerHTML = '<div class="loading-spinner"></div>';
       if (isPdf) {
         const fit  = zoom === 'fit';
-        const mult = fit ? 1.5 : zoom;                    // render DPI multiplier
-        const r = await SFM.getPdfPage(path, p, Math.round(150 * mult));
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        const availW = Math.max(120, wrap.clientWidth - 32);
+        const cssGuess = fit ? availW : Math.round(availW * (typeof zoom === 'number' ? zoom : 1));
+        const dpi = Math.max(144, Math.min(300, Math.round((cssGuess * dpr) / 8.5)));
+        const r = await SFM.getPdfPage(path, p, dpi);
         if (!r.ok) { inner.textContent = r.error; return; }
-        _baseW = r.width / mult; _baseH = r.height / mult;
         let dw, dh;
         if (fit) {
-          const d = _fitDims(r.width, r.height);          // whole page fits, no scroll
+          const d = _fitDims(r.width, r.height);
           dw = d.w; dh = d.h;
         } else {
-          dw = Math.round(r.width); dh = Math.round(r.height);   // 1:1 at the rendered DPI (crisp)
+          dw = cssGuess;
+          dh = Math.round(cssGuess * (r.height / Math.max(1, r.width)));
         }
+        const z = (typeof zoom === 'number' && zoom > 0) ? zoom : 1;
+        _baseW = dw / z; _baseH = dh / z;
         inner.innerHTML = '';
         const img = new Image();
         img.src = r.data_url;

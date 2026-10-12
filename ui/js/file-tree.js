@@ -467,6 +467,7 @@ const FileTree = (() => {
     if (soleKey !== _soleKey) { _soleKey = soleKey; _soleSince = Date.now(); }
     App.state.selectedPaths = paths;
     App.state.focusedPath   = _focusIdx >= 0 ? (_filtered[_focusIdx]?.path || null) : null;
+    if (App.syncFileTools) App.syncFileTools();
     App.setStatusSelection(paths.length, _filtered.length);
 
     // Update details pane

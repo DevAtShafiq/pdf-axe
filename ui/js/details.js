@@ -25,6 +25,7 @@ const Details = (() => {
     $('quick-actions').classList.remove('hidden');
     _showConvertAction(entry);
     _showAiSection(entry);
+    _syncOpenWith(entry);
     // (const globals are not window properties — test with typeof)
     if (typeof PdfTools !== 'undefined') PdfTools.onDetails(entry);
     if (typeof Archive !== 'undefined') Archive.onDetails(entry);
@@ -50,6 +51,7 @@ const Details = (() => {
 
     $('quick-actions').classList.add('hidden');
     $('ai-photo-section').classList.add('hidden');
+    _closeOpenWith();
     if (typeof PdfTools !== 'undefined') PdfTools.onDetails(null, entries);
     if (typeof Archive !== 'undefined') Archive.onDetails(null, entries);
   }
@@ -57,6 +59,7 @@ const Details = (() => {
   // ── Public: clear panel ───────────────────────────────────────────────────
   function clear() {
     _path = null; _entry = null;
+    _closeOpenWith();
     if (typeof Archive !== 'undefined') Archive.onDetails(null, []);
     $('details-empty').classList.remove('hidden');
     $('details-content').classList.add('hidden');
@@ -134,6 +137,7 @@ const Details = (() => {
     const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
 
     wire('qa-open',    () => { if (_path) SFM.openNative(_path); });
+    wire('qa-openwith', (e) => { e.stopPropagation(); _toggleOpenWith(); });
     wire('qa-opendir', () => { if (_path) SFM.openFolder(_path.replace(/[\\/][^\\/]+$/, '')); });
     wire('qa-rename',  () => { if (_path) FileTree.startRename(_path); });
     wire('qa-copy-path', () => {
@@ -222,6 +226,113 @@ const Details = (() => {
   }
 
   function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // ── Open with: a tile like Open; app icons appear only after it is clicked ─
+  let _owGen = 0;
+
+  function _closeOpenWith() {
+    _owGen++;
+    const pop = $('open-with-pop');
+    const list = $('open-with-list');
+    const btn = $('qa-openwith');
+    if (pop) pop.classList.add('hidden');
+    if (list) list.innerHTML = '';
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function _syncOpenWith(entry) {
+    _closeOpenWith();
+    const btn = $('qa-openwith');
+    const row = document.querySelector('.qa-quick');
+    const file = !!(entry && !entry.is_dir && entry.path);
+    if (btn) btn.classList.toggle('hidden', !file);
+    if (row) row.classList.toggle('no-openwith', !file);
+  }
+
+  function _placeOpenWith() {
+    const pop = $('open-with-pop');
+    const btn = $('qa-openwith');
+    if (!pop || !btn) return;
+    const r = btn.getBoundingClientRect();
+    const width = Math.max(196, Math.min(260, r.width * 3));
+    let left = r.left;
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+    pop.style.width = width + 'px';
+    pop.style.left = left + 'px';
+    pop.style.top = (r.bottom + 4) + 'px';
+    const below = window.innerHeight - r.bottom - 12;
+    if (below < 120 && r.top > below) {
+      pop.style.top = 'auto';
+      pop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+    } else {
+      pop.style.bottom = 'auto';
+    }
+  }
+
+  function _appRow(name, iconHtml, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'open-with-app';
+    btn.title = name;
+    btn.setAttribute('role', 'menuitem');
+    btn.innerHTML = iconHtml + '<span class="name">' + _esc(name) + '</span>';
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return btn;
+  }
+
+  async function _toggleOpenWith() {
+    const pop = $('open-with-pop');
+    const list = $('open-with-list');
+    const btn = $('qa-openwith');
+    if (!pop || !list || !_path || (_entry && _entry.is_dir)) return;
+    if (!pop.classList.contains('hidden')) { _closeOpenWith(); return; }
+    const gen = ++_owGen;
+    const path = _path;
+    list.innerHTML = '<div class="open-with-empty">Looking up installed apps…</div>';
+    pop.classList.remove('hidden');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    _placeOpenWith();
+    let r;
+    try { r = await SFM.getOpenWithCommands(path); }
+    catch (e) { r = { ok: false }; }
+    if (gen !== _owGen || _path !== path) return;
+    list.innerHTML = '';
+    const apps = (r && r.ok && r.apps) || [];
+    apps.forEach(app => {
+      const icon = app.icon
+        ? '<img src="' + app.icon + '" alt="">'
+        : '<span class="icon-slot">' + Icons.svg('app-window', 18) + '</span>';
+      list.appendChild(_appRow(app.name || 'App', icon, async () => {
+        _closeOpenWith();
+        const out = await SFM.runOpenWith(app.argv, path);
+        if (out && out.ok === false) App.toast(out.error || 'Could not open the file', 'error');
+      }));
+    });
+    if (!apps.length) {
+      const empty = document.createElement('div');
+      empty.className = 'open-with-empty';
+      empty.textContent = 'No apps are registered for this file type.';
+      list.appendChild(empty);
+    }
+    list.appendChild(_appRow('Choose another app…',
+      '<span class="icon-slot">' + Icons.svg('plus', 16) + '</span>',
+      async () => {
+        _closeOpenWith();
+        const out = await SFM.openWithPicker(path);
+        if (out && out.ok === false) App.toast(out.error || 'Could not open the app list', 'error');
+      }));
+  }
+
+  document.addEventListener('mousedown', (e) => {
+    const pop = $('open-with-pop');
+    const btn = $('qa-openwith');
+    if (!pop || pop.classList.contains('hidden')) return;
+    if (pop.contains(e.target) || (btn && btn.contains(e.target))) return;
+    _closeOpenWith();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') _closeOpenWith();
+  });
 
   // ── Init ──────────────────────────────────────────────────────────────────
   function init() {

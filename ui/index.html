@@ -334,9 +334,13 @@
             <!-- Everyday file actions: one compact row -->
             <div class="qa-quick" role="toolbar" aria-label="File actions">
               <button class="qa-tile primary" id="qa-open" title="Open with the default app"><i data-icon="external-link" data-size="18"></i><span>Open</span></button>
+              <button class="qa-tile" id="qa-openwith" title="Choose an installed app"><i data-icon="app-window" data-size="18"></i><span>Open With</span></button>
               <button class="qa-tile" id="qa-opendir" title="Show in folder (Windows Explorer)"><i data-icon="folder-open" data-size="18"></i><span>Folder</span></button>
               <button class="qa-tile" id="qa-copy-path" title="Copy the full path"><i data-icon="copy" data-size="18"></i><span>Copy</span></button>
               <button class="qa-tile" id="qa-rename" title="Rename in the file list (F2) · Tab moves on to the next file"><i data-icon="text-cursor" data-size="18"></i><span>Rename</span></button>
+            </div>
+            <div class="open-with-pop hidden" id="open-with-pop" role="menu" aria-label="Open with">
+              <div id="open-with-list" role="list"></div>
             </div>
             <div class="detail-section-title qa-tools-title">Tools</div>
             <div class="qa-list qa-grid">

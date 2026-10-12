@@ -163,29 +163,30 @@ const Preview = (() => {
     // Render all pages lazily via IntersectionObserver
     if (_pageObs) _pageObs.disconnect();
     pdfWrap().innerHTML = '';
+    const cssW = _previewCssWidth();
+    const dpi = _previewDpi(cssW);
     for (let i = 0; i < _pdfCount; i++) {
       const placeholder = document.createElement('div');
-      placeholder.style.cssText = `width:595px;height:842px;background:var(--bg-surface);margin:0 auto;border-radius:2px;box-shadow:var(--shadow-lg)`;
+      placeholder.style.cssText = `width:${cssW}px;height:${Math.round(cssW * 1.294)}px;background:var(--bg-surface);margin:0 auto;border-radius:2px;box-shadow:var(--shadow-lg)`;
       placeholder.dataset.pageSlot = i;
       pdfWrap().appendChild(placeholder);
     }
-    const zoom = _zoom;
     const obs = _pageObs = new IntersectionObserver(async entries => {
       for (const ent of entries) {
         if (!ent.isIntersecting) continue;
         const slot = ent.target;
         const page = +slot.dataset.pageSlot;
         obs.unobserve(slot);
-        const dpi = Math.round(150 * zoom);
         try {
-          const r = await SFM.getPdfPage(pdfSrc, page, Math.min(dpi, 300));
+          const r = await SFM.getPdfPage(pdfSrc, page, dpi);
           if (tok !== _token || !slot.isConnected) continue;
           if (r.ok) {
             const img = document.createElement('img');
             img.src = r.data_url;
             img.className = 'pdf-page-canvas';
-            const w = Math.round(r.width * zoom);
-            const box = PdfText.wrapPage(img, pdfSrc, page, { width: w });
+            // Show the page at the pane size. The bitmap is device pixels
+            // (css width × screen scale), so the browser is not stretching it.
+            const box = PdfText.wrapPage(img, pdfSrc, page, { width: cssW });
             slot.replaceWith(box);
             PdfText.attach(box);
           }
@@ -194,6 +195,20 @@ const Preview = (() => {
     }, { root: pdfWrap(), rootMargin: '400px' });
     pdfWrap().querySelectorAll('[data-page-slot]').forEach(s => obs.observe(s));
     _updatePageNav();
+  }
+
+  function _previewCssWidth() {
+    const pane = pdfWrap();
+    const avail = Math.max(280, ((pane && pane.clientWidth) || 640) - 28);
+    if (_zoom <= 1.0001) return avail;
+    return Math.round(avail * _zoom);
+  }
+
+  function _previewDpi(cssW) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    // Bitmap pixels ≈ the pixels the screen will actually light up.
+    const dpi = Math.round((cssW * dpr) / 8.5);
+    return Math.max(144, Math.min(dpi, 300));
   }
 
   function _updatePageNav() {
@@ -217,14 +232,21 @@ const Preview = (() => {
     return pdfWrap().querySelector(`[data-page="${page}"]`) || pdfWrap().querySelector(`[data-page-slot="${page}"]`);
   }
 
+  let _scrollLock = 0;
+
   function _scrollToPage(page) {
     const el = _pageEl(page);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!el) return;
+    // Ignore the scroll events this jump creates, or the tracker snaps back to page 1.
+    _scrollLock++;
+    el.scrollIntoView({ behavior: 'auto', block: 'start' });
+    setTimeout(() => { _scrollLock = Math.max(0, _scrollLock - 1); }, 120);
   }
 
   // Track current page from scroll position
   function _initScrollPageTrack() {
     pdfWrap().addEventListener('scroll', () => {
+      if (_scrollLock) return;
       const wrap = pdfWrap();
       const pages = wrap.querySelectorAll('[data-page], [data-page-slot]');
       const wrapRect = wrap.getBoundingClientRect();

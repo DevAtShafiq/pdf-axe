@@ -28,6 +28,7 @@ import threading
 import time
 import zipfile
 from collections import OrderedDict
+from urllib.parse import urlsplit
 
 import file_ops as _fo
 
@@ -153,10 +154,99 @@ def _page_words(page) -> list[dict]:
     return out
 
 
+_URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
+_URL_TRAIL = ".,;:!?)]}\"'»”’"
+
+
+def _web_url(raw: str) -> str:
+    """http(s) address safe to hand to the browser, or ''."""
+    s = (raw or "").strip()
+    while s and s[-1] in _URL_TRAIL:
+        s = s[:-1]
+    if s.lower().startswith("www."):
+        s = "https://" + s
+    if any(ch in s for ch in ("\n", "\r", "\t", " ")):
+        return ""
+    try:
+        p = urlsplit(s)
+    except ValueError:
+        return ""
+    if p.scheme.lower() not in ("http", "https") or not p.hostname:
+        return ""
+    return s
+
+
+def _rect_link(rect, uri: str) -> dict | None:
+    uri = _web_url(uri)
+    if not uri or rect is None:
+        return None
+    w, h = float(rect.width), float(rect.height)
+    if w < 0.5 or h < 0.5:
+        return None
+    return {"uri": uri, "x": _r(rect.x0), "y": _r(rect.y0), "w": _r(w), "h": _r(h)}
+
+
+def _center_inside(link: dict, x: float, y: float, pad: float = 1.5) -> bool:
+    return (link["x"] - pad) <= x <= (link["x"] + link["w"] + pad) and (
+        link["y"] - pad) <= y <= (link["y"] + link["h"] + pad)
+
+
+def _page_links(page, lines: list[dict]) -> list[dict]:
+    """Web links on the page, in the same display coordinates as the text layer.
+
+    URI annotations (the blue “click here” kind) and web addresses written as
+    text. javascript:, file:, and other schemes are left out.
+    """
+    import pymupdf as fitz
+    rm = page.rotation_matrix
+    links: list[dict] = []
+    try:
+        raw = page.get_links() or []
+    except Exception:
+        raw = []
+    for item in raw:
+        if item.get("kind") != fitz.LINK_URI:
+            continue
+        hit = _rect_link(fitz.Rect(item.get("from")) * rm, item.get("uri") or "")
+        if hit:
+            links.append(hit)
+    for line in lines:
+        parts: list[str] = []
+        spans = []
+        pos = 0
+        for word in line.get("w") or []:
+            text, x, y, length, height, space = word
+            if space and parts:
+                parts.append(" ")
+                pos += 1
+            start = pos
+            parts.append(str(text))
+            pos += len(str(text))
+            spans.append((start, pos, float(x), float(y), float(length), float(height)))
+        blob = "".join(parts)
+        for match in _URL_RE.finditer(blob):
+            uri = _web_url(match.group(0))
+            if not uri:
+                continue
+            boxes = [s for s in spans if s[1] > match.start() and s[0] < match.end()]
+            if not boxes:
+                continue
+            x0 = min(b[2] for b in boxes)
+            y0 = min(b[3] for b in boxes)
+            x1 = max(b[2] + b[4] for b in boxes)
+            y1 = max(b[3] + b[5] for b in boxes)
+            cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            if any(_center_inside(existing, cx, cy) for existing in links):
+                continue
+            links.append({"uri": uri, "x": _r(x0), "y": _r(y0), "w": _r(x1 - x0), "h": _r(y1 - y0)})
+    return links
+
+
 def pdf_text_layer(path: str, page_index: int) -> dict:
     """Positioned words for page *page_index* (0-based), cached per file version.
 
-    → {width, height, rotation, lines, words, has_text, scanned}
+    → {width, height, rotation, lines, words, has_text, scanned, links}
+    links: [{uri, x, y, w, h}] in the same point space as the words.
     """
     page_index = int(page_index)
     if not os.path.isfile(path):
@@ -181,7 +271,8 @@ def pdf_text_layer(path: str, page_index: int) -> dict:
         except Exception:
             scanned = False
     res = {"width": _r(rect.width), "height": _r(rect.height), "rotation": int(page.rotation),
-           "lines": lines, "words": nwords, "has_text": nwords > 0, "scanned": scanned}
+           "lines": lines, "words": nwords, "has_text": nwords > 0, "scanned": scanned,
+           "links": _page_links(page, lines)}
     with _TL_LOCK:
         _TL_CACHE[key] = res
         while len(_TL_CACHE) > _TL_CACHE_MAX:

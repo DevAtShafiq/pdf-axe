@@ -51,14 +51,17 @@ const ContextMenu = (() => {
         App.setStatus('Getting apps\u2026', true);
         const r = await SFM.getOpenWithCommands(mainPath);
         App.setStatus('Ready');
-        if (!r.ok || !r.commands?.length) { App.toast('No apps found for this file type', 'info'); return; }
-        // Mini floating picker
+        const apps = (r.apps && r.apps.length) ? r.apps : (r.commands || []).map(c => ({ name: c[0], argv: c[1], icon: '' }));
+        if (!r.ok || !apps.length) { App.toast('No apps found for this file type', 'info'); return; }
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.style.zIndex = 99999;
-        const listHtml = r.commands.map((c, i) =>
-          '<button class="qa-btn" data-idx="' + i + '"><span class="icon">' + Icons.svg('app-window', 16) + '</span>' + _esc(c[0]) + '</button>'
-        ).join('');
+        const listHtml = apps.map((c, i) => {
+          const icon = c.icon
+            ? '<img src="' + c.icon + '" alt="" width="16" height="16">'
+            : Icons.svg('app-window', 16);
+          return '<button class="qa-btn" data-idx="' + i + '"><span class="icon">' + icon + '</span>' + _esc(c.name) + '</button>';
+        }).join('');
         overlay.innerHTML = '<div class="modal modal-sm" role="dialog">'
           + '<div class="modal-header"><h2 class="modal-title">Open with\u2026</h2></div>'
           + '<div class="modal-body" style="gap:2px;padding:8px 12px">' + listHtml + '</div>'
@@ -67,8 +70,8 @@ const ContextMenu = (() => {
         overlay.querySelectorAll('[data-idx]').forEach(btn => {
           btn.addEventListener('click', async () => {
             overlay.remove();
-            const cmd = r.commands[parseInt(btn.dataset.idx)];
-            await SFM.runOpenWith(cmd[1], mainPath);
+            const cmd = apps[parseInt(btn.dataset.idx)];
+            await SFM.runOpenWith(cmd.argv, mainPath);
           });
         });
         overlay.querySelector('#ow-cancel').addEventListener('click', () => overlay.remove());

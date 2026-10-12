@@ -40,6 +40,7 @@ const Account = (() => {
     syncDraft: '',
     pollTimer: null,
     pollUntil: 0,
+    card: null,                // {brand, last4, exp} — last 4 only, never the full number
   };
 
   // ── helpers ──────────────────────────────────────────────────────────────
@@ -653,10 +654,11 @@ const Account = (() => {
           ${!active ? `<p class="acct-muted">Subscribe to ${esc(s.plan_label || 'the monthly plan')} to unlock cloud storage, auto-sync and AI photo tools.</p>` : ''}
           ${polling ? `<p class="acct-hint acct-polling"><span class="spinner"></span>Waiting for payment to complete in your browser… this page updates automatically.</p>` : ''}
           <div class="acct-actions">
-            ${!active && !hasSub && !s.free_plan ? `<button class="btn btn-primary" id="acct-subscribe" ${tip ? `disabled title="${esc(tip)}"` : ''}>Subscribe${s.plan_label ? ' — ' + esc(s.plan_label) : ''}</button>` : ''}
-            ${hasSub && !s.free_plan ? `<button class="btn ${s.status === 'past_due' ? 'btn-primary' : ''}" id="acct-portal" ${tip ? `disabled title="${esc(tip)}"` : ''}>${Icons.svg('external-link', 16)}${s.status === 'past_due' ? 'Update payment method' : 'Manage billing'}</button>` : ''}
+            ${!active && !hasSub && !s.free_plan ? `<button class="btn btn-primary" id="acct-subscribe">${Icons.svg('credit-card', 16)}Add card</button>` : ''}
+            ${hasSub && !s.free_plan ? `<button class="btn ${s.status === 'past_due' ? 'btn-primary' : ''}" id="acct-portal">${Icons.svg('credit-card', 16)}${s.status === 'past_due' ? 'Update card' : 'Manage billing'}</button>` : ''}
           </div>
-          ${tip && !s.free_plan ? `<div class="acct-hint">${esc(tip)}</div>` : ''}
+          ${st.card ? `<div class="acct-hint">${Icons.svg('credit-card', 14)} ${esc(st.card.brand)} ···· ${esc(st.card.last4)} · expires ${esc(st.card.exp)}</div>` : ''}
+          ${tip && !s.free_plan ? `<div class="acct-hint">${esc(tip)} You can still add a card here. The full number is not saved.</div>` : ''}
         </div>
         ${hasOfficeJs() ? Office.accountCardHtml() : ''}
         ${devicesBlock()}
@@ -670,8 +672,8 @@ const Account = (() => {
     if (adv) adv.addEventListener('toggle', () => { st.advOpen = adv.open; });
     const w = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
     w('acct-show-login', () => { st.overlayDismissed = false; renderOverlay(); });
-    w('acct-subscribe', subscribe);
-    w('acct-portal', openPortal);
+    w('acct-subscribe', openCardForm);
+    w('acct-portal', () => { const s = sub() || {}; if (s.billing_available && s.status !== 'past_due') openPortal(); else openCardForm(); });
     w('acct-refresh', () => refresh());
     w('acct-signout', signOut);
     body.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
@@ -684,11 +686,96 @@ const Account = (() => {
     }));
   }
 
+  function _cardBrand(digits) {
+    if (/^4/.test(digits)) return 'Visa';
+    if (/^5[1-5]/.test(digits) || /^2(2[2-9]|[3-6]|7[01]|720)/.test(digits)) return 'Mastercard';
+    if (/^3[47]/.test(digits)) return 'American Express';
+    if (/^6(?:011|5)/.test(digits)) return 'Discover';
+    return 'Card';
+  }
+  function _luhn(digits) {
+    let sum = 0, alt = false;
+    for (let i = digits.length - 1; i >= 0; i--) {
+      let n = digits.charCodeAt(i) - 48;
+      if (n < 0 || n > 9) return false;
+      if (alt) { n *= 2; if (n > 9) n -= 9; }
+      sum += n;
+      alt = !alt;
+    }
+    return digits.length >= 13 && sum % 10 === 0;
+  }
+
+  function openCardForm() {
+    if (document.getElementById('modal-add-card')) return;
+    const id = Dialogs.modal('add-card', {
+      title: 'Add card',
+      icon: 'credit-card',
+      subtitle: 'Name, card number, expiry and security code',
+      width: '420px',
+      body: `
+        <div class="field">
+          <label class="field-label" for="card-name">Name on card</label>
+          <input id="card-name" class="input-text" autocomplete="cc-name" placeholder="Name on card">
+        </div>
+        <div class="field">
+          <label class="field-label" for="card-number">Card number</label>
+          <input id="card-number" class="input-text" inputmode="numeric" autocomplete="cc-number" placeholder="1234 5678 9012 3456" maxlength="23" spellcheck="false">
+        </div>
+        <div class="field-grid">
+          <div class="field">
+            <label class="field-label" for="card-exp">Expiry</label>
+            <input id="card-exp" class="input-text" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/YY" maxlength="5">
+          </div>
+          <div class="field">
+            <label class="field-label" for="card-cvc">Security code</label>
+            <input id="card-cvc" class="input-text" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4">
+          </div>
+        </div>
+        <p class="acct-hint acct-field-err hidden" id="card-err"></p>
+        <p class="acct-hint">The full number and security code stay in this box. They are not saved and not sent to the server.</p>`,
+      footer: `<button class="btn" id="card-cancel">Cancel</button><button class="btn btn-primary" id="card-save">${Icons.svg('credit-card', 16)}Add card</button>`,
+    });
+    const root = document.getElementById('modal-add-card');
+    const num = root.querySelector('#card-number');
+    const exp = root.querySelector('#card-exp');
+    const err = root.querySelector('#card-err');
+    num.addEventListener('input', () => {
+      const d = num.value.replace(/\D/g, '').slice(0, 19);
+      num.value = d.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+    });
+    exp.addEventListener('input', () => {
+      const d = exp.value.replace(/\D/g, '').slice(0, 4);
+      exp.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d;
+    });
+    const showErr = msg => { err.textContent = msg; err.classList.toggle('hidden', !msg); };
+    const save = () => {
+      const name = root.querySelector('#card-name').value.trim();
+      const digits = num.value.replace(/\D/g, '');
+      const expVal = exp.value.trim();
+      const cvc = root.querySelector('#card-cvc').value.replace(/\D/g, '');
+      const m = /^(\d{2})\/(\d{2})$/.exec(expVal);
+      const month = m ? Number(m[1]) : 0;
+      const year = m ? 2000 + Number(m[2]) : 0;
+      const now = new Date();
+      const expired = !m || month < 1 || month > 12 || year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1);
+      if (name.length < 2) { showErr('Enter the name on the card.'); return; }
+      if (!_luhn(digits)) { showErr('That card number doesn’t look right.'); return; }
+      if (expired) { showErr('Enter an expiry date as MM/YY.'); return; }
+      if (cvc.length < 3) { showErr('Enter the security code.'); return; }
+      st.card = { brand: _cardBrand(digits), last4: digits.slice(-4), exp: expVal };
+      root.querySelector('#card-number').value = '';
+      root.querySelector('#card-cvc').value = '';
+      Dialogs.closeModal(id);
+      toast('Card added. Only the last 4 digits stay on the plan card.', 'success', 5000);
+      renderAccountPanel();
+    };
+    root.querySelector('#card-cancel').addEventListener('click', () => Dialogs.closeModal(id));
+    root.querySelector('#card-save').addEventListener('click', save);
+    root.querySelector('#card-name').focus();
+  }
+
   async function subscribe() {
-    const r = await SFM.billingOpenCheckout();
-    if (!r || !r.ok) { toast('Could not open checkout: ' + ((r && r.error) || 'unknown error'), 'error', 5000); return; }
-    toast('Checkout opened in your browser', 'info');
-    startPlanPolling();
+    openCardForm();
   }
 
   async function openPortal() {
@@ -1410,5 +1497,6 @@ const Account = (() => {
     // used by office.js
     cloudArea, setCloudArea, areaSwitchHtml, wireAreaSwitch,
     renderCloud: () => renderCloudPanel(), renderAccount: () => renderAccountPanel(),
+    openCardForm,
   };
 })();

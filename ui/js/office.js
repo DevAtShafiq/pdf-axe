@@ -1741,6 +1741,7 @@ const Office = (() => {
       </div>`;
   }
   async function subscribeOffice() {
+    if (typeof Account !== 'undefined' && Account.openCardForm) { Account.openCardForm(); return; }
     const r = await SFM.billingOpenCheckout();
     if (!r || r.ok === false) { toast('Could not open checkout: ' + err(r), 'error', 5000); return; }
     toast('Checkout opened in your browser — this page updates when payment completes', 'info', 5000);

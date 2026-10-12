@@ -231,31 +231,28 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
         return _ok(path=os.path.expanduser("~"))
 
     # ── Windows shell icons ────────────────────────────────────────────────────
-    def get_file_type_icon(self, ext: str, size: int = 18) -> dict:
-        """Return a base64-encoded PNG of the real Windows shell icon for *ext*.
+    def _shell_icon_data_url(self, spec: str, size: int = 20, *, file_attributes: bool = False) -> str:
+        """PNG data-URL of a Windows shell icon, or '' if it cannot be drawn.
 
-        Uses SHGetFileInfoW / SHGFI_USEFILEATTRIBUTES so no real file is needed.
-        Returns {ok:true, data: "data:image/png;base64,..."} or {ok:false}.
+        file_attributes=True looks up a fake name such as ``x.pdf`` (no real file).
+        Otherwise *spec* is a real path, usually an application's exe.
         """
         import base64, io, sys
-        if sys.platform != "win32":
-            return _err("not windows")
+        if sys.platform != "win32" or not spec:
+            return ""
         try:
             import ctypes
             from ctypes import wintypes
             from PIL import Image
-        except ImportError as exc:
-            return _err(str(exc))
+            shell32 = ctypes.windll.shell32
+            user32  = ctypes.windll.user32
+        except Exception:
+            return ""
 
-        if not ext:
-            ext = ".file"
-        elif not ext.startswith("."):
-            ext = "." + ext
-
-        SHGFI_ICON            = 0x100
+        SHGFI_ICON = 0x100
         SHGFI_USEFILEATTRIBUTES = 0x10
-        SHGFI_SMALLICON       = 0x1
-        SHGFI_LARGEICON       = 0x0
+        SHGFI_SMALLICON = 0x1
+        SHGFI_LARGEICON = 0x0
         FILE_ATTRIBUTE_NORMAL = 0x80
 
         class SHFILEINFO(ctypes.Structure):
@@ -267,26 +264,16 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
                 ("szTypeName",    wintypes.WCHAR * 80),
             ]
 
-        shfi  = SHFILEINFO()
-        flags = SHGFI_ICON | SHGFI_USEFILEATTRIBUTES | (
-            SHGFI_SMALLICON if size <= 20 else SHGFI_LARGEICON
-        )
-        try:
-            shell32 = ctypes.windll.shell32
-            user32  = ctypes.windll.user32
-        except (AttributeError, OSError) as exc:
-            return _err(str(exc))
-
-        res = shell32.SHGetFileInfoW(
-            "x" + ext,
-            FILE_ATTRIBUTE_NORMAL,
-            ctypes.byref(shfi),
-            ctypes.sizeof(shfi),
-            flags,
-        )
-        if not res or not shfi.hIcon:
-            return _err("no icon")
-
+        shfi = SHFILEINFO()
+        flags = SHGFI_ICON | (SHGFI_SMALLICON if size <= 20 else SHGFI_LARGEICON)
+        attr = 0
+        if file_attributes:
+            flags |= SHGFI_USEFILEATTRIBUTES
+            attr = FILE_ATTRIBUTE_NORMAL
+        if not shell32.SHGetFileInfoW(spec, attr, ctypes.byref(shfi), ctypes.sizeof(shfi), flags):
+            return ""
+        if not shfi.hIcon:
+            return ""
         pil_img = None
         try:
             try:
@@ -303,7 +290,6 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
                 bmpstr  = hbmp.GetBitmapBits(True)
                 pil_img = Image.frombuffer("RGB", (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
                                            bmpstr, "raw", "BGRX", 0, 1).convert("RGBA")
-                # Make white pixels transparent (background bleed)
                 px = list(pil_img.getdata())
                 px = [(r, g, b, 0) if r >= 250 and g >= 250 and b >= 250 else (r, g, b, a)
                       for r, g, b, a in px]
@@ -313,28 +299,32 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
                 win32gui.ReleaseDC(0, screen_dc_h)
                 win32gui.DeleteObject(hbmp.GetHandle())
             except Exception:
-                # ctypes fallback
-                hdc = user32.GetDC(0)
-                class ICONINFO(ctypes.Structure):
-                    _fields_ = [("fIcon", wintypes.BOOL), ("xHotspot", wintypes.DWORD),
-                                 ("yHotspot", wintypes.DWORD), ("hbmMask", wintypes.HBITMAP),
-                                 ("hbmColor", wintypes.HBITMAP)]
-                ii = ICONINFO()
-                ctypes.windll.user32.GetIconInfo(shfi.hIcon, ctypes.byref(ii))
-                bm = ctypes.create_string_buffer(size * size * 4)
-                ctypes.windll.gdi32.GetBitmapBits(ii.hbmColor, len(bm), bm)
-                pil_img = Image.frombuffer("RGBA", (size, size), bm.raw, "raw", "BGRA", 0, 1)
-                user32.ReleaseDC(0, hdc)
+                pass
         finally:
             user32.DestroyIcon(shfi.hIcon)
-
         if pil_img is None:
-            return _err("render failed")
-
+            return ""
         buf = io.BytesIO()
         pil_img.save(buf, format="PNG")
-        b64 = base64.b64encode(buf.getvalue()).decode()
-        return _ok(data=f"data:image/png;base64,{b64}", ext=ext, size=size)
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    def get_file_type_icon(self, ext: str, size: int = 18) -> dict:
+        """Return a base64-encoded PNG of the real Windows shell icon for *ext*.
+
+        Uses SHGetFileInfoW / SHGFI_USEFILEATTRIBUTES so no real file is needed.
+        Returns {ok:true, data: "data:image/png;base64,..."} or {ok:false}.
+        """
+        import sys
+        if sys.platform != "win32":
+            return _err("not windows")
+        if not ext:
+            ext = ".file"
+        elif not ext.startswith("."):
+            ext = "." + ext
+        data = self._shell_icon_data_url("x" + ext, size, file_attributes=True)
+        if not data:
+            return _err("no icon")
+        return _ok(data=data, ext=ext, size=size)
 
     def get_file_type_icons_batch(self, exts: list, size: int = 18) -> dict:
         """Fetch Windows shell icons for multiple extensions in one call.
@@ -557,28 +547,98 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
         except Exception as exc:
             return _err(str(exc))
 
-    def _run_open_with(self, argv: list, path: str) -> dict:
+    def run_open_with(self, argv: list, path: str) -> dict:
         """Launch a file with the given argv (from get_open_with_commands)."""
         try:
-            import subprocess
-            cmd = list(argv)
-            # Substitute placeholder if present; otherwise append path
-            substituted = False
+            import ctypes
+            from ctypes import wintypes
+            def _bare(arg: str) -> str:
+                s = str(arg).strip()
+                while len(s) >= 2 and s[0] == s[-1] == '"':
+                    s = s[1:-1]
+                return s
+
+            cmd = [_bare(a) for a in (argv or []) if _bare(a)]
+            if not cmd:
+                return _err("No application to launch")
+            norm = os.path.normpath(path) if path else ""
+
+            def _is_path(arg: str) -> bool:
+                if not arg or not norm:
+                    return False
+                try:
+                    return os.path.normcase(os.path.normpath(arg)) == os.path.normcase(norm)
+                except OSError:
+                    return False
+
             for i, arg in enumerate(cmd):
-                if '%1' in arg or '%L' in arg:
-                    cmd[i] = arg.replace('%1', path).replace('%L', path)
-                    substituted = True
-            if not substituted:
-                cmd.append(path)
+                if any(tok in arg for tok in ("%1", "%L", "%V", "%u", "%U", "%*")):
+                    cmd[i] = arg.replace("%1", norm).replace("%L", norm).replace("%V", norm).replace("%u", norm).replace("%U", norm).replace("%*", norm)
+            if norm and not any(_is_path(a) for a in cmd):
+                cmd.append(norm)
+            # Chrome and Edge's "--single-argument" form opens a broken tab for a
+            # local path. The path itself, as its own argument, opens the file.
+            cmd = [a for a in cmd if a != "--single-argument"]
+
+            def _quote(arg: str) -> str:
+                if any(c in arg for c in ' \t"'):
+                    return '"' + arg.replace('"', '""') + '"'
+                return arg
+
+            # Packaged apps (Notepad, Paint) only start through the shell.
+            # Desktop apps already running, such as Chrome, Edge and Cursor,
+            # ignore a shell "open" and need the file on the real command line.
+            if "\\windowsapps\\" in cmd[0].lower():
+                params = " ".join(_quote(a) for a in cmd[1:]) or None
+                shell32 = ctypes.windll.shell32
+                shell32.ShellExecuteW.argtypes = [
+                    wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                    wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_int,
+                ]
+                shell32.ShellExecuteW.restype = ctypes.c_void_p
+                rc = shell32.ShellExecuteW(None, "open", cmd[0], params, None, 1)
+                if not rc or int(rc) <= 32:
+                    return _err(f"Could not start the application (code {int(rc or 0)})")
+                return _ok()
+            import subprocess
             subprocess.Popen(cmd, shell=False)
             return _ok()
         except Exception as exc:
             return _err(str(exc))
 
+    def _run_open_with(self, argv: list, path: str) -> dict:
+        """Back-compat alias. The window calls run_open_with; names starting with _ are hidden from JavaScript."""
+        return self.run_open_with(argv, path)
+
     def get_open_with_commands(self, path: str) -> dict:
+        """Apps registered to open this file.
+
+        commands: [[label, argv], ...] (older callers).
+        apps: [{name, argv, icon}] where icon is a PNG data-URL of the program.
+        """
         try:
             cmds = _fo.windows_open_with_menu_commands(path)
-            return _ok(commands=cmds)
+            cache = getattr(self, "_exe_icon_cache", None)
+            if cache is None:
+                cache = self._exe_icon_cache = {}
+            apps = []
+            for label, argv in cmds:
+                exe = str(argv[0]) if argv else ""
+                key = exe.lower()
+                icon = cache.get(key, "")
+                if exe and key not in cache:
+                    icon = self._shell_icon_data_url(exe, 32, file_attributes=False)
+                    cache[key] = icon
+                apps.append({"name": label, "argv": list(argv), "icon": icon or ""})
+            return _ok(commands=cmds, apps=apps)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def open_with_picker(self, path: str) -> dict:
+        """Windows 'Open with' dialog so the user can pick any installed app."""
+        try:
+            ok, err = _fo.open_with_application_picker(path)
+            return _ok() if ok else _err(err or "Could not open the app list")
         except Exception as exc:
             return _err(str(exc))
 
@@ -654,9 +714,21 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
         return _ok(results=results)
 
     def create_folder(self, parent: str, name: str) -> dict:
+        raw = str(name or "")
+        cleaned = raw.strip()
+        if not cleaned or cleaned in (".", ".."):
+            return _err("Enter a folder name.")
+        if raw != cleaned or cleaned.endswith("."):
+            return _err("A folder name can't end with a dot or a space.")
+        if any(c in cleaned for c in '\\/:*?"<>|'):
+            return _err("A folder name can't contain any of these characters: \\ / : * ? \" < > |")
+        if not parent or not os.path.isdir(str(parent)):
+            return _err("That folder does not exist.")
+        new_path = os.path.join(parent, cleaned)
+        if os.path.exists(new_path):
+            return _err("A file or folder with this name already exists here.")
         try:
-            new_path = os.path.join(parent, name)
-            os.makedirs(new_path, exist_ok=True)
+            os.makedirs(new_path)
             return _ok(path=new_path)
         except Exception as exc:
             return _err(str(exc))
@@ -785,12 +857,19 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
             return _err(str(exc))
 
     def get_pdf_page_as_png(self, path: str, page: int, dpi: int = 150) -> dict:
-        """Render a PDF page for the preview panel."""
+        """Render a PDF page for the preview panel.
+
+        The preview used to cap a portrait page to a square of A4's width and
+        then stretch that bitmap, which made the type look soft next to Acrobat.
+        The requested dpi is kept on both axes.
+        """
         _log.info("get_pdf_page_as_png: %s page=%d dpi=%d", path, page, dpi)
         try:
-            # Convert DPI to pixel dimensions (A4 at given DPI)
-            max_dim = int(dpi * 8.27)   # A4 width in inches × dpi
-            pil = _fo.pil_image_for_pdf_page(path, page, max_dim, max_dim)
+            dpi = max(72, min(int(dpi or 150), 320))
+            # Long side: tabloid (17in) at this dpi, so height does not
+            # shrink the zoom the way an A4-width square did.
+            cap = int(dpi * 17)
+            pil = _fo.pil_image_for_pdf_page(path, page, cap, cap, max_zoom=dpi / 72.0)
             if pil is None:
                 _log.error("get_pdf_page_as_png: returned None")
                 return _err("Could not render page")

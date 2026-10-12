@@ -1870,9 +1870,11 @@ mark.hl { background: transparent; color: var(--accent-text); font-weight: var(-
    Everyday actions as a compact 4-tile row, tools as a two-column grid,
    "Move to review" kept apart at the bottom. */
 .qa-quick {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1);
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-1);
   margin-bottom: var(--space-3);
 }
+.qa-quick.no-openwith { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#qa-openwith.hidden { display: none; }
 .qa-tile {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   min-height: 52px; padding: var(--space-1) 2px;
@@ -1881,13 +1883,41 @@ mark.hl { background: transparent; color: var(--accent-text); font-weight: var(-
   font-size: var(--fs-xs); line-height: 1.15; text-align: center;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.qa-tile span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-tile span {
+  width: 100%; max-width: 100%; overflow: hidden; white-space: normal; line-height: 1.1;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
 .qa-tile .icon-slot, .qa-tile svg { color: var(--text-muted); }
 .qa-tile:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-strong); }
 .qa-tile:hover svg { color: var(--text-primary); }
 .qa-tile.primary { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: var(--accent-subtle); }
 .qa-tile.primary svg { color: var(--accent-text); }
 .qa-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.open-with-pop {
+  position: fixed; z-index: 80;
+  min-width: 196px; max-width: 260px; max-height: 280px; overflow: auto;
+  padding: 4px;
+  background: var(--bg-elevated, var(--bg-surface));
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.18));
+}
+.open-with-pop.hidden { display: none; }
+#open-with-list { display: flex; flex-direction: column; gap: 1px; }
+.open-with-app {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 30px; padding: 3px 6px;
+  border: 0; border-radius: var(--radius);
+  background: transparent; color: var(--text-primary);
+  text-align: left; font-size: var(--fs-sm); cursor: pointer;
+}
+.open-with-app:hover { background: var(--bg-hover); }
+.open-with-app img { width: 18px; height: 18px; flex: none; object-fit: contain; }
+.open-with-app .icon-slot { width: 18px; height: 18px; flex: none; color: var(--text-muted); }
+.open-with-app .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-with-empty { padding: 4px 6px; color: var(--text-muted); font-size: var(--fs-xs); }
+.open-with-more { color: var(--text-secondary); }
 
 .qa-tools-title { margin-top: 0; }
 .qa-grid, #archive-section .qa-list {
