@@ -773,7 +773,12 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         if not parent or not os.path.isdir(str(parent)):
             return _err("That folder does not exist.")
         new_path = os.path.join(parent, cleaned)
-        if os.path.exists(new_path):
+        # Windows names are case-insensitive: "new FOLDER" clashes with "New folder".
+        try:
+            taken = {n.casefold() for n in os.listdir(parent)}
+        except OSError:
+            taken = set()
+        if os.path.exists(new_path) or cleaned.casefold() in taken:
             return _err("A file or folder with this name already exists here.")
         try:
             os.makedirs(new_path)
