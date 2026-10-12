@@ -60,19 +60,25 @@ const FileTree = (() => {
   }
 
   // ── Load Folder ───────────────────────────────────────────────────────────
+  let _loadSeq = 0;
   async function loadFolder(path) {
+    if (App.normPath) path = App.normPath(path);
     _currentFolder = path;
     App.state.currentFolder = path;
     _selected.clear();
     _focusIdx = -1;
+    _shiftAnchor = -1;   // a stale anchor from the last folder made Shift+click throw
     _entries  = [];
     _filtered = [];
 
     App.setStatus('Loading…', true);
     _renderBreadcrumb(path);
 
+    const my = ++_loadSeq;
     try {
       const r = await SFM.listFolder(path);
+      // Clicking folders quickly: an older, slower listing must not replace the newer one.
+      if (my !== _loadSeq) return;
       if (!r.ok) { App.toast(r.error, 'error'); App.setStatus('Error'); return; }
       _entries  = _sortEntries(r.entries || []);
       _filtered = _entries;
@@ -80,16 +86,17 @@ const FileTree = (() => {
       App.setStatus(`${_filtered.length} items`);
       App.setStatusFolder(path);
       _selectionChanged();
-      _updateTreeHighlight(path);
       _renderTreeRoot();
+      _updateTreeHighlight(path);   // after the re-render, or the highlight is lost
     } catch(e) {
+      if (my !== _loadSeq) return;
       App.toast('Failed to load folder: ' + e, 'error');
       App.setStatus('Error');
     }
   }
 
   function refresh() {
-    if (_currentFolder) loadFolder(_currentFolder);
+    return _currentFolder ? loadFolder(_currentFolder) : Promise.resolve();
   }
 
   // ── Sorting (click a column header; remembered) ───────────────────────────
@@ -127,11 +134,24 @@ const FileTree = (() => {
     }
     if (typeof foldersFirst === 'boolean') _sort.foldersFirst = foldersFirst;
     try { localStorage.setItem(_SORT_STORE, JSON.stringify(_sort)); } catch (_) {}
-    const keep = Array.from(_selected);
     _entries = _sortEntries(_entries);
     _applySearchFilter(_searchQuery);
-    keep.forEach(p => _selected.add(p));
     _renderSortHeader();
+  }
+
+  // After the visible list is rebuilt (sort / search), keep the focus ring and
+  // Shift-anchor on the same FILES — not the same row numbers. Otherwise F2
+  // renamed whichever file had moved into the old row. Selected items hidden
+  // by the search are dropped from the selection (they can't be seen).
+  function _remapAfterReorder(focusPath, anchorPath) {
+    const at = p => p ? _filtered.findIndex(e => e.path === p) : -1;
+    _focusIdx = at(focusPath);
+    _shiftAnchor = at(anchorPath);
+    const visible = new Set(_filtered.map(e => e.path));
+    const before = _selected.size;
+    _selected.forEach(p => { if (!visible.has(p)) _selected.delete(p); });
+    if (_focusIdx < 0 && _selected.size) _focusIdx = _filtered.findIndex(e => _selected.has(e.path));
+    return before !== _selected.size;
   }
   function _initSortHeader() {
     document.querySelectorAll('#fl-sort-bar .col-sort').forEach(h =>
@@ -169,6 +189,8 @@ const FileTree = (() => {
   }
 
   function _applySearchFilter(q) {
+    const focusPath  = _filtered[_focusIdx] ? _filtered[_focusIdx].path : null;
+    const anchorPath = _filtered[_shiftAnchor] ? _filtered[_shiftAnchor].path : null;
     if (!q) {
       _filtered = _entries;
     } else {
@@ -176,7 +198,12 @@ const FileTree = (() => {
         e.name.toLowerCase().includes(q)
       );
     }
+    const selChanged = _remapAfterReorder(focusPath, anchorPath);
     _renderCurrent();
+    if (selChanged) _selectionChanged();
+    else {
+      App.state.focusedPath = _focusIdx >= 0 ? _filtered[_focusIdx].path : null;
+    }
     App.setStatus(`${_filtered.length} items${q ? ' (filtered)' : ''}`);
   }
 
@@ -335,9 +362,11 @@ const FileTree = (() => {
     const collapse = parts.length > 4;
     const hiddenTo = parts.length - 2;   // parts[1 .. hiddenTo-1] are hidden
     // Drive letter gets special treatment
-    let cumulative = '';
+    // Network paths (\\server\share) keep their leading "//".
+    let cumulative = /^[\\/]{2}/.test(path) ? '/' : '';
     parts.forEach((part, i) => {
       cumulative += (i === 0 ? '' : '/') + part;
+      if (i === 0 && cumulative.startsWith('/')) cumulative = '/' + cumulative;
       if (collapse && i >= 1 && i < hiddenTo) {
         if (i === hiddenTo - 1) {
           const more = document.createElement('span');
@@ -409,7 +438,8 @@ const FileTree = (() => {
       // toggle
       if (_selected.has(entry.path)) _selected.delete(entry.path);
       else                            _selected.add(entry.path);
-    } else if (e.shiftKey && _shiftAnchor >= 0) {
+      _shiftAnchor = idx;   // Explorer: a later Shift+click extends from here
+    } else if (e.shiftKey && _shiftAnchor >= 0 && _shiftAnchor < _filtered.length) {
       // range select
       const lo = Math.min(_shiftAnchor, idx);
       const hi = Math.max(_shiftAnchor, idx);
@@ -534,6 +564,9 @@ const FileTree = (() => {
       const onList = active && (active.id === 'filelist-list' || active.id === 'filelist-thumb');
       const onBody = !active || active === document.body || active.tagName === 'DIV';
       if (!onList && !onBody) return;
+      // A dialog is open (its focused DIV counted as "body"): arrows, Space,
+      // Ctrl+A and Backspace moved the selection behind it.
+      if (App.blocked && App.blocked()) return;
       // The preview pane has focus (text selection, Ctrl+A on a page) — not ours.
       if (active && active.closest && active.closest('#preview-body')) return;
       // Don't hijack search box or rename inputs
@@ -586,9 +619,8 @@ const FileTree = (() => {
 
       // ── Backspace: go up one folder ────────────────────────────────────
       } else if (e.key === 'Backspace' && !e.ctrlKey && !e.shiftKey) {
-        if (!_currentFolder) return;
-        const parent = _currentFolder.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '') || _currentFolder;
-        if (parent !== _currentFolder) App.navigate(parent);
+        e.preventDefault();
+        App.navUp();     // "C:\Users" → "C:\" (not "C:", which is drive C's cwd)
         return;
 
       // ── Printable character: type-ahead jump ───────────────────────────
@@ -602,7 +634,8 @@ const FileTree = (() => {
       // Common post-nav logic (Arrow / Home / End / Page)
       const entry = _filtered[_focusIdx];
       if (!entry) return;
-      if (e.shiftKey && _shiftAnchor >= 0) {
+      if (e.shiftKey && _shiftAnchor < 0) _shiftAnchor = _focusIdx;
+      if (e.shiftKey && _shiftAnchor < _filtered.length) {
         // Shift+Arrow → extend selection range
         const lo = Math.min(_shiftAnchor, _focusIdx);
         const hi = Math.max(_shiftAnchor, _focusIdx);
@@ -719,14 +752,23 @@ const FileTree = (() => {
       }
     } catch (_) {}
     if (!_clipboard.paths.length) { App.toast('Nothing to paste — copy some files first', 'info', 2000); return; }
-    if (_clipboard.mode === 'copy') {
-      const r = await SFM.copyFiles(_clipboard.paths, _currentFolder);
-      if (r.ok) { App.toast('Pasted', 'success'); refresh(); }
-      else       { App.toast('Paste failed: ' + r.error, 'error'); }
-    } else {
-      const r = await SFM.moveFiles(_clipboard.paths, _currentFolder);
-      if (r.ok) { App.toast('Moved', 'success'); _clipboard = {mode:null,paths:[]}; refresh(); }
-      else       { App.toast('Move failed: ' + r.error, 'error'); }
+    const folder = _currentFolder;
+    const cut = _clipboard.mode !== 'copy';
+    const r = cut ? await SFM.moveFiles(_clipboard.paths, folder)
+                  : await SFM.copyFiles(_clipboard.paths, folder);
+    const done = (r && r.results || []).filter(x => x.ok && !x.unchanged);
+    if (cut && r && r.ok) _clipboard = { mode: null, paths: [] };
+    if (r && r.ok) App.toast(cut ? `Moved ${done.length || r.results.length} item(s)` : `Pasted ${done.length} item(s)`, 'success');
+    else App.toast(`${cut ? 'Move' : 'Paste'} failed${done.length ? ` for some items (${done.length} done)` : ''}: ${r ? r.error : 'unknown error'}`, 'error', 6000);
+    if (!App.normPath || App.normPath(folder) !== App.normPath(_currentFolder)) return;
+    // Show the pasted items selected, like Explorer.
+    await refresh();
+    const pasted = new Set(done.map(x => _normPath(x.dst)));
+    if (pasted.size) {
+      _selected = new Set(_filtered.filter(e => pasted.has(_normPath(e.path))).map(e => e.path));
+      _focusIdx = _filtered.findIndex(e => _selected.has(e.path));
+      _shiftAnchor = _focusIdx;
+      _renderCurrent(); _selectionChanged(); _scrollFocusedIntoView();
     }
   }
 
@@ -761,9 +803,16 @@ const FileTree = (() => {
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
-  async function deleteSelection() {
-    const paths = Array.from(_selected);
-    if (!paths.length) return;
+  function deleteSelection() {
+    return softDeletePaths(Array.from(_selected));
+  }
+
+  // Move to review (Del key, context menu, details pane): confirm, move the
+  // items into _to_review/, and make it undoable (Ctrl+Z moves them back —
+  // the undo used to be an empty function that still said "Undone").
+  async function softDeletePaths(paths) {
+    paths = (paths || []).filter(Boolean);
+    if (!paths.length) return false;
     const one = paths.length === 1 ? paths[0].split(/[\\/]/).pop() : '';
     const ok = await Dialogs.confirm({
       title: 'Move to review',
@@ -771,20 +820,32 @@ const FileTree = (() => {
       detail: 'Nothing is deleted — the items are moved into a _to_review folder next to them, where you can restore them.',
       okLabel: 'Move to review', okIcon: 'archive', icon: 'archive', tone: 'warning',
     });
-    if (!ok) return;
+    if (!ok) return false;
     const r = await SFM.softDelete(paths);
-    if (r.ok) {
-      const saved = paths.map(p => ({ path: p, moved: r.results?.find(x=>x.path===p)?.moved_to }));
+    let moved = ((r && r.results) || []).filter(x => x.ok && x.moved_to)
+      .map(x => ({ path: x.path, moved_to: x.moved_to }));
+    if (moved.length) {
+      const label = `Move ${moved.length} item(s) to review`;
       App.pushUndo({
-        label: `Deleted ${paths.length} item(s)`,
-        undo: async () => { /* move back not implemented yet */ },
-        redo: async () => SFM.softDelete(paths),
+        label,
+        undo: async () => {
+          const u = await SFM.call('restore_soft_deleted', moved);
+          await refresh();
+          if (!u || !u.ok) throw new Error((u && u.error) || 'restore failed');
+        },
+        redo: async () => {
+          const again = await SFM.softDelete(moved.map(m => m.path));
+          moved = ((again && again.results) || []).filter(x => x.ok && x.moved_to)
+            .map(x => ({ path: x.path, moved_to: x.moved_to }));
+          await refresh();
+          if (!again || !again.ok) throw new Error((again && again.error) || 'move failed');
+        },
       });
-      App.toast(`${paths.length} item(s) moved to _to_review/`, 'success');
-      refresh();
-    } else {
-      App.toast('Delete failed: ' + r.error, 'error');
     }
+    if (r && r.ok) App.toast(`${paths.length} item(s) moved to _to_review/ — Ctrl+Z to undo`, 'success');
+    else App.toast('Move to review failed: ' + ((r && r.error) || 'unknown error'), 'error', 6000);
+    await refresh();
+    return !!(r && r.ok);
   }
 
   // ── Combine PDFs ──────────────────────────────────────────────────────────
@@ -1215,6 +1276,7 @@ const FileTree = (() => {
 
   function getSelected()     { return Array.from(_selected); }
   function getFocusedEntry() { return _filtered[_focusIdx] || null; }
+  function getEntry(path)    { return _entries.find(e => _samePath(e.path, path)) || null; }
   function getCurrentFolder(){ return _currentFolder; }
 
   // ── Expand / Collapse All ────────────────────────────────────────────────
@@ -1346,7 +1408,10 @@ const FileTree = (() => {
     children.dataset.parentPath = entry.path;
     row.appendChild(children);
 
-    if (autoExpand) _loadTreeChildren(children, entry.path, depth + 1);
+    // Re-rendering the tree (every folder change) must keep nested folders
+    // open: they showed an open arrow with no children before.
+    if (autoExpand || isExp) _loadTreeChildren(children, entry.path, depth + 1);
+    if (_samePath(entry.path, _currentFolder)) row.classList.add('active');
     return row;
   }
 
@@ -1387,8 +1452,9 @@ const FileTree = (() => {
     const el = treeEl();
     if (!el) return;
     el.querySelectorAll('.tree-node.active').forEach(n => n.classList.remove('active'));
-    const found = el.querySelector(`.tree-node[data-path="${CSS.escape(path)}"]`);
-    if (found) found.classList.add('active');
+    el.querySelectorAll('.tree-node[data-path]').forEach(n => {
+      if (_samePath(n.dataset.path, path)) n.classList.add('active');
+    });
   }
 
   // ── Init ────────────────────────────────────────────────────────────────────────────
@@ -1412,9 +1478,9 @@ const FileTree = (() => {
   return {
     loadFolder, refresh, refreshAndSelect, revealPath, applySearch, setViewMode,
     copySelection, cutSelection, pasteSelection,
-    newFolder, deleteSelection,
+    newFolder, deleteSelection, softDeletePaths,
     combineSelected, browseFolder,
-    getSelected, getFocusedEntry, getCurrentFolder,
+    getSelected, getFocusedEntry, getCurrentFolder, getEntry,
     expandAll, collapseAll,
     startRename, isRenaming, setSort,
   };

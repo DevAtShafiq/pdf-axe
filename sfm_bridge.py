@@ -537,9 +537,17 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, Cl
         except Exception as exc:
             return _err(str(exc))
 
-    def open_folder_in_explorer(self, path: str) -> dict:
+    def open_folder_in_explorer(self, path: str, select: bool = False) -> dict:
+        """Open a folder in Explorer. With select=True, open the item's parent
+        folder with the item highlighted ("Show in Explorer")."""
         try:
             import subprocess
+            path = os.path.abspath(os.path.normpath(str(path or "")))
+            if not os.path.exists(path):
+                return _err(f"Not found: {path}")
+            if select:
+                subprocess.Popen(f'explorer /select,"{path}"')
+                return _ok()
             folder = path if os.path.isdir(path) else os.path.dirname(path)
             subprocess.Popen(["explorer", folder])
             return _ok()

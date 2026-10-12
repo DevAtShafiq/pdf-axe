@@ -43,8 +43,14 @@ const ContextMenu = (() => {
     const mainPath = entry?.path || paths[0];
 
     // Section: open
-    _item(menu, 'external-link', 'Open',           'Ctrl+Enter', () => { hide(); if(entry) SFM.openNative(entry.path); });
-    _item(menu, 'folder-open', 'Show in Explorer', '',              () => { hide(); if(entry) SFM.openFolder(entry.path.replace(/[\\\/][^\\\/]+$/, '')); });
+    // Enter opens (Ctrl+Enter is Merge/Arrange). A folder opens in the list.
+    if (single) _item(menu, isDir ? 'folder-open' : 'external-link', 'Open', 'Enter', async () => {
+      hide();
+      if (isDir) { App.navigate(entry.path); return; }
+      const r = await SFM.openNative(entry.path);
+      if (r && r.ok === false) App.toast('Could not open: ' + r.error, 'error');
+    });
+    if (single) _item(menu, 'folder-open', 'Show in Explorer', '', () => { hide(); SFM.openFolder(entry.path, true); });
     if (single && entry && !isDir) {
       _item(menu, 'app-window', 'Open with\u2026', '', async () => {
         hide();
@@ -88,13 +94,8 @@ const ContextMenu = (() => {
 
     // Section: file ops
     _item(menu, 'text-cursor', 'Rename',         'F2',  () => { hide(); setTimeout(() => FileTree.startRename(), 50); });
-    _item(menu, 'archive', 'Move to Review', 'Del', async () => {
-      hide();
-      if (!(await Dialogs.confirm({ title: 'Move to review', icon: 'archive', tone: 'warning', okLabel: 'Move to review', okIcon: 'archive', message: paths.length === 1 ? `Move “${paths[0].split(/[\/]/).pop()}” to the _to_review folder?` : `Move ${paths.length} items to the _to_review folder?`, detail: 'Nothing is deleted — the items are moved into a _to_review folder next to them, where you can restore them.' }))) return;
-      const r = await SFM.softDelete(paths);
-      if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
-    });
+    // Same flow as the Del key: names the file (not its full path), undoable.
+    _item(menu, 'archive', 'Move to Review', 'Del', () => { hide(); FileTree.softDeletePaths(paths); });
     _sep(menu);
 
     // Section: PDF ops
