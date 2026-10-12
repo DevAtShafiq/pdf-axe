@@ -4877,7 +4877,7 @@ def pdf_smart_split_merge_rename(
         """KR-EN stem from template pair, sanitised for Windows filenames."""
         if not en and not ko:
             return f"{fallback_prefix}_{page_idx + 1:03d}"
-        _INVALID = set('\\\/:"*?<>|')
+        _INVALID = set('\\/:"*?<>|')
         parts: list[str] = []
         ko_b, en_b = ko.strip(), en.strip()
         if ko_b:
