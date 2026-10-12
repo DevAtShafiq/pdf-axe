@@ -136,8 +136,12 @@ class CloudBridgeMixin:
         elif status == 0:
             extra["offline"] = True
             url = self._cloud_server_url()
-            msg = (f"Can't reach the server{' at ' + url if url else ''}. "
-                   "Check your internet connection or the server address.")
+            if getattr(exc, "wrong_server", False):
+                msg = (f"The address {url} answered, but it is not an Office Axe account server. "
+                       "Check the server address.")
+            else:
+                msg = (f"Can't reach the server{' at ' + url if url else ''}. "
+                       "Check your internet connection or the server address.")
         elif status >= 500:
             msg = f"The server had a problem ({msg}). Please try again in a moment."
         extra.update(kw)
@@ -343,13 +347,31 @@ class CloudBridgeMixin:
         except Exception as exc:
             return _err(str(exc))
 
+    @staticmethod
+    def _cloud_is_local_host(addr: str) -> bool:
+        """True for an address typed without a scheme that names this computer or the
+        office network (localhost, a private IP, a bare LAN name like 'office-pc' or
+        'server.local'), where a self-hosted server normally speaks plain http."""
+        import ipaddress
+        host = addr.split("/")[0]
+        if host.startswith("["):                       # [::1]:8000
+            host = host[1:].split("]")[0]
+        elif host.count(":") == 1:
+            host = host.split(":")[0]
+        host = host.lower()
+        if host == "localhost" or host.endswith((".local", ".lan", ".localhost", ".home.arpa")):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+            return ip.is_private or ip.is_loopback or ip.is_link_local
+        except ValueError:
+            return bool(host) and "." not in host        # single-label LAN name
+
     def account_set_server(self, url: str) -> dict:
         try:
             url = str(url or "").strip().rstrip("/")
             if url and "://" not in url:
-                host = url.split("/")[0].split(":")[0].lower()
-                local = host in ("localhost", "127.0.0.1") or host.startswith(("192.168.", "10."))
-                url = ("http://" if local else "https://") + url
+                url = ("http://" if self._cloud_is_local_host(url) else "https://") + url
             if url and not url.lower().startswith(("http://", "https://")):
                 return _err("Server address must start with http:// or https://")
             if url != self._cloud_server_url():
