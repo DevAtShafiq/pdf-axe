@@ -303,7 +303,9 @@ const App = (() => {
         const anchor = sel && sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
         const inPreview = !!(anchor && anchor.closest && anchor.closest('#preview-body, #fullview-wrap'));
         const previewText = inPreview && window.PdfText && PdfText.selectedText ? PdfText.selectedText() : '';
-        if (previewText.trim()) return;
+        // Copy it ourselves: WebView2 does not always fire the 'copy' event
+        // for a selection over the PDF text layer, so Ctrl+C did nothing.
+        if (previewText.trim()) { e.preventDefault(); PdfText.copyText(previewText); return; }
         const onList = _lastZone === 'list' ||
           (t && (t.id === 'filelist-list' || t.id === 'filelist-thumb'));
         if (!onList && sel && !sel.isCollapsed && sel.toString().trim()) return;
