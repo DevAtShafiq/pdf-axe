@@ -493,7 +493,7 @@ const Dialogs = (() => {
       });
       document.getElementById('fv-del-page').addEventListener('click', async () => {
         if (total <= 1) { App.toast('Cannot delete the only page', 'error'); return; }
-        if (!(await confirmDialog({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${page + 1} of ${total} from this PDF?`, detail: 'This changes the PDF file itself.' }))) return;
+        if (!(await confirmDialog({ title: 'Delete page', danger: true, icon: 'trash', okLabel: 'Delete page', okIcon: 'trash', message: `Delete page ${page + 1} of ${total} from this PDF?`, detail: 'This changes the PDF file itself. The previous version is kept in “_to_review”.' }))) return;
         const r = await SFM.deletePage(path, page);
         if (r.ok) {
           total--;
