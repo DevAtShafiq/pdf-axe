@@ -577,7 +577,8 @@ const FileTree = (() => {
         return;
 
       // ── Ctrl+A: select all ─────────────────────────────────────────────
-      } else if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) {
+      // (not Ctrl+Shift+A — that opens Annotate for the selected file)
+      } else if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
         e.preventDefault();
         _filtered.forEach(en => _selected.add(en.path));
         _renderCurrent();
