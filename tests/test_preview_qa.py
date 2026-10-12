@@ -49,3 +49,58 @@ def test_broken_docx_error_does_not_dump_the_path(tmp_path):
         dp.docx_to_html(str(p))
     assert ei.value.code == "bad_file"
     assert str(tmp_path) not in str(ei.value) and "damaged" in str(ei.value)
+
+
+def _big_wb(tmp_path, monkeypatch):
+    openpyxl = pytest.importorskip("openpyxl")
+    p = tmp_path / "big.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "top"
+    ws["A5"] = "five"
+    ws["C8"] = 3
+    wb.save(str(p))
+    real = os.path.getsize
+    monkeypatch.setattr(dp.os.path, "getsize",
+                        lambda q: 99 * 1024 * 1024 if os.path.abspath(q) == os.path.abspath(str(p)) else real(q))
+    return str(p)
+
+
+def test_big_workbook_row_numbers_are_right(tmp_path, monkeypatch):
+    import re
+    p = _big_wb(tmp_path, monkeypatch)       # > 15 MB → read-only mode
+    r = dp.xlsx_to_html(p)
+    assert re.findall(r'<th class="xl-rh">(\d+)</th>', r["html"]) == [str(i) for i in range(1, 9)]
+    assert ">five<" in r["html"]
+
+
+def test_big_workbook_preview_does_not_lock_the_file(tmp_path, monkeypatch):
+    p = _big_wb(tmp_path, monkeypatch)
+    dp.xlsx_to_html(p)
+    os.rename(p, p + ".moved")               # WinError 32 while the preview held it
+    os.rename(p + ".moved", p)
+
+
+def test_big_workbook_without_dimension_is_capped(tmp_path, monkeypatch):
+    import re
+    import zipfile
+    openpyxl = pytest.importorskip("openpyxl")
+    a, b = tmp_path / "a.xlsx", tmp_path / "nodim.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for i in range(1, 31):
+        ws.cell(i, 1, f"r{i}")
+        ws.cell(i, 2, i)
+    wb.save(str(a))
+    with zipfile.ZipFile(a) as zin, zipfile.ZipFile(b, "w") as zout:
+        for it in zin.infolist():
+            d = zin.read(it.filename)
+            if it.filename.startswith("xl/worksheets/"):
+                d = re.sub(rb"<dimension[^>]*/>", b"", d)
+            zout.writestr(it, d)
+    real = os.path.getsize
+    monkeypatch.setattr(dp.os.path, "getsize",
+                        lambda q: 99 * 1024 * 1024 if os.path.abspath(q) == os.path.abspath(str(b)) else real(q))
+    r = dp.xlsx_to_html(str(b), max_rows=10, max_cols=5)
+    assert r["rows_shown"] == 10 and r["cols_shown"] == 2
+    assert r["rows"] >= 10 and r["cols"] == 2
