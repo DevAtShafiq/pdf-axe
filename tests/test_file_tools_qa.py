@@ -109,6 +109,11 @@ def test_old_merge_split_extract_reorder_never_overwrite(bridge, tmp_path):
     assert "Page 2" in d[0].get_text() and "Page 1" in d[1].get_text()
 
 
+def test_thumbnails_missing_file_is_readable(bridge, tmp_path):
+    r = bridge.pdf_thumbnails(str(tmp_path / "gone.pdf"), [0], 80)
+    assert r["ok"] is False and r["error"] == "File not found: gone.pdf"
+
+
 def test_delete_page_keeps_backup(bridge, tmp_path):
     p = _pdf(tmp_path / "d.pdf", 3)
     r = bridge.delete_pdf_page(p, 1)

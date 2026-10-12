@@ -100,6 +100,16 @@ def test_merge_split_extract_arrange_keep_text(form_pdf, tmp_path):
     _assert_text_pdf(r["out_path"])
 
 
+def test_split_and_target_compress_keep_text(form_pdf):
+    r = pt.split(form_pdf, "each")
+    for f in r["files"]:
+        _assert_text_pdf(f, pages=1, fields=1)
+    for kw in (dict(target_kb=40, save_smallest=True), dict(preset="level-12"), dict(preset="lossless")):
+        c = mc.compress_pdf(form_pdf, **kw)
+        if c.get("out"):
+            _assert_text_pdf(c["out"])
+
+
 def test_password_keeps_text_and_fields(form_pdf):
     r = at.pdf_set_password(form_pdf, "pw123")
     _assert_text_pdf(r["out_path"], password="pw123")
