@@ -445,10 +445,24 @@ def render_page(path: str, page: int = 0, scale: float = 1.5) -> dict:
         if page < 0 or page >= doc.page_count:
             raise AnnotateError("Page out of range")
         pg = doc.load_page(int(page))
+        # The editor draws the annotations itself, but form fields (widgets)
+        # are part of what the user is filling / signing and must stay
+        # visible: drop the annotations from this in-memory copy only and
+        # render with widgets on (annots=False would hide the fields too).
+        has_widgets = pg.first_widget is not None
+        if has_widgets:
+            for x in [a.xref for a in (pg.annots() or [])]:
+                try:
+                    an_ = pg.load_annot(x)
+                    if an_:
+                        pg.delete_annot(an_)
+                except Exception:
+                    pass
+            pg = doc.load_page(int(page))
         # keep very large pages bounded (~ 24 MP)
         r = pg.rect
         s = min(scale, math.sqrt(24e6 / max(1.0, r.width * r.height)))
-        pix = pg.get_pixmap(matrix=fitz.Matrix(s, s), annots=False)
+        pix = pg.get_pixmap(matrix=fitz.Matrix(s, s), annots=has_widgets)
         return {"data_url": _data_url(pix.tobytes("jpeg", jpg_quality=88), "image/jpeg"),
                 "width": pix.width, "height": pix.height}
     finally:

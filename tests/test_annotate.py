@@ -212,6 +212,33 @@ def test_render_page_excludes_annotations(tmp_path):
     assert img.convert("L").getpixel((5, 5)) > 200           # white page, not the black cover
 
 
+def test_render_page_shows_form_fields_but_not_annotations(tmp_path):
+    """Regression: the editor's page image hid filled form fields (annots=False
+    also drops widgets), so a user signing a form could not see its values."""
+    doc = fitz.open()
+    pg = doc.new_page(width=595, height=842)
+    w = fitz.Widget()
+    w.field_name = "f"
+    w.field_type = fitz.PDF_WIDGET_TYPE_TEXT
+    w.rect = fitz.Rect(50, 50, 545, 150)
+    w.field_value = "Value"
+    w.fill_color = (0, 0, 0)
+    pg.add_widget(w)
+    ra = pg.add_rect_annot(fitz.Rect(50, 400, 545, 800))
+    ra.set_colors(stroke=(1, 0, 0), fill=(1, 0, 0))
+    ra.update()
+    p = str(tmp_path / "form.pdf")
+    doc.save(p)
+    doc.close()
+    r = an.render_page(p, 0, 0.5)
+    img = Image.open(io.BytesIO(base64.b64decode(r["data_url"].split(",", 1)[1]))).convert("RGB")
+    assert img.getpixel((150, 50))[0] < 60                  # black field background visible
+    assert img.getpixel((150, 300)) == pytest.approx((255, 255, 255), abs=12)   # red annot not drawn
+    d2 = fitz.open(p)                                         # the file itself is untouched
+    assert len(list(d2[0].annots())) == 1
+    d2.close()
+
+
 def test_unknown_annotations_are_kept(tmp_path):
     src = make_pdf(tmp_path / "doc.pdf", pages=1)
     doc = fitz.open(src)
