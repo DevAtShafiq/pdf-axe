@@ -136,12 +136,39 @@ const App = (() => {
   }
 
   // ── Navigation History ────────────────────────────────────────────────────
+  // One spelling per folder: backslashes, no trailing separator, and a drive
+  // root as "C:\" ("C:" alone means drive C's current directory). The
+  // breadcrumb used to hand over "C:/Users/" — Up then did nothing and the
+  // tree highlight never matched.
+  function normPath(p) {
+    let s = String(p || '').trim().replace(/\//g, '\\');
+    if (!s) return '';
+    const unc = s.startsWith('\\\\');
+    s = (unc ? '\\\\' : '') + s.slice(unc ? 2 : 0).replace(/\\{2,}/g, '\\');
+    if (/^[A-Za-z]:\\?$/.test(s)) return s.slice(0, 2).toUpperCase() + '\\';
+    return s.length > 3 ? s.replace(/\\+$/, '') : s;
+  }
+
+  // Parent folder, or '' at a drive root / share root.
+  function parentPath(p) {
+    const s = normPath(p);
+    if (!s || /^[A-Za-z]:\\$/.test(s)) return '';
+    const i = s.lastIndexOf('\\');
+    if (i < 0) return '';
+    const par = s.slice(0, i);
+    if (/^[A-Za-z]:$/.test(par)) return par + '\\';
+    if (par.startsWith('\\\\') && par.slice(2).split('\\').length < 2) return '';   // \\server
+    return par;
+  }
+
   function navigate(folder, pushHistory = true) {
-    if (pushHistory && state.currentFolder) {
+    folder = normPath(folder);
+    if (!folder) return;
+    if (pushHistory && state.currentFolder && folder.toLowerCase() !== state.currentFolder.toLowerCase()) {
       state.historyBack.push(state.currentFolder);
       state.historyFwd = [];
-      _addRecent(folder);
     }
+    _addRecent(folder);
     state.currentFolder = folder;
     _updateNavButtons();
     setStatusFolder(folder);
@@ -150,7 +177,7 @@ const App = (() => {
 
   function _addRecent(folder) {
     if (!folder) return;
-    state.recentFolders = [folder, ...state.recentFolders.filter(f => f !== folder)].slice(0, 10);
+    state.recentFolders = [folder, ...state.recentFolders.filter(f => f.toLowerCase() !== folder.toLowerCase())].slice(0, 10);
   }
 
   function _showRecentDropdown(anchorEl) {
@@ -193,9 +220,8 @@ const App = (() => {
   }
 
   function navUp() {
-    if (!state.currentFolder) return;
-    const parent = state.currentFolder.replace(/[\\/][^\\/]+$/, '') || state.currentFolder;
-    if (parent !== state.currentFolder) navigate(parent);
+    const parent = parentPath(state.currentFolder);
+    if (parent) navigate(parent);
   }
 
   function _updateNavButtons() {
@@ -283,7 +309,10 @@ const App = (() => {
       // otherwise Ctrl+V pastes files instead of text, Delete soft-deletes
       // the selected file mid-rename, Ctrl+Z runs file-op undo, etc.
       const t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      // A dialog / editor is open, or another page (Cloud, Account…) is shown:
+      // Delete, F2, Ctrl+V… must not act on the file list hidden behind it.
+      if (blocked()) return;
 
       const ctrl  = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
@@ -313,7 +342,12 @@ const App = (() => {
         e.preventDefault();
         FileTree.copySelection(); return;
       }
-      if (ctrl && key === 'x')           { FileTree.cutSelection();  return; }
+      if (ctrl && key === 'x' && !shift) {
+        // Like Ctrl+C: selected words outside the list stay a text cut/copy.
+        const sel = window.getSelection();
+        if (_lastZone !== 'list' && sel && !sel.isCollapsed && sel.toString().trim()) return;
+        e.preventDefault(); FileTree.cutSelection(); return;
+      }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
       if (ctrl && shift && key === 'n')  { e.preventDefault(); FileTree.newFolder(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
@@ -328,6 +362,16 @@ const App = (() => {
       if (ctrl && key === '0')           { e.preventDefault(); Preview.zoomReset(); return; }
       if (key === 'Escape')              { ContextMenu.hide(); return; }
     });
+  }
+
+  // True while a modal / full-window editor is up or the Files page is hidden.
+  function blocked() {
+    if (state.currentPanel && state.currentPanel !== 'workspace') return true;
+    for (const ov of document.querySelectorAll('.modal-overlay, .acct-overlay')) {
+      if (!ov.isConnected || ov.classList.contains('hidden')) continue;
+      if (getComputedStyle(ov).display !== 'none') return true;
+    }
+    return false;
   }
 
   // ── SFM Events from Python ────────────────────────────────────────────────
@@ -380,6 +424,7 @@ const App = (() => {
   }
 
   // ── Toolbar Wiring ────────────────────────────────────────────────────────
+  let _themeSave = Promise.resolve();
   function _initToolbar() {
     const wire = (id, fn) => { const el = document.getElementById(id); if(el) el.addEventListener('click', fn); };
 
@@ -425,7 +470,9 @@ const App = (() => {
     wire('btn-theme', () => {
       const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
       applyTheme(next);
-      SFM.saveSettings({ theme: next }).catch(() => {});
+      // One save at a time: pywebview runs each call on its own thread, so two
+      // quick clicks could finish out of order and store the wrong theme.
+      _themeSave = _themeSave.then(() => SFM.saveSettings({ theme: next })).catch(() => {});
     });
     // Restore saved theme from settings
     SFM.getSettings().then(r => {
@@ -521,5 +568,6 @@ const App = (() => {
     navigate, toast, setStatus, setStatusFolder,
     setStatusSelection, pushUndo, undo, redo,
     switchPanel, navBack, navForward, navUp, applyTheme, syncFileTools,
+    normPath, parentPath, blocked,
   };
 })();

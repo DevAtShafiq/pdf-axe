@@ -548,22 +548,30 @@ const Dialogs = (() => {
       { label: 'Rename', primary: true, icon: 'case', onClick: async () => {
         const rows = document.querySelectorAll('#uc-preview .uc-row');
         closeModal();
-        let done = 0;
+        // Count real renames only; failures used to be reported as success.
+        let done = 0; const errs = [];
         for (const row of rows) {
-          if (row.dataset.old && row.dataset.new)
-            { await SFM.renameFile(row.dataset.old, row.dataset.new); done++; }
+          const oldP = row.dataset.old, newN = row.dataset.new;
+          if (!oldP || !newN || oldP.split(/[\\/]/).pop() === newN) continue;
+          const r = await SFM.renameFile(oldP, newN);
+          if (r && r.ok) done++; else errs.push(`${newN}: ${(r && r.error) || 'failed'}`);
         }
-        App.toast(`Renamed ${done} file(s)`, 'success');
+        if (errs.length) App.toast(`Renamed ${done} item(s); ${errs.length} failed — ${errs.join('; ')}`, 'error', 7000);
+        else App.toast(done ? `Renamed ${done} item(s)` : 'Names already in that case', done ? 'success' : 'info');
         FileTree.refresh();
       }},
     ], { icon: 'case', subtitle: selected.length ? `${selected.length} selected item${selected.length === 1 ? '' : 's'}` : 'No selection', size: 'sm' });
 
     const preview  = document.getElementById('uc-preview');
 
+    // Change the case of the name only — "report.pdf" → "Report.pdf", not
+    // "Report.Pdf" / "REPORT.PDF". Folders change as a whole.
+    const isDir = p => { const e = (FileTree.getEntry && FileTree.getEntry(p)); return !!(e && e.is_dir); };
     function buildPreview(fn) {
       preview.innerHTML = selected.map(p => {
         const name    = p.split(/[\\/]/).pop();
-        const newName = fn(name);
+        const dot     = isDir(p) ? -1 : name.lastIndexOf('.');
+        const newName = dot > 0 ? fn(name.slice(0, dot)) + name.slice(dot) : fn(name);
         return `<div class="uc-row result-row" data-old="${_esc(p)}" data-new="${_esc(newName)}">
           <span class="result-name text-muted" title="${_esc(name)}">${_esc(name)}</span>
           ${Icons.svg('arrow-right', 14, 'text-muted')}
@@ -591,7 +599,10 @@ const Dialogs = (() => {
     const rs = await SFM.getSettings();
     const s  = rs.ok ? rs.settings : {};
     const rk = await SFM.getApiKey();
-    const apiKey = rk.key || '';
+    // The bridge never returns the raw key (only a masked form). Leave the box
+    // empty and show the masked key as the placeholder; empty = keep it.
+    const apiKey = '';
+    const keyHint = rk && rk.ok && rk.has_key ? `Saved: ${rk.masked} — type a new key to replace it` : 'sk-…';
 
     const OCR_LANGS = [
       ['eng', 'English'], ['kor', 'Korean'], ['jpn', 'Japanese'], ['chi_sim', 'Chinese (Simplified)'],
@@ -650,7 +661,7 @@ const Dialogs = (() => {
             <div>
               <div class="input-group">
                 <span class="input-icon">${Icons.svg('key', 14)}</span>
-                <input id="s-apikey" class="input-text mono" type="password" value="${_esc(apiKey)}" placeholder="sk-…" autocomplete="off" spellcheck="false">
+                <input id="s-apikey" class="input-text mono" type="password" value="" placeholder="${_esc(keyHint)}" autocomplete="off" spellcheck="false">
                 <button type="button" class="icon-btn input-action" id="s-apikey-toggle" title="Show key" aria-label="Show key">${Icons.svg('eye', 16)}</button>
               </div>
               <div class="field-hint">Needed for Smart Split and AI photo edits. Stored on this computer only.</div>

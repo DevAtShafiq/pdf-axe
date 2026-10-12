@@ -16,6 +16,7 @@ const Details = (() => {
 
   // ── Public: show one file ─────────────────────────────────────────────────
   async function showFile(entry) {
+    if (!entry) { clear(); return; }   // selected item not in the visible list
     _entry = entry;
     _path  = entry.path;
 
@@ -136,9 +137,14 @@ const Details = (() => {
   function _initQuickActions() {
     const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
 
-    wire('qa-open',    () => { if (_path) SFM.openNative(_path); });
+    wire('qa-open',    async () => {
+      if (!_path) return;
+      if (_entry && _entry.is_dir) { App.navigate(_path); return; }
+      const r = await SFM.openNative(_path);
+      if (r && r.ok === false) App.toast('Could not open: ' + r.error, 'error');
+    });
     wire('qa-openwith', (e) => { e.stopPropagation(); _toggleOpenWith(); });
-    wire('qa-opendir', () => { if (_path) SFM.openFolder(_path.replace(/[\\/][^\\/]+$/, '')); });
+    wire('qa-opendir', () => { if (_path) SFM.openFolder(_path, true); });   // parent, item highlighted
     wire('qa-rename',  () => { if (_path) FileTree.startRename(_path); });
     wire('qa-copy-path', () => {
       if (!_path) return;
@@ -146,11 +152,8 @@ const Details = (() => {
     });
     wire('qa-delete',  async () => {
       if (!_path) return;
-      const n = _entry?.name || _path;
-      if (!(await Dialogs.confirm({ title: 'Move to review', icon: 'archive', tone: 'warning', okLabel: 'Move to review', okIcon: 'archive', message: `Move “${n}” to the _to_review folder?`, detail: 'Nothing is deleted — it is moved into a _to_review folder next to it, where you can restore it.' }))) return;
-      const r = await SFM.softDelete([_path]);
-      if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); clear(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
+      // Shared with Del / context menu: confirm, move, undoable with Ctrl+Z.
+      await FileTree.softDeletePaths([_path]);
     });
     // Conversion / compression (convert-tools.js)
     wire('qa-convert-pdf', () => { if (_path) ConvertTools.quickImageToPdf(_path); });

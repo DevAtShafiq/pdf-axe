@@ -271,3 +271,21 @@ def test_bridge_rename_and_save_template(bridge, tmp_path):
     assert rt.store().user_pairs("en") == [("Only English", "")]
     assert bridge.save_name_template("Added Via Bridge", "", "en")["ok"]
     assert ("Added Via Bridge", "") in rt.store().user_pairs("en")
+
+
+def test_bridge_rename_with_template_edge_cases(bridge, tmp_path):
+    d = tmp_path / "w"
+    d.mkdir()
+    (d / "My.Docs").mkdir()
+    r = bridge.rename_with_template(str(d / "My.Docs"), "Passport")
+    assert r["ok"] and r["new_name"] == "Passport"            # folders get no extension
+    f = d / "scan.PDF"
+    f.write_bytes(b"x")
+    r = bridge.rename_with_template(str(f), "visa.pdf")         # typed extension is not doubled
+    assert r["ok"] and r["new_name"] == "visa.PDF"
+    assert not bridge.rename_with_template(str(f), "x")["ok"]  # gone now
+    assert not bridge.rename_with_template(str(d / "visa.PDF"), "  ")["ok"]
+    r = bridge.rename_with_template(str(d / "visa.PDF"), 'a:b*c?')
+    assert r["ok"] and r["new_name"] == "a_b_c_.PDF"
+    r = bridge.rename_with_template(str(d / "a_b_c_.PDF"), "a_b_c_")
+    assert r["ok"] and r["new_name"] == "a_b_c_.PDF"           # own name: no " (2)"

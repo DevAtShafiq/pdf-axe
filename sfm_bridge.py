@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import re
 import base64
 import threading
 import traceback
@@ -175,6 +176,9 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         """List immediate children of a folder. Returns sorted entries."""
         _log.info("list_folder: %s", path)
         try:
+            # "C:" means the current directory on drive C, not its root.
+            if isinstance(path, str) and re.fullmatch(r"[A-Za-z]:", path.strip()):
+                path = path.strip() + "\\"
             if not os.path.isdir(path):
                 _log.warning("list_folder: not a directory: %s", path)
                 return _err(f"Not a directory: {path}")
@@ -527,14 +531,24 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
 
     def open_native(self, path: str) -> dict:
         try:
-            _fo.open_path_system_default(path)
+            # open_path_system_default returns (ok, err) — it never raises, so
+            # a failure (e.g. a folder, a missing file) used to report success.
+            _check(_fo.open_path_system_default(path), "Could not open the file")
             return _ok()
         except Exception as exc:
             return _err(str(exc))
 
-    def open_folder_in_explorer(self, path: str) -> dict:
+    def open_folder_in_explorer(self, path: str, select: bool = False) -> dict:
+        """Open a folder in Explorer. With select=True, open the item's parent
+        folder with the item highlighted ("Show in Explorer")."""
         try:
             import subprocess
+            path = os.path.abspath(os.path.normpath(str(path or "")))
+            if not os.path.exists(path):
+                return _err(f"Not found: {path}")
+            if select:
+                subprocess.Popen(f'explorer /select,"{path}"')
+                return _ok()
             folder = path if os.path.isdir(path) else os.path.dirname(path)
             subprocess.Popen(["explorer", folder])
             return _ok()
@@ -679,19 +693,54 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             return {"ok": False, "error": msg, "results": results}
         return _ok(results=results)
 
+    @staticmethod
+    def _free_dest(dest_dir: str, name: str, is_dir: bool = False) -> str:
+        """dest_dir/name, or "name (2).ext", "name (3).ext" … when taken."""
+        dst = os.path.join(dest_dir, name)
+        base, ext = os.path.splitext(name)
+        if is_dir:
+            base, ext = name, ""          # folders: "My.Folder (2)", not "My (2).Folder"
+        i = 2
+        while os.path.exists(dst):
+            dst = os.path.join(dest_dir, f"{base} ({i}){ext}")
+            i += 1
+        return dst
+
+    @staticmethod
+    def _inside(child: str, parent: str) -> bool:
+        """True when *child* is *parent* or lies somewhere below it."""
+        c = os.path.normcase(os.path.abspath(child)).rstrip("\\/")
+        p = os.path.normcase(os.path.abspath(parent)).rstrip("\\/")
+        return c == p or c.startswith(p + os.sep)
+
+    @staticmethod
+    def _file_op_result(results: list, verb: str) -> dict:
+        """ok:false (with a readable error) when any item failed — the UI used
+        to report "Pasted" / "Moved" even when nothing happened."""
+        failed = [r for r in results if not r.get("ok")]
+        if failed:
+            msg = "; ".join(f'{os.path.basename(str(r["src"]).rstrip(chr(92) + "/"))}: {r.get("error", "failed")}'
+                            for r in failed)
+            done = len(results) - len(failed)
+            return {"ok": False, "error": msg, "results": results,
+                    "done": done, "failed": len(failed),
+                    "partial": done > 0, "verb": verb}
+        return _ok(results=results, done=len(results), failed=0)
+
     def copy_files(self, src_paths: list, dest_dir: str) -> dict:
         import shutil
         results = []
-        for src in src_paths:
+        if not dest_dir or not os.path.isdir(str(dest_dir)):
+            return _err(f"Destination folder not found: {dest_dir}")
+        for src in src_paths or []:
             try:
-                name = os.path.basename(src)
-                dst  = os.path.join(dest_dir, name)
-                # Auto-number if exists
-                base, ext = os.path.splitext(name)
-                i = 2
-                while os.path.exists(dst):
-                    dst = os.path.join(dest_dir, f"{base} ({i}){ext}")
-                    i += 1
+                src = os.path.abspath(str(src))
+                if not os.path.exists(src):
+                    raise RuntimeError("not found")
+                if os.path.isdir(src) and self._inside(dest_dir, src):
+                    # copytree into its own subfolder recurses until the path is too long
+                    raise RuntimeError("a folder can't be copied into itself")
+                dst = self._free_dest(dest_dir, os.path.basename(src), os.path.isdir(src))
                 if os.path.isdir(src):
                     shutil.copytree(src, dst)
                 else:
@@ -699,20 +748,59 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
                 results.append({"src": src, "dst": dst, "ok": True})
             except Exception as exc:
                 results.append({"src": src, "ok": False, "error": str(exc)})
-        return _ok(results=results)
+        return self._file_op_result(results, "copy")
 
     def move_files(self, src_paths: list, dest_dir: str) -> dict:
+        """Move items into dest_dir. An existing item is never replaced and a
+        folder is never merged into a same-named one: the moved item gets a
+        free "name (2)" instead. Moving into the folder it is already in is a
+        no-op."""
         import shutil
         results = []
-        for src in src_paths:
+        if not dest_dir or not os.path.isdir(str(dest_dir)):
+            return _err(f"Destination folder not found: {dest_dir}")
+        for src in src_paths or []:
             try:
-                name = os.path.basename(src)
-                dst  = os.path.join(dest_dir, name)
+                src = os.path.abspath(str(src))
+                if not os.path.exists(src):
+                    raise RuntimeError("not found")
+                if os.path.isdir(src) and self._inside(dest_dir, src):
+                    raise RuntimeError("a folder can't be moved into itself")
+                if os.path.normcase(os.path.dirname(src)) == os.path.normcase(os.path.abspath(dest_dir)):
+                    results.append({"src": src, "dst": src, "ok": True, "unchanged": True})
+                    continue
+                dst = self._free_dest(dest_dir, os.path.basename(src), os.path.isdir(src))
+                try:
+                    _fo.release_pdf_handles_for_paths((src,))
+                except Exception:
+                    pass
                 shutil.move(src, dst)
                 results.append({"src": src, "dst": dst, "ok": True})
             except Exception as exc:
                 results.append({"src": src, "ok": False, "error": str(exc)})
-        return _ok(results=results)
+        return self._file_op_result(results, "move")
+
+    def restore_soft_deleted(self, items: list) -> dict:
+        """Undo "Move to review": move each {path, moved_to} back to *path*.
+        Never overwrites — an item whose original name is taken again is
+        restored as "name (2)"."""
+        import shutil
+        results = []
+        for it in items or []:
+            orig = str((it or {}).get("path") or "")
+            moved = str((it or {}).get("moved_to") or "")
+            try:
+                if not orig or not moved or not os.path.exists(moved):
+                    raise RuntimeError("the item is no longer in _to_review")
+                parent = os.path.dirname(os.path.abspath(orig))
+                if not os.path.isdir(parent):
+                    raise RuntimeError("its folder no longer exists")
+                dst = orig if not os.path.exists(orig) else self._free_dest(parent, os.path.basename(orig), os.path.isdir(moved))
+                shutil.move(moved, dst)
+                results.append({"src": moved, "dst": dst, "ok": True})
+            except Exception as exc:
+                results.append({"src": moved or orig, "ok": False, "error": str(exc)})
+        return self._file_op_result(results, "restore")
 
     def create_folder(self, parent: str, name: str) -> dict:
         raw = str(name or "")
