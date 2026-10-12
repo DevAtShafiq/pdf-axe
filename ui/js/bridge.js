@@ -197,6 +197,11 @@ const SFM = (() => {
     pdfeditPagePng:      (path, page=0, scale=1.5) => call('pdfedit_page_png', path, page, scale),
     pdfeditApply:        (path, edits, opts={})    => call('pdfedit_apply', path, edits, opts),
     pdfeditFonts:        ()                        => call('pdfedit_fonts'),
+    // PDF Studio (studio_bridge.py)
+    studioBegin:         (path, password='')       => call('studio_begin', path, password),
+    studioNextStep:      (session)                 => call('studio_next_step', session),
+    studioStepInfo:      (work)                    => call('studio_step_info', work),
+    studioFinish:        (work, original, opts={}) => call('studio_finish', work, original, opts),
     // Image
     cropImage:          (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),

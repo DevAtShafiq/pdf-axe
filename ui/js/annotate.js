@@ -3,6 +3,11 @@
  *
  *   Annotate.open(path)          open the editor (PDF / JPG / PNG / WEBP / BMP)
  *   Annotate.canAnnotate(path)   true for supported files
+ *   Annotate.open(path, {embed})  PDF Studio: the editor lives inside
+ *                                embed.host without its title bar and save bar,
+ *                                and open() resolves to a controller (see the end
+ *                                of open()). Save, close and "nothing left to
+ *                                undo" go to embed.onKey('save'|'close'|'undo'|'redo').
  *
  * Tools: select (V), highlight (H), underline (U), strikeout (S), squiggly,
  * pen (P), rectangle (R), ellipse (O), arrow (A), line (L), text box (T),
@@ -139,12 +144,15 @@ var Annotate = (() => {
   // =========================================================================
   // EDITOR
   // =========================================================================
-  async function open(path) {
+  async function open(path, opts) {
+    const embed = (opts && opts.embed) || null;
     if (!path || !canAnnotate(path)) { App.toast('Annotate works with PDFs and images (JPG, PNG, WEBP, BMP)', 'info'); return; }
+    // PDFs open in PDF Studio (all PDF tools, one Undo and one Save); images stay here.
+    if (!embed && isPdf(path) && window.Studio && !(opts && opts.standalone)) return Studio.open(path, { tool: 'select' });
     if (_open) { _open.focus(); return; }
 
     const ov = document.createElement('div');
-    ov.className = 'modal-overlay an-overlay';
+    ov.className = embed ? 'an-overlay an-embedded' : 'modal-overlay an-overlay';
     ov.innerHTML = `
       <div class="an-editor" role="dialog" aria-label="Annotate">
         <div class="an-head">
@@ -212,7 +220,7 @@ var Annotate = (() => {
           <button class="btn btn-primary" id="an-save">${ic('save')}Save</button>
         </div>
       </div>`;
-    document.body.appendChild(ov);
+    (embed ? embed.host : document.body).appendChild(ov);
     const $ = s => ov.querySelector(s);
     const $$ = s => Array.from(ov.querySelectorAll(s));
     const view = $('#an-view'), pagesEl = $('#an-pages');
@@ -1312,6 +1320,7 @@ var Annotate = (() => {
       $('#an-status').className = 'pill ' + (dirty() ? 'pill-yellow' : 'pill-neutral');
       ov.querySelector('[data-a="undo"]').disabled = !undoStack.length;
       ov.querySelector('[data-a="redo"]').disabled = !redoStack.length;
+      if (embed && embed.onChange) embed.onChange();
     }
 
     // ── keyboard ───────────────────────────────────────────────────────────
@@ -1322,7 +1331,7 @@ var Annotate = (() => {
       const ctrl = e.ctrlKey || e.metaKey, k = e.key;
       e.stopPropagation();                         // the file list must not see our keys
       const handled = () => e.preventDefault();
-      if (ctrl && (k === 's' || k === 'S')) { handled(); save(); return; }
+      if (ctrl && (k === 's' || k === 'S')) { handled(); if (embed) { commitEdit(); embed.onKey('save'); } else save(); return; }
       if (k === 'Escape') {
         handled();
         if (stampMenu) { closeStampMenu(); return; }
@@ -1331,12 +1340,12 @@ var Annotate = (() => {
         if (drag) { drag = null; pageEls.forEach(el => { el.querySelector('.an-live').innerHTML = ''; }); renderAll(); return; }
         if (tool !== 'select') { setTool('select'); return; }
         if (sel) { select(null); return; }
-        tryClose();
+        if (embed) embed.onKey('close'); else tryClose();
         return;
       }
       if (typing) return;
-      if (ctrl && (k === 'z' || k === 'Z') && !e.shiftKey) { handled(); undo(); return; }
-      if (ctrl && (k === 'y' || k === 'Y' || ((k === 'z' || k === 'Z') && e.shiftKey))) { handled(); redo(); return; }
+      if (ctrl && (k === 'z' || k === 'Z') && !e.shiftKey) { handled(); if (embed && !undoStack.length) embed.onKey('undo'); else undo(); return; }
+      if (ctrl && (k === 'y' || k === 'Y' || ((k === 'z' || k === 'Z') && e.shiftKey))) { handled(); if (embed && !redoStack.length) embed.onKey('redo'); else redo(); return; }
       if (ctrl && (k === '=' || k === '+')) { handled(); zoomStep(1); return; }
       if (ctrl && k === '-') { handled(); zoomStep(-1); return; }
       if (ctrl && k === '0') { handled(); fitWidth(); return; }
@@ -1453,6 +1462,36 @@ var Annotate = (() => {
 
     _open = { focus: () => view.focus(), path };
 
+    // ── PDF Studio: commit the annotations into a new step file ────────────
+    async function commit(outPath) {
+      if (busy || !doc) return { ok: false, error: 'Busy' };
+      commitEdit();
+      if (!dirty()) return { ok: true, unchanged: true };
+      const nRedact = anns.filter(a => a.type === 'redact').length;
+      let applyRedactions = false;
+      if (nRedact && doc.kind === 'pdf') {
+        if (!(await Dialogs.confirm({ title: 'Apply redactions', danger: true, icon: 'redact', okLabel: 'Redact',
+              message: `Permanently remove the content under ${nRedact} redaction area${nRedact === 1 ? '' : 's'}?`,
+              detail: 'Text, images and drawings under the boxes are removed from this version. Undo in PDF Studio brings them back until you close it; your original file is not changed until you save.' }))) return { ok: false, cancelled: true };
+        applyRedactions = true;
+      }
+      setBusy(true);
+      const payload = anns.map(a => { const c = { ...a }; delete c.excerpt; return c; });
+      const r = await SFM.annotSave(path, payload, { mode: 'new', out_path: outPath, flatten: false, apply_redactions: applyRedactions })
+        .catch(e => ({ ok: false, error: String(e) }));
+      setBusy(false);
+      return r || { ok: false, error: 'Could not apply the annotations' };
+    }
+    const controller = {
+      kind: 'annotate',
+      dirty, flush: commitEdit,          // dirty() has no side effects (it runs on every refresh)
+      canUndo: () => undoStack.length > 0, canRedo: () => redoStack.length > 0,
+      undo, redo, commit, close: forceClose, focus: () => view.focus({ preventScroll: true }),
+      page: () => curPage, goPage: p => goPage(p),
+      tool: t => { const b = ov.querySelector(`.an-tool[data-tool="${t}"]`); if (b) b.click(); },
+      busy: () => busy,
+    };
+
     // ── load ───────────────────────────────────────────────────────────────
     App.setStatus('Opening for annotation…', true);
     const r = await SFM.annotLoad(path).catch(e => ({ ok: false, error: String(e) }));
@@ -1481,7 +1520,9 @@ var Annotate = (() => {
     if (zoom > 2.5) setZoom(2.5, false);
     setTool('select');
     renderAll();
+    if (embed && Number.isInteger(embed.page) && embed.page > 0) goPage(embed.page);
     view.focus({ preventScroll: true });
+    return controller;
   }
 
   // =========================================================================

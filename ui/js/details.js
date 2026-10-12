@@ -156,6 +156,7 @@ const Details = (() => {
     wire('qa-convert-pdf', () => { if (_path) ConvertTools.quickImageToPdf(_path); });
     wire('qa-convert-img', () => { if (_path) ConvertTools.openConvertImage([_path]); });
     wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
+    wire('qa-studio',      () => { if (_path && window.Studio) Studio.open(_path); });
     wire('qa-annotate',    () => { if (_path && window.Annotate) Annotate.open(_path); });
     wire('qa-edit-text',   () => { if (_path && window.PdfEdit) PdfEdit.open(_path); });
     wire('qa-compress',    () => {
@@ -174,6 +175,7 @@ const Details = (() => {
     show('qa-convert-img', isImg);
     show('qa-pdf-images',  isPdf);
     show('qa-compress',    isImg || isPdf);
+    show('qa-studio',      isPdf && !!window.Studio);
     show('qa-annotate',    file && !!window.Annotate && Annotate.canAnnotate(entry.path));
     show('qa-edit-text',   isPdf && !!window.PdfEdit);
   }
