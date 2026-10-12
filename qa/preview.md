@@ -25,9 +25,9 @@ How it was tested:
 | 8 | Clicking a scrollable PDF page left focus on the file list. Ctrl+A then selected every file and Ctrl+C copied the file path instead of the page text | 0215d59 |
 | 9 | Dragging over a word inside an existing selection kept the old selection, so the whole page was copied | 0215d59 |
 | 10 | .tiff images ignored zoom, and .tif files had no preview | 0215d59 |
-| 11 | After annotate, pdf-edit or pdf-tools saved over the current file, `previewFile(samePath)` did nothing, so the old pages stayed on screen | see git log ("reload") |
-| 12 | Rotate and delete page ignored bridge errors. A failed delete still removed a page from the view, and deleting the only page was allowed | see git log |
-| 13 | mailto: links in Word previews looked clickable but did nothing. Link-open errors were silent | see git log |
+| 11 | After annotate, pdf-edit or pdf-tools saved over the current file, `previewFile(samePath)` did nothing, so the old pages stayed on screen | 28d9071 |
+| 12 | Rotate and delete page ignored bridge errors. A failed delete still removed a page from the view, and deleting the only page was allowed | 28d9071 |
+| 13 | mailto: links in Word previews looked clickable but did nothing. Link-open errors were silent | 28d9071 |
 
 ## Inventory
 
