@@ -44,3 +44,38 @@ def test_folder_move_up_into_parent_with_same_names(tmp_path):
     r = c.post("/folders/move", headers=h, json={"path": "a/a", "new_path": "a"})
     assert r.status_code == 200, r.text
     assert _paths(c, h) == ["a/a/x", "a/x"]
+
+
+# ── office permissions ───────────────────────────────────────────────────────
+
+from server.tests.test_office import _client as _office_client, _invite, _office, _team, ok  # noqa: E402
+from server.tests.test_server import _auth, _register  # noqa: E402
+
+
+def test_admin_cannot_change_another_admins_role(tmp_path):
+    c = _office_client(tmp_path, free_plan=True)
+    owner, admin, staff = _team(c)
+    ms = ok(c.get("/office/members", headers=_auth(owner)))["members"]
+    ids = {m["email"]: m["user_id"] for m in ms}
+    ok(c.post(f"/office/members/{ids['staff@example.com']}/role", json={"role": "admin"}, headers=_auth(owner)))
+    # admin@ may not demote staff@ (now an admin): that would let them remove an admin
+    r = c.post(f"/office/members/{ids['staff@example.com']}/role", json={"role": "staff"}, headers=_auth(admin))
+    assert r.status_code == 403
+    assert c.post(f"/office/members/{ids['staff@example.com']}/remove", headers=_auth(admin)).status_code == 403
+    # an admin may step down themselves; the owner may change anyone
+    ok(c.post(f"/office/members/{ids['admin@example.com']}/role", json={"role": "staff"}, headers=_auth(admin)))
+    ok(c.post(f"/office/members/{ids['staff@example.com']}/role", json={"role": "staff"}, headers=_auth(owner)))
+
+
+def test_email_invite_code_only_works_for_that_email(tmp_path):
+    c = _office_client(tmp_path, free_plan=True)
+    owner = _register(c, "owner@example.com")
+    _office(c, owner)
+    bob = _register(c, "bob@example.com")
+    mallory = _register(c, "mallory@example.com")
+    code = _invite(c, owner, "bob@example.com", "admin")["code"]
+    r = c.post("/office/join", json={"code": code}, headers=_auth(mallory))
+    assert r.status_code == 403 and "different email" in r.json()["detail"]
+    assert ok(c.get("/office", headers=_auth(mallory)))["office"] is None
+    joined = ok(c.post("/office/join", json={"code": code}, headers=_auth(bob)))["office"]
+    assert joined["role"] == "admin"
