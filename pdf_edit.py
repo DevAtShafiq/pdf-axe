@@ -252,6 +252,8 @@ def _images(page) -> list:
         r = r & pr
         if r.is_empty or r.width < 2 or r.height < 2:
             continue
+        if int(im.get("width") or 0) <= 1 and int(im.get("height") or 0) <= 1:
+            continue        # the invisible 1x1 placeholder page.delete_image() leaves behind
         xref = int(im.get("xref") or 0)
         out.append({
             "id": f"i{i}", "bbox": _r4(r), "xref": xref,

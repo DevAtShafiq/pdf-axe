@@ -209,6 +209,9 @@ def test_delete_image(tmp_path):
         # the red logo is gone (page is white there)
         r, g, b = pix.pixel(pix.width // 2, pix.height // 2)[:3]
         assert r > 240 and g > 240 and b > 240
+    # regression: the 1x1 placeholder PyMuPDF leaves must not show up as a
+    # selectable (ghost) image in the editor
+    assert pe.extract_blocks(out, 0)["images"] == []
 
 
 @pytest.mark.skipif(not os.path.isfile(MALGUN), reason="Malgun Gothic not installed")
