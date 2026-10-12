@@ -20,6 +20,7 @@ import base64
 import datetime as _dt
 import os
 import re
+import secrets
 import shutil
 import threading
 from collections import OrderedDict
@@ -334,8 +335,51 @@ def pdf_info(path: str) -> dict:
         doc.close()
 
 
-def _to_bytes(doc) -> bytes:
-    return doc.tobytes(garbage=3, deflate=True)
+# ── Copy / print restrictions ────────────────────────────────────────────────
+# Some PDFs open without a password but forbid copying, printing or editing
+# (an owner password). New files made from them keep the same restriction; the
+# owner password itself is unknown, so a random one is set.
+_PERM_ALL = 4 | 8 | 16 | 32 | 256 | 512 | 1024 | 2048   # print, modify, copy, annotate, form, accessibility, assemble, print-hq
+
+
+def restrictions(doc) -> Optional[int]:
+    """Permission bits of a restricted PDF, or None when nothing is restricted."""
+    try:
+        if not (doc.metadata or {}).get("encryption"):
+            return None
+        p = int(doc.permissions) & _PERM_ALL
+    except Exception:
+        return None
+    return None if p == _PERM_ALL else p
+
+
+def combine_restrictions(a: Optional[int], b: Optional[int]) -> Optional[int]:
+    """Several sources (merge): the result allows only what all of them allow."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return a & b
+
+
+def _to_bytes(doc, perms: Optional[int] = None) -> bytes:
+    if perms is None:
+        return doc.tobytes(garbage=3, deflate=True)
+    fitz = _fitz()
+    return doc.tobytes(garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_AES_256,
+                       user_pw="", owner_pw=secrets.token_urlsafe(24), permissions=perms)
+
+
+def restrict_bytes(data: bytes, perms: Optional[int]) -> bytes:
+    """Re-apply *perms* to finished PDF bytes (used by compress)."""
+    if perms is None:
+        return data
+    fitz = _fitz()
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        return _to_bytes(doc, perms)
+    finally:
+        doc.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,11 +418,13 @@ def merge(inputs: list, out_path: str = "", *, bookmarks: bool = True,
     out = fitz.open()
     toc: list[list] = []
     total = len(items)
+    perms: Optional[int] = None
     try:
         for i, (p, spec) in enumerate(items):
             _report(progress, i, total, f"Adding {_name(p)}")
             src = open_source(p)
             try:
+                perms = combine_restrictions(perms, restrictions(src))
                 start = out.page_count
                 if spec:
                     sel = parse_page_list(spec, src.page_count)
@@ -407,7 +453,7 @@ def merge(inputs: list, out_path: str = "", *, bookmarks: bool = True,
                 out.set_toc([e for e in toc if e[0] == 1])
         _report(progress, total, total, "Saving…")
         n = out.page_count
-        final = _write_new(out_abs, _to_bytes(out))
+        final = _write_new(out_abs, _to_bytes(out, perms))
     finally:
         out.close()
     return {"out_path": final, "page_count": n, "files": [final]}
@@ -482,7 +528,7 @@ def split(path: str, mode: str = "each", *, every: int = 1, ranges: str = "",
                 if len(label) > 60:
                     label = f"{g[0] + 1}-{g[-1] + 1}_part{k + 1}"
                 name = f"{stem}_p{label}.pdf"
-                files.append(_write_new(os.path.join(out_dir, name), _to_bytes(part)))
+                files.append(_write_new(os.path.join(out_dir, name), _to_bytes(part, restrictions(src))))
             finally:
                 part.close()
         _report(progress, total, total, "Done")
@@ -516,7 +562,7 @@ def extract(path: str, spec: str, out_path: str = "", *, progress: ProgressFn = 
                 if i % 25 == 0:
                     _report(progress, i, len(pages), "Copying pages…")
                 out.insert_pdf(src, from_page=pg, to_page=pg)
-            final = _write_new(out_path, _to_bytes(out))
+            final = _write_new(out_path, _to_bytes(out, restrictions(src)))
         finally:
             out.close()
     finally:
@@ -555,6 +601,7 @@ def build_pdf(pages: list, out_path: str, *, replace: bool = False,
     docs: dict[str, object] = {}
     out = fitz.open()
     total = len(pages)
+    perms: Optional[int] = None
     try:
         for i, it in enumerate(pages):
             if i % 10 == 0:
@@ -564,6 +611,7 @@ def build_pdf(pages: list, out_path: str, *, replace: bool = False,
             src = docs.get(key)
             if src is None:
                 src = docs[key] = open_source(sp)
+                perms = combine_restrictions(perms, restrictions(src))
             pi = int(it.get("page", 0))
             if pi < 0 or pi >= src.page_count:
                 raise PdfToolsError(f"Page {pi + 1} does not exist in {_name(sp)}.")
@@ -573,7 +621,7 @@ def build_pdf(pages: list, out_path: str, *, replace: bool = False,
                 pg = out[-1]
                 pg.set_rotation((pg.rotation + rot) % 360)
         _report(progress, total, total, "Saving…")
-        data = _to_bytes(out)
+        data = _to_bytes(out, perms)
     finally:
         out.close()
         for d in docs.values():

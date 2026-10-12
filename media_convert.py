@@ -859,6 +859,20 @@ def _scan_images(doc) -> list:
     return list(images.values())
 
 
+def _keep_restrictions(path: str, data: bytes) -> bytes:
+    """Give *data* the same copy/print restriction as the PDF at *path*."""
+    try:
+        import pdf_tools as _pt
+        doc = _fitz().open(path)
+        try:
+            perms = _pt.restrictions(doc)
+        finally:
+            doc.close()
+        return _pt.restrict_bytes(data, perms)
+    except Exception:
+        return data
+
+
 def _read_pdf(path: str):
     """Validate a PDF and return (bytes, images).
 
@@ -970,6 +984,7 @@ def compress_pdf(path: str, preset: str = "ebook", out_path: str = "",
         nonlocal out_path
         if not out_path:
             out_path = os.path.splitext(path)[0] + "_compressed.pdf"
+        data = _keep_restrictions(path, data)      # copy/print limits survive compression
         final = _write_new(out_path, data)
         after = len(data)
         saved = before - after
