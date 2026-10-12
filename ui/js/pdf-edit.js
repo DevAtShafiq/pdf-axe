@@ -580,8 +580,31 @@ var PdfEdit = (() => {
     }
 
     // ── style changes (toolbar) ────────────────────────────────────────────
+    // While the inline editor is open its text lives only in the textarea.
+    // Before a toolbar change takes an undo snapshot, write the typed text into
+    // the model (as its own undo step for an existing box / block), so undoing
+    // the style change never wipes what was typed.
+    function flushEditText() {
+      if (!editing) return;
+      const val = editing.ta.value.replace(/\r\n?/g, '\n');
+      if (val === editing.before || !val.trim()) return;
+      if (editing.kind === 'block') setOv(editing.key, { text: val });
+      else {
+        const a = model.adds.find(x => x.id === editing.key); if (!a) return;
+        if (editing.before !== '') pushUndo();     // a new box was snapshotted when created
+        a.text = val;
+      }
+      editing.before = val;
+    }
     function applyStyle(patch) {
       if (!sel || sel.kind === 'image') return;
+      flushEditText();
+      // no-op changes (e.g. the size box firing 'change' twice) must not add undo steps
+      const cur = eff(sel);
+      if (cur && Object.keys(patch).every(k => (k === 'font' ? (cur.font || 'original') : cur[k]) === patch[k])) {
+        if (editing) editing.ta.focus();
+        return;
+      }
       if (sel.kind === 'block') setOv(sel.key, patch);
       else {
         pushUndo();
