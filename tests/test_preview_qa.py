@@ -104,3 +104,25 @@ def test_big_workbook_without_dimension_is_capped(tmp_path, monkeypatch):
     r = dp.xlsx_to_html(str(b), max_rows=10, max_cols=5)
     assert r["rows_shown"] == 10 and r["cols_shown"] == 2
     assert r["rows"] >= 10 and r["cols"] == 2
+
+
+def test_previewed_pdf_is_not_locked_and_reloads_after_external_save(tmp_path):
+    from sfm_bridge import SFMBridge
+    b = SFMBridge.__new__(SFMBridge)
+    p = str(tmp_path / "ext.pdf")
+    d = pymupdf.open()
+    d.new_page().insert_text((72, 72), "version one")
+    d.save(p)
+    d.close()
+    assert SFMBridge.get_pdf_page_as_png(b, p, 0, 72)["ok"]
+    assert dp.pdf_page_text(p, 0) == "version one"
+    # Another program saves over the file while it is in the preview.
+    d = pymupdf.open()
+    for i in range(2):
+        d.new_page().insert_text((72, 72), f"version two p{i}")
+    d.save(p)                                   # was "Permission denied"
+    d.close()
+    assert dp.pdf_page_text(p, 0) == "version two p0"
+    assert SFMBridge.get_pdf_page_as_png(b, p, 1, 72)["ok"]
+    os.rename(p, p + ".x")
+    os.rename(p + ".x", p)

@@ -101,14 +101,34 @@ _PDF_DOC_CACHE_LOCK = threading.Lock()
 _PDF_DOC_CACHE_MAX = 6                   # keep at most 6 open documents
 
 
+_PDF_DOC_SIG: dict[str, tuple] = {}     # abs_path -> (mtime_ns, size) when opened
+# PDFs up to this size are read into memory, so the preview holds no file
+# handle: another program can save over the file and Office Axe can rename it.
+_PDF_DOC_STREAM_MAX = 96 * 1024 * 1024
+
+
+def _pdf_file_sig(path: str):
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
 def _get_cached_fitz_doc(fitz, path: str):
-    """Return a cached fitz.Document for *path*, opening it if needed (LRU, max 6)."""
+    """Return a cached fitz.Document for *path*, opening it if needed (LRU, max 6).
+
+    The cached document is reopened when the file changed on disk (mtime/size).
+    """
     abs_path = os.path.abspath(path)
+    sig = _pdf_file_sig(abs_path)
     with _PDF_DOC_CACHE_LOCK:
         if abs_path in _PDF_DOC_CACHE:
             doc = _PDF_DOC_CACHE[abs_path]
             try:
                 _ = len(doc)  # raises if doc was closed/corrupt
+                if sig is not None and _PDF_DOC_SIG.get(abs_path) not in (None, sig):
+                    raise ValueError("file changed on disk")
                 try:
                     _PDF_DOC_CACHE_ORDER.remove(abs_path)
                 except ValueError:
@@ -117,23 +137,39 @@ def _get_cached_fitz_doc(fitz, path: str):
                 return doc
             except Exception:
                 _PDF_DOC_CACHE.pop(abs_path, None)
+                _PDF_DOC_SIG.pop(abs_path, None)
                 try:
                     _PDF_DOC_CACHE_ORDER.remove(abs_path)
                 except ValueError:
+                    pass
+                try:
+                    doc.close()
+                except Exception:
                     pass
         # Evict LRU entries when at capacity
         while len(_PDF_DOC_CACHE_ORDER) >= _PDF_DOC_CACHE_MAX:
             old_path = _PDF_DOC_CACHE_ORDER.pop(0)
             old_doc = _PDF_DOC_CACHE.pop(old_path, None)
+            _PDF_DOC_SIG.pop(old_path, None)
             if old_doc is not None:
                 try:
                     old_doc.close()
                 except Exception:
                     pass
         try:
-            doc = fitz.open(path)
+            if sig is not None and 0 < sig[1] <= _PDF_DOC_STREAM_MAX:
+                with open(abs_path, "rb") as f:
+                    data = f.read()
+                try:
+                    doc = fitz.open(stream=data, filetype="pdf")
+                except Exception:
+                    doc = fitz.open(path)        # not a PDF by content (e.g. XPS)
+            else:
+                doc = fitz.open(path)
             _PDF_DOC_CACHE[abs_path] = doc
             _PDF_DOC_CACHE_ORDER.append(abs_path)
+            if sig is not None:
+                _PDF_DOC_SIG[abs_path] = sig
             return doc
         except Exception:
             return None
