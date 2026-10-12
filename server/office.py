@@ -530,10 +530,18 @@ def install(app, *, settings, db, hub, limiter, billing, current_user, is_active
             limiter.hit(key, 900)
             raise HTTPException(404, bad)
         try:
-            return _join(user, "i.code=?", (code,), bad)
+            # An invite made for one email address only works for that account
+            return _join(user, "i.code=? AND (i.email='' OR i.email=?)", (code, user["email"]), bad)
         except HTTPException as exc:
             if exc.status_code == 404:
                 limiter.hit(key, 900)
+                with db.connect() as con:
+                    other = con.execute(
+                        "SELECT 1 FROM office_invites WHERE code=? AND status='pending' AND expires_at>? "
+                        "AND email<>'' AND email<>?", (code, time.time(), user["email"])).fetchone()
+                if other is not None:
+                    raise HTTPException(403, "This invite code is for a different email address. Sign in with "
+                                             "that email, or ask the office admin for a new invite.")
             raise
 
     @app.post("/office/invites/{invite_id}/accept")
@@ -686,6 +694,10 @@ def install(app, *, settings, db, hub, limiter, billing, current_user, is_active
             t = _target(con, office, user_id)
             if t["role"] == "owner":
                 raise HTTPException(400, "The owner's role can't be changed. Transfer ownership instead.")
+            if (t["role"] == "admin" and office["member_role"] != "owner"
+                    and int(user_id) != int(user["id"])):
+                # Same rule as removal: otherwise an admin could demote and then remove another admin
+                raise HTTPException(403, "Only the owner can change an admin's role")
             if t["role"] != role:
                 con.execute("UPDATE office_members SET role=? WHERE user_id=?", (role, user_id))
                 log(con, office["id"], user, "role_changed", "", f"{t['email']} → {role}")

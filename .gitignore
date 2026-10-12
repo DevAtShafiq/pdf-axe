@@ -17,3 +17,4 @@ server/.env
 .claude/worktrees/
 deploy/.env
 deploy/backups/
+qa/_scratch/

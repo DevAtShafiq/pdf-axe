@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import http.client
 import json
 import mimetypes
 import os
@@ -121,8 +122,8 @@ class CloudClient:
         if self.token:
             hdrs["Authorization"] = f"Bearer {self.token}"
         hdrs.update(headers or {})
-        req = urllib.request.Request(self.base_url + path, data=body, method=method, headers=hdrs)
         try:
+            req = urllib.request.Request(self.base_url + path, data=body, method=method, headers=hdrs)
             return urllib.request.urlopen(req, timeout=timeout or self.timeout)
         except urllib.error.HTTPError as exc:
             detail = ""
@@ -141,13 +142,32 @@ class CloudClient:
         except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError) as exc:
             reason = getattr(exc, "reason", exc)
             raise CloudError(f"Cannot reach the server ({reason})") from None
+        except http.client.HTTPException as exc:   # not an HTTP server, or it hung up mid-reply
+            raise CloudError(f"Cannot reach the server (bad reply: {type(exc).__name__})") from None
+        except ValueError as exc:                   # e.g. "unknown url type" for a malformed address
+            raise CloudError(f"The server address is not valid ({exc})") from None
 
     def _json(self, method: str, path: str, payload: dict | None = None, timeout: float | None = None) -> dict:
         body = json.dumps(payload).encode() if payload is not None else None
         headers = {"Content-Type": "application/json"} if body is not None else {}
         with self._open(method, path, body, headers, timeout) as resp:
-            raw = resp.read()
-        return json.loads(raw.decode("utf-8")) if raw else {}
+            try:
+                raw = resp.read()
+            except (OSError, http.client.HTTPException) as exc:
+                raise CloudError(f"Cannot reach the server ({exc})") from None
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            # Something answered, but not an Office Axe account server (a web page, a proxy…)
+            exc = CloudError("The server did not answer like an Office Axe account server. "
+                             "Check the server address.")
+            exc.wrong_server = True
+            raise exc
+        return data
 
     # ── accounts ─────────────────────────────────────────────────────────────
 
