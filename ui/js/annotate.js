@@ -1472,7 +1472,7 @@ var Annotate = (() => {
       if (nRedact && doc.kind === 'pdf') {
         if (!(await Dialogs.confirm({ title: 'Apply redactions', danger: true, icon: 'redact', okLabel: 'Redact',
               message: `Permanently remove the content under ${nRedact} redaction area${nRedact === 1 ? '' : 's'}?`,
-              detail: 'Text, images and drawings under the boxes are removed from this version. Undo in PDF Studio brings them back until you close it; your original file is not changed until you save.' }))) return { ok: false, cancelled: true };
+              detail: 'Text, images and drawings under the boxes are removed from this version. Undo brings them back until you close it; your original file is not changed until you save.' }))) return { ok: false, cancelled: true };
         applyRedactions = true;
       }
       setBusy(true);
@@ -1695,7 +1695,7 @@ var Annotate = (() => {
       pb.addEventListener('click', () => { const p = Preview.getCurrentPath && Preview.getCurrentPath(); if (p) open(p); });
       const sync = () => {
         let p = null; try { p = Preview.getCurrentPath && Preview.getCurrentPath(); } catch (_) {}
-        pb.classList.toggle('hidden', !(p && canAnnotate(p)));
+        pb.classList.toggle('hidden', !(p && canAnnotate(p) && !isPdf(p)));   // PDFs use the "Edit" button
       };
       const nameEl = document.getElementById('preview-file-name');
       if (nameEl && window.MutationObserver) new MutationObserver(() => setTimeout(sync, 0)).observe(nameEl, { childList: true, characterData: true, subtree: true });

@@ -66,7 +66,7 @@ var Studio = (() => {
   let _cur = null;
 
   async function open(path, opts = {}) {
-    if (!isPdf(path)) { App.toast('PDF Studio works with PDF files', 'info'); return; }
+    if (!isPdf(path)) { App.toast('Edit works with PDF files', 'info'); return; }
     if (_cur) { _cur.focus(); return; }
     if ((window.Annotate && Annotate.isOpen()) || (window.PdfEdit && PdfEdit.isOpen())) {
       App.toast('Close the open editor first', 'info'); return;
@@ -75,11 +75,11 @@ var Studio = (() => {
     const ov = document.createElement('div');
     ov.className = 'modal-overlay st-overlay';
     ov.innerHTML = `
-      <div class="st-window" role="dialog" aria-label="PDF Studio">
+      <div class="st-window" role="dialog" aria-label="Edit PDF">
         <div class="st-head">
           <span class="modal-head-icon">${ic('file-pdf', 18)}</span>
           <div class="modal-heading">
-            <h2 class="modal-title">PDF Studio</h2>
+            <h2 class="modal-title">Edit</h2>
             <div class="modal-subtitle" title="${esc(path)}">${esc(baseOf(path))}</div>
           </div>
           <span class="pill pill-neutral" id="st-ver">Original</span>
@@ -364,7 +364,7 @@ var Studio = (() => {
       if (!$('#st-sheet').classList.contains('hidden')) { closeSheet(); return; }
       if (ctl && ctl.flush) ctl.flush();
       if (sess && unsaved() && !(await Dialogs.confirm({ title: 'Unsaved changes', icon: 'alert-triangle', tone: 'warning', okLabel: 'Close without saving',
-            message: 'Close PDF Studio without saving?', detail: 'Your changes are not in any file yet. Your original PDF is unchanged.' }))) return;
+            message: 'Close without saving?', detail: 'Your changes are not in any file yet. Your original PDF is unchanged.' }))) return;
       forceClose();
     }
 
@@ -600,7 +600,7 @@ var Studio = (() => {
       if (_cur || document.querySelector('.modal-overlay')) return;
       e.preventDefault();
       const p = _candidate();
-      if (p) open(p); else App.toast('Select one PDF to open in PDF Studio', 'info');
+      if (p) open(p); else App.toast('Select one PDF to edit', 'info');
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _init);

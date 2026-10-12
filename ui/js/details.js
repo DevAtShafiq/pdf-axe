@@ -161,7 +161,6 @@ const Details = (() => {
     wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
     wire('qa-studio',      () => { if (_path && window.Studio) Studio.open(_path); });
     wire('qa-annotate',    () => { if (_path && window.Annotate) Annotate.open(_path); });
-    wire('qa-edit-text',   () => { if (_path && window.PdfEdit) PdfEdit.open(_path); });
     wire('qa-compress',    () => {
       if (!_path) return;
       ConvertTools.openCompress([_path]);
@@ -179,8 +178,8 @@ const Details = (() => {
     show('qa-pdf-images',  isPdf);
     show('qa-compress',    isImg || isPdf);
     show('qa-studio',      isPdf && !!window.Studio);
-    show('qa-annotate',    file && !!window.Annotate && Annotate.canAnnotate(entry.path));
-    show('qa-edit-text',   isPdf && !!window.PdfEdit);
+    // PDFs: one "Edit" (PDF Studio) button covers text, comments and signing; Annotate is for images.
+    show('qa-annotate',    file && !isPdf && !!window.Annotate && Annotate.canAnnotate(entry.path));
   }
 
   // ── AI Photo section ──────────────────────────────────────────────────────

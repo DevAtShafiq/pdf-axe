@@ -92,7 +92,10 @@ def run(d):
         force_close(page)
         b = page.query_selector("#qa-studio")
         vis = b and page.evaluate("b => b.offsetParent !== null", b)
-        R.check("details 'PDF Studio' button visible", vis)
+        R.check("details 'Edit' button visible", vis and page.text_content("#qa-studio").strip() == "Edit", vis and page.text_content("#qa-studio"))
+        hidden = page.evaluate("""() => ['#qa-annotate', '#qa-edit-text', '#preview-annotate', '#preview-edit-text']
+                                   .every(s => { const b = document.querySelector(s); return !b || b.offsetParent === null; })""")
+        R.check("PDF: no separate Annotate / Edit text buttons", hidden)
         if vis:
             b.click(); R.check("details button opens Studio", studio_open(page)); force_close(page)
         pb = page.query_selector("#preview-studio")
@@ -104,7 +107,10 @@ def run(d):
                                   if (!el) return null; const r = el.getBoundingClientRect(); return [r.left + 30, r.top + r.height/2]; }""", src)
         if row:
             page.mouse.click(row[0], row[1], button="right"); time.sleep(0.4)
-            it = page.query_selector("text=Open in PDF Studio")
+            labels = page.evaluate("[...document.querySelectorAll('.context-menu *')].filter(e => !e.children.length).map(e => e.textContent.trim())")
+            R.check("context menu: no separate Annotate / Edit PDF text for PDFs",
+                    not any(t.startswith("Annotate") or t.startswith("Edit PDF text") for t in labels), labels[:12])
+            it = page.query_selector('text="Edit…"')
             R.check("context menu item", it is not None)
             if it:
                 it.click(); R.check("context menu opens Studio", studio_open(page)); force_close(page)

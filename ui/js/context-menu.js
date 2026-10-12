@@ -119,9 +119,7 @@ const ContextMenu = (() => {
         _sep(menu);
       }
       if (isPdf) {
-        if (window.Studio) _item(menu, 'file-pdf', 'Open in PDF Studio…', 'Ctrl+Shift+P', () => { hide(); Studio.open(mainPath); });
-        if (window.Annotate) _item(menu, 'annotate', 'Annotate…', 'Ctrl+Shift+A', () => { hide(); Annotate.open(mainPath); });
-        if (window.PdfEdit) _item(menu, 'file-pen', 'Edit PDF text…', 'Ctrl+Shift+T', () => { hide(); PdfEdit.open(mainPath); });
+        if (window.Studio) _item(menu, 'file-pen', 'Edit…', 'Ctrl+Shift+P', () => { hide(); Studio.open(mainPath); });
         _item(menu, 'layers', 'Arrange Pages…', '', () => { hide(); PdfTools.openArrange([mainPath]); });
         _item(menu, 'scissors', 'Split PDF…', '', () => { hide(); PdfTools.openSplit(mainPath); });
         _item(menu, 'extract', 'Extract Pages…', '', () => { hide(); PdfTools.openExtract(mainPath); });
