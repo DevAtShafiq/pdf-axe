@@ -238,6 +238,42 @@ def test_not_a_zip(tmp_path):
     assert ei.value.code == "not_zip"
 
 
+def test_cancel_mid_file_sets_partial_aside(tmp_path):
+    """A cancelled extract must not leave a half-written file under its real name."""
+    big = tmp_path / "big.bin"
+    big.write_bytes(os.urandom(3 * 1024 * 1024))
+    z = at.zip_paths([str(big)], str(tmp_path / "big.zip"), compression="store")["out_path"]
+    calls = [0]
+
+    def cancel():
+        calls[0] += 1
+        return calls[0] > 3          # stop after a few chunks of the only member
+
+    out = tmp_path / "out"
+    with pytest.raises(at.ArchiveError) as ei:
+        at.extract_zip(z, str(out), cancel=cancel)
+    assert ei.value.code == "cancelled"
+    names = [f for _r, _d, fs in os.walk(out) for f in fs]
+    assert names == [".PENDING_DELETE_big.bin"]
+    assert "PENDING_DELETE_big.bin" in str(ei.value)
+
+
+def test_damaged_member_sets_partial_aside(tmp_path):
+    dz = tmp_path / "damaged.zip"
+    with zipfile.ZipFile(dz, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("good.txt", b"ok")
+        zf.writestr("bad.txt", b"A" * 5000)
+    data = bytearray(dz.read_bytes())
+    data[data.find(b"A" * 100) + 10] = ord("B")        # CRC mismatch
+    dz.write_bytes(bytes(data))
+    out = tmp_path / "out"
+    with pytest.raises(at.ArchiveError) as ei:
+        at.extract_zip(str(dz), str(out))
+    assert ei.value.code == "not_zip"
+    names = sorted(f for _r, _d, fs in os.walk(out) for f in fs)
+    assert names == [".PENDING_DELETE_bad.txt", "good.txt"]
+
+
 def test_non_utf8_korean_names(tmp_path):
     z = _raw_zip(tmp_path / "kr.zip", [(f"{KOREAN}.txt".encode("cp949"), b"hello", False)])
     info = at.list_zip(str(z))
