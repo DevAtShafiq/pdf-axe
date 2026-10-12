@@ -422,6 +422,7 @@ const App = (() => {
   }
 
   // ── Toolbar Wiring ────────────────────────────────────────────────────────
+  let _themeSave = Promise.resolve();
   function _initToolbar() {
     const wire = (id, fn) => { const el = document.getElementById(id); if(el) el.addEventListener('click', fn); };
 
@@ -467,7 +468,9 @@ const App = (() => {
     wire('btn-theme', () => {
       const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
       applyTheme(next);
-      SFM.saveSettings({ theme: next }).catch(() => {});
+      // One save at a time: pywebview runs each call on its own thread, so two
+      // quick clicks could finish out of order and store the wrong theme.
+      _themeSave = _themeSave.then(() => SFM.saveSettings({ theme: next })).catch(() => {});
     });
     // Restore saved theme from settings
     SFM.getSettings().then(r => {
