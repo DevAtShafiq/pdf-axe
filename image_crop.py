@@ -5,7 +5,7 @@ image_crop.py — full-resolution, EXIF-aware image cropping for the Crop dialog
 The dialog previews a scaled-down copy (``crop_source``) and sends back a
 rectangle in FULL-resolution pixels of the *oriented* image (EXIF rotation
 applied, then the optional 90° steps the user chose in the dialog). The crop
-is always written to a NEW file ``<name>_cropped<ext>`` (``_cropped-2`` ...);
+is always written to a NEW file ``<name>_cropped<ext>`` (``_cropped (2)`` ...);
 the original is never overwritten.
 """
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 
 from PIL import Image, ImageOps
 
@@ -49,13 +50,17 @@ def _rotate_cw(img: Image.Image, deg: int) -> Image.Image:
 
 
 def unique_output_path(path: str, suffix: str = "_cropped", ext: str = "") -> str:
-    """``<stem><suffix><ext>`` next to *path*, numbered ``-2``, ``-3`` ... if taken."""
+    """``<stem><suffix><ext>`` next to *path*, numbered `` (2)``, `` (3)`` ... if taken."""
     base, own_ext = os.path.splitext(path)
     ext = ext or own_ext or ".png"
-    cand = f"{base}{suffix}{ext}"
+    stem = f"{base}{suffix}"
+    m = re.match(r"^(.*) \((\d+)\)$", stem)
+    if m and not suffix:
+        stem = m.group(1)
+    cand = f"{stem}{ext}"
     n = 2
     while os.path.exists(cand):
-        cand = f"{base}{suffix}-{n}{ext}"
+        cand = f"{stem} ({n}){ext}"
         n += 1
     return cand
 
@@ -158,7 +163,15 @@ def crop_image(path: str, x: int, y: int, w: int, h: int,
             out = out.convert("P", palette=Image.Palette.ADAPTIVE)
         elif fmt == "BMP" and out.mode not in ("RGB", "L", "P", "1"):
             out = out.convert("RGB")
-        out.save(save_path, format=fmt, **kw)
-        return True, save_path
+        buf = io.BytesIO()
+        out.save(buf, format=fmt, **kw)
+        for _ in range(1000):                   # exclusive create: never clobbers
+            try:
+                with open(save_path, "xb") as f:
+                    f.write(buf.getvalue())
+                return True, save_path
+            except FileExistsError:
+                save_path = unique_output_path(save_path, suffix="")
+        return False, "Could not find a free file name"
     except Exception as exc:
         return False, str(exc)

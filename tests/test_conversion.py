@@ -55,7 +55,7 @@ def test_never_overwrites_existing_pdf(tmp_path):
     existing = tmp_path / "scan.pdf"
     existing.write_bytes(b"keep me")
     r = mc.images_to_pdf([src])
-    assert os.path.basename(r["out"]) == "scan-2.pdf"
+    assert os.path.basename(r["out"]) == "scan (2).pdf"
     assert existing.read_bytes() == b"keep me"
 
 
@@ -163,7 +163,7 @@ def test_pdf_to_images_folder_and_range(tmp_path):
         assert im.size == (300, 400)   # 72 dpi = 1px per point
     # second run never overwrites: new folder
     r2 = mc.pdf_to_images(pdf, "jpg", 150, "")
-    assert os.path.basename(r2["out_dir"]) == "doc_images-2"
+    assert os.path.basename(r2["out_dir"]) == "doc_images (2)"
     assert len(r2["files"]) == 5
     with Image.open(r2["files"][0]) as im:
         assert im.format == "JPEG"
@@ -212,7 +212,7 @@ def test_convert_alpha_to_jpg_white_and_no_overwrite(tmp_path):
     src = _img(tmp_path / "a.png", (40, 40), (0, 0, 0, 0), mode="RGBA")
     (tmp_path / "a.jpg").write_bytes(b"existing")
     r = mc.convert_image(src, "jpg", quality=80)
-    assert os.path.basename(r["out"]) == "a-2.jpg"
+    assert os.path.basename(r["out"]) == "a (2).jpg"
     assert (tmp_path / "a.jpg").read_bytes() == b"existing"
     with Image.open(r["out"]) as im:
         assert im.mode == "RGB" and im.getpixel((5, 5))[0] > 240

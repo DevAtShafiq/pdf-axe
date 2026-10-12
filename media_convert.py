@@ -11,7 +11,7 @@ Pure functions (no UI, no pywebview) used by sfm_bridge.SFMBridge:
 
 Rules shared by every function here:
   * The source file is never modified.
-  * An existing file is never overwritten: output names get "-2", "-3"... .
+  * An existing file is never overwritten: output names get " (2)", " (3)"... .
   * Results are built in memory and only written when they are worth keeping
     (a "compressed" file that came out bigger is never written), so nothing
     has to be cleaned up afterwards.
@@ -129,27 +129,38 @@ def is_image(path: str) -> bool:
     return _ext(path) in IMAGE_EXT
 
 
+_NUM_SUFFIX = re.compile(r"^(.*) \((\d+)\)$")
+
+
 def unique_path(path: str) -> str:
-    """``path`` if free, else ``stem-2.ext``, ``stem-3.ext``..."""
+    """``path`` if free, else ``stem (2).ext``, ``stem (3).ext``... (the same
+    Windows-style numbering as every other Office Axe tool)."""
     if not os.path.exists(path):
         return path
     base, ext = os.path.splitext(path)
+    m = _NUM_SUFFIX.match(base)
+    if m:
+        base = m.group(1)
     n = 2
     while True:
-        cand = f"{base}-{n}{ext}"
+        cand = f"{base} ({n}){ext}"
         if not os.path.exists(cand):
             return cand
         n += 1
 
 
 def unique_dir(path: str) -> str:
-    """``path`` if free, else ``path-2``, ``path-3``..."""
+    """``path`` if free, else ``path (2)``, ``path (3)``..."""
+    path = path.rstrip("\\/")
     if not os.path.exists(path):
         return path
+    m = _NUM_SUFFIX.match(path)
+    if m:
+        path = m.group(1)
     n = 2
-    while os.path.exists(f"{path}-{n}"):
+    while os.path.exists(f"{path} ({n})"):
         n += 1
-    return f"{path}-{n}"
+    return f"{path} ({n})"
 
 
 def _write_new(path: str, data: bytes) -> str:

@@ -214,7 +214,7 @@ def test_already_small_jpeg_keeps_original(tmp_path):
 def test_mc_compress_never_overwrites(big_jpeg, tmp_path):
     (tmp_path / "photo_compressed.jpg").write_bytes(b"x")
     r = mc.compress_image(big_jpeg, quality=50)
-    assert os.path.basename(r["out"]) == "photo_compressed-2.jpg"
+    assert os.path.basename(r["out"]) == "photo_compressed (2).jpg"
     with pytest.raises(mc.ConvertError):
         mc.compress_image(big_jpeg, out_path=big_jpeg)
 
