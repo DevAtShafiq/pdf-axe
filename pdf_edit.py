@@ -532,10 +532,25 @@ class _Fonts:
         self._file_fonts = {}
         self._orig = {}
         self._n = 0
+        # Font resource names already on the pages (e.g. "OAE1" from an
+        # earlier edit of this file). Re-using one would make insert_font()
+        # return the OLD font, so new text would be drawn with the old
+        # subset's glyph ids → garbled / missing characters.
+        self._taken = set()
+        try:
+            for pno in range(doc.page_count):
+                for f in doc.get_page_fonts(pno):
+                    self._taken.add(str(f[4]).lower())
+        except Exception:
+            pass
 
     def _alias(self) -> str:
-        self._n += 1
-        return f"OAE{self._n}"
+        while True:
+            self._n += 1
+            name = f"OAE{self._n}"
+            if name.lower() not in self._taken:
+                self._taken.add(name.lower())
+                return name
 
     def original(self, page, raw_name: str):
         """_FontPick for the page's embedded font *raw_name*, or None if subset / missing."""

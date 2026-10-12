@@ -347,3 +347,29 @@ def test_fonts_list():
     fams = pe.available_fonts()
     if HAVE_ARIAL:
         assert any(f["name"] == "Arial" for f in fams)
+
+
+@pytest.mark.parametrize("second", ["bold", "text", "add"])
+def test_edit_an_edited_file_keeps_earlier_text(tmp_path, second):
+    """Regression: font aliases restarted at OAE1 on every save, so editing a
+    file that was already edited re-used the old 'OAE1' font resource and the
+    new and the earlier inserted text came out as U+FFFD garbage."""
+    src = _cert(str(tmp_path / "c.pdf"))
+    b, _ = _block(src, "John Smith")
+    o1 = pe.apply_edits(src, [{"type": "text", "page": 0, "block_id": b["id"], "new_text": "Jane Doe",
+                               "italic": True, "color": "#ff0000"}])["out_path"]
+    b2, _ = _block(o1, "has successfully")
+    e = {"type": "text", "page": 0, "block_id": b2["id"], "new_text": b2["text"]}
+    if second == "bold":
+        e["bold"] = True
+    elif second == "text":
+        e["new_text"] = b2["text"] + " more"
+    else:
+        e = {"type": "add_text", "page": 0, "rect": [50, 600, 300, 640], "text": "Zed Quux"}
+    o2 = pe.apply_edits(o1, [e])["out_path"]
+    txt = _page_text(o2).replace("\xa0", " ")
+    assert "�" not in txt
+    assert "Jane Doe" in txt
+    assert "has successfully" in txt
+    if second == "add":
+        assert "Zed Quux" in txt
