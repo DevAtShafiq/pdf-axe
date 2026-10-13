@@ -329,6 +329,9 @@ def pdf_info(path: str) -> dict:
             "is_image": is_image(path),
             "encrypted": bool(getattr(doc, "is_encrypted", False)),
             "size": os.path.getsize(path),
+            # [w, h] in points per page (first 2000), e.g. for a matching blank page
+            "page_sizes": [[round(p.rect.width, 1), round(p.rect.height, 1)]
+                           for p in (doc[i] for i in range(min(doc.page_count, 2000)))],
         }
     finally:
         doc.close()
@@ -535,6 +538,7 @@ def build_pdf(pages: list, out_path: str, *, replace: bool = False,
 
     Slots may repeat (duplicate page) and come from several files (inserted
     pages, images). 'rotate' is added to the page's current rotation.
+    {blank: True, width, height} inserts an empty page (points; A4 default).
 
     replace=False: written as a NEW file (free name based on *out_path*).
     replace=True : *out_path* must exist; the old version is first copied to
@@ -559,6 +563,16 @@ def build_pdf(pages: list, out_path: str, *, replace: bool = False,
         for i, it in enumerate(pages):
             if i % 10 == 0:
                 _report(progress, i, total, f"Page {i + 1} of {total}")
+            if it.get("blank"):                # an inserted empty page
+                w = float(it.get("width") or 595.0)
+                h = float(it.get("height") or 842.0)
+                if not (36 <= w <= 14400 and 36 <= h <= 14400):
+                    raise PdfToolsError("Blank page size is out of range.")
+                pg = out.new_page(width=w, height=h)
+                rot = int(it.get("rotate", 0) or 0) % 360
+                if rot:
+                    pg.set_rotation(rot)
+                continue
             sp = os.path.abspath(str(it.get("path") or ""))
             key = sp.lower()
             src = docs.get(key)

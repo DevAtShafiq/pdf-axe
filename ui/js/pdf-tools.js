@@ -435,65 +435,13 @@ const PdfTools = (() => {
   // =========================================================================
   // EXTRACT
   // =========================================================================
+  // Acrobat-style: the page grid with the Extract bar open. Click pages (or
+  // type a range), then Extract; options: one file per page, delete the
+  // extracted pages from this PDF afterwards.
   async function openExtract(path, opts) {
     if (!isPdf(path)) { App.toast('Select a PDF first', 'warning'); return; }
-    const info = await SFM.pdfInfo(path);
-    if (!info.ok) { App.toast(esc(info.error), 'error', 7000); return; }
-    const n = info.page_count;
-    const start = (opts && Number.isInteger(opts.page)) ? String(opts.page + 1) : '';
-    const m = modal({
-      title: 'Extract pages',
-      icon: 'extract',
-      subtitle: `${baseOf(path)} · ${n} page${n === 1 ? '' : 's'}`,
-      cls: 'modal-sm pt-narrow',
-      body: `
-        <div class="field">
-          <label class="field-label" for="pt-e-spec">Pages to extract, in this order</label>
-          <input class="input-text" id="pt-e-spec" value="${esc(start)}" placeholder="e.g. 1-3, 5, 8-end">
-          <div class="pt-err" id="pt-e-err"></div>
-        </div>
-        <div class="field">
-          <label class="field-label" for="pt-e-name">New file name</label>
-          <div class="field-row"><input class="input-text" id="pt-e-name" placeholder="${esc(stemOf(path))}_p… (automatic)"><span class="field-suffix">.pdf</span></div>
-          <div class="field-hint">Saved next to the original, which is not changed. Existing files are never overwritten.</div>
-        </div>
-        ${progressHtml()}`,
-      footer: `<button class="btn" id="pt-e-cancel">Cancel</button><button class="btn btn-primary" id="pt-e-go">${ic('extract')}Extract</button>`,
-    });
-    const specInp = m.$('#pt-e-spec');
-    let valid = false, seq = 0;
-    async function check() {
-      const my = ++seq, spec = specInp.value;
-      if (!spec.trim()) { valid = false; m.$('#pt-e-err').textContent = ''; m.$('#pt-e-go').disabled = true; return; }
-      const r = await SFM.pdfParseRanges(spec, n, 'extract');
-      if (my !== seq) return;
-      valid = !!r.ok;
-      m.$('#pt-e-go').disabled = !valid;
-      m.$('#pt-e-err').className = r.ok ? 'pt-ok' : 'pt-err';
-      m.$('#pt-e-err').innerHTML = ic(r.ok ? 'check-circle' : 'alert-circle', 14) + esc(r.ok ? `${r.groups[0].length} page${r.groups[0].length === 1 ? '' : 's'}: ${r.groups[0].slice(0, 30).join(', ')}${r.groups[0].length > 30 ? ', …' : ''}` : r.error);
-    }
-    let t = null;
-    specInp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(check, 180); });
-    m.$('#pt-e-cancel').addEventListener('click', () => m.close());
-    async function go() {
-      if (m.busy) return;
-      await check();
-      if (!valid) return;
-      const nm = cleanName(m.$('#pt-e-name').value);
-      const job = newJob(), stop = trackProgress(m.$('.pt-progress'), job);
-      footBusy(m, true);
-      App.setStatus('Extracting pages…', true);
-      const r = await SFM.pdfExtract(path, specInp.value, nm ? joinP(dirOf(path), nm + '.pdf') : '', job)
-        .catch(e => ({ ok: false, error: String(e) }));
-      stop(); footBusy(m, false);
-      if (!r.ok) { finish(r); return; }
-      m.close();
-      finish(r, `Extracted ${r.page_count} page(s) → <b>${esc(baseOf(r.out_path))}</b>`, r.out_path);
-    }
-    m.$('#pt-e-go').addEventListener('click', go);
-    m.el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') go(); });
-    specInp.focus(); specInp.select();
-    check();
+    const pg = opts && Number.isInteger(opts.page) ? [opts.page] : [];
+    return openArrange([path], { mode: 'arrange', panel: 'extract', selectPages: pg });
   }
 
   async function extractPage(path, page) {
@@ -533,14 +481,24 @@ const PdfTools = (() => {
     let uid = 0;
     let slots = [];
     infos.forEach(inf => { for (let p = 0; p < inf.page_count; p++) slots.push({ id: ++uid, path: inf.path, page: p, rotate: 0 }); });
-    const multiSource = () => new Set(slots.map(s => s.path.toLowerCase())).size > 1;
+    const multiSource = () => new Set(slots.filter(s => !s.blank).map(s => s.path.toLowerCase())).size > 1;
     const initialSig = sig();
     let sel = new Set(), anchor = null, focusId = slots[0] ? slots[0].id : null;
     let undoStack = [], redoStack = [];
     let tileW = +(store('arrangeTileW') || 150);
     let busy = false;
+    let panel = null;                    // null | 'extract' | 'split' (the Acrobat-style second bar)
+    // Names for extracted / split files: the real document (in PDF Studio the
+    // slots point at a working copy).
+    const baseStem = (opts && opts.stem) || stemOf(primary);
+    if (opts && Array.isArray(opts.selectPages)) {
+      const want = new Set(opts.selectPages.filter(Number.isInteger));
+      slots.forEach(s => { if (s.path === primary && want.has(s.page)) sel.add(s.id); });
+      const first = slots.find(s => sel.has(s.id));
+      if (first) { focusId = first.id; anchor = first.id; }
+    }
 
-    function sig() { return JSON.stringify(slots.map(s => [s.path, s.page, s.rotate])); }
+    function sig() { return JSON.stringify(slots.map(s => [s.blank ? '' : s.path, s.page, s.rotate, s.blank ? 1 : 0])); }
     const dirty = () => sig() !== initialSig;
     function snapshot() {
       undoStack.push(slots.map(s => ({ ...s })));
@@ -594,8 +552,15 @@ const PdfTools = (() => {
           </div>
           <span class="toolbar-sep"></span>
           <div class="pt-tb-group">
-            <button class="btn btn-sm btn-ghost" data-a="insert" title="Insert all pages of other PDFs or images after the selection">${ic('plus', 14)}Insert pages…</button>
-            <button class="btn btn-sm btn-ghost" data-a="extract" title="Save the selected pages as a new PDF">${ic('extract', 14)}Extract selected</button>
+            <span class="pt-menu-wrap">
+              <button class="btn btn-sm btn-ghost" data-a="insert-menu" title="Insert pages after the selection" aria-haspopup="menu">${ic('plus', 14)}Insert${ic('chevron-down', 12)}</button>
+              <div class="pt-menu hidden" role="menu" id="pt-a-insmenu">
+                <button role="menuitem" data-a="insert">${ic('file-pdf', 14)}Pages from a file…</button>
+                <button role="menuitem" data-a="blank">${ic('file', 14)}Blank page</button>
+              </div>
+            </span>
+            <button class="btn btn-sm btn-ghost pt-panel-btn" data-a="panel-extract" title="Pick pages and save them as a new PDF">${ic('extract', 14)}Extract</button>
+            <button class="btn btn-sm btn-ghost pt-panel-btn" data-a="panel-split" title="Split this PDF into several files">${ic('scissors', 14)}Split</button>
             <button class="btn btn-sm btn-ghost" data-a="all" title="Select all (Ctrl+A)">${ic('list-checks', 14)}<span class="pt-all-label">Select all</span></button>
           </div>
           <span class="pt-spacer"></span>
@@ -604,6 +569,30 @@ const PdfTools = (() => {
             <button class="icon-btn" data-a="zout" data-tooltip="Smaller thumbnails" aria-label="Smaller thumbnails">${ic('zoom-out')}</button>
             <button class="icon-btn" data-a="zin"  data-tooltip="Larger thumbnails" aria-label="Larger thumbnails">${ic('zoom-in')}</button>
           </div>
+        </div>
+        <div class="pt-subbar hidden" id="pt-a-sub-extract" role="toolbar" aria-label="Extract">
+          <span class="pt-sub-title">${ic('extract', 16)}Extract</span>
+          <label class="pt-sub-field">Pages
+            <input class="input-text pt-range" id="pt-x-range" placeholder="Click pages, or type e.g. 1-3, 5" spellcheck="false"></label>
+          <label class="check-row"><input type="checkbox" id="pt-x-each"><span>Each page as a separate file</span></label>
+          <label class="check-row"><input type="checkbox" id="pt-x-del"><span>Delete pages after extracting</span></label>
+          <span class="pt-spacer"></span>
+          <span class="pt-sub-info" id="pt-x-info"></span>
+          <button class="btn btn-sm btn-primary" id="pt-x-go">${ic('extract', 14)}Extract</button>
+          <button class="icon-btn icon-btn-sm" data-a="panel-close" aria-label="Close" title="Close (Esc)">${ic('x', 14)}</button>
+        </div>
+        <div class="pt-subbar hidden" id="pt-a-sub-split" role="toolbar" aria-label="Split">
+          <span class="pt-sub-title">${ic('scissors', 16)}Split</span>
+          <div class="segmented" role="radiogroup" aria-label="Split by">
+            <label class="seg-btn"><input type="radio" name="pt-sp-mode" value="every" checked>Every</label>
+            <label class="seg-btn" title="Select the first page of each new file"><input type="radio" name="pt-sp-mode" value="marks">At selected pages</label>
+            <label class="seg-btn"><input type="radio" name="pt-sp-mode" value="each">Every page</label>
+          </div>
+          <label class="pt-sub-field" id="pt-sp-every-wrap"><input class="input-text pt-num-input" id="pt-sp-every" type="number" min="1" value="${esc(store('splitEvery') || 2)}"> pages per file</label>
+          <span class="pt-spacer"></span>
+          <span class="pt-sub-info" id="pt-sp-info"></span>
+          <button class="btn btn-sm btn-primary" id="pt-sp-go">${ic('scissors', 14)}Split</button>
+          <button class="icon-btn icon-btn-sm" data-a="panel-close" aria-label="Close" title="Close (Esc)">${ic('x', 14)}</button>
         </div>
         <div class="pt-grid" id="pt-a-grid" tabindex="0"><div class="pt-caret" id="pt-a-caret"></div></div>
         <div class="pt-org-foot">
@@ -629,6 +618,8 @@ const PdfTools = (() => {
       busy: false,
       close() {                          // Escape (via the shared modal stack)
         if (drag) { cancelDrag(); return; }
+        if (!$('#pt-a-insmenu').classList.contains('hidden')) { $('#pt-a-insmenu').classList.add('hidden'); return; }
+        if (panel) { setPanel(null); grid.focus(); return; }
         if (embed) embed.onKey('close'); else tryClose();
       },
     };
@@ -644,7 +635,7 @@ const PdfTools = (() => {
         if (!en.isIntersecting) return;
         io.unobserve(en.target);
         const s = slots.find(x => x.id === +en.target.dataset.id);
-        if (s) want(s.path, s.page);
+        if (s && !s.blank) want(s.path, s.page);
       });
     }, { root: grid, rootMargin: '400px' });
     function want(path, page) {
@@ -691,18 +682,24 @@ const PdfTools = (() => {
       const w = tileW, h = Math.round(w * 1.3), multi = multiSource();
       io.disconnect();
       const frag = document.createDocumentFragment(), lazy = [];
+      const starts = panel === 'split' ? splitStarts() : null;
+      let fileNo = 0;
       slots.forEach((s, i) => {
         const t = document.createElement('div');
-        t.className = 'pt-tile' + (sel.has(s.id) ? ' sel' : '') + (s.id === focusId ? ' focus' : '');
+        const cut = starts && starts.has(i);
+        if (cut) fileNo++;
+        t.className = 'pt-tile' + (sel.has(s.id) ? ' sel' : '') + (s.id === focusId ? ' focus' : '') +
+                      (cut && i > 0 ? ' pt-cut' : '') + (panel === 'extract' ? ' pt-picking' : '');
         t.dataset.id = s.id;
         t.style.width = w + 'px';
         const odd = s.rotate === 90 || s.rotate === 270;
         const tf = `rotate(${s.rotate}deg)` + (odd ? ` scale(${(w / h).toFixed(3)})` : '');
-        const du = cache.get(`${s.path}|${s.page}|${thumbWidth()}`);
+        const du = s.blank ? null : cache.get(`${s.path}|${s.page}|${thumbWidth()}`);
         t.innerHTML = `
-          <div class="pt-thumb" style="width:${w}px;height:${h}px">
-            <img draggable="false" alt="" style="transform:${tf};visibility:${du ? 'visible' : 'hidden'}" ${du ? `src="${du}"` : ''}>
-            ${du ? '' : `<span class="pt-ph">${du === '' ? 'No preview' : '<span class="spinner"></span>'}</span>`}
+          <div class="pt-thumb${s.blank ? ' pt-blank' : ''}" style="width:${w}px;height:${h}px">
+            ${cut ? `<span class="pt-file-badge">${ic('file-pdf', 11)}File ${fileNo}</span>` : ''}
+            ${s.blank ? '' : `<img draggable="false" alt="" style="transform:${tf};visibility:${du ? 'visible' : 'hidden'}" ${du ? `src="${du}"` : ''}>
+            ${du ? '' : `<span class="pt-ph">${du === '' ? 'No preview' : '<span class="spinner"></span>'}</span>`}`}
             <span class="pt-num-badge">${i + 1}</span>
             <span class="pt-check-badge">${ic('check', 12)}</span>
             ${s.rotate ? `<span class="pt-rot-badge" title="Rotated ${s.rotate}°">${ic('rotate-cw', 11)}${s.rotate}°</span>` : ''}
@@ -713,7 +710,7 @@ const PdfTools = (() => {
               <button data-t="del" class="del" title="Delete" aria-label="Delete">${ic('trash', 14)}</button>
             </div>
           </div>
-          <div class="pt-cap" title="${esc(baseOf(s.path))} — page ${s.page + 1}">${multi ? esc(stemOf(s.path).slice(0, 18)) + ' · p' + (s.page + 1) : (s.page !== i ? `Page ${i + 1} <span class="text-muted">· was ${s.page + 1}</span>` : `Page ${i + 1}`)}</div>`;
+          <div class="pt-cap" title="${s.blank ? 'Blank page' : esc(baseOf(s.path)) + ' — page ' + (s.page + 1)}">${s.blank ? `Page ${i + 1} <span class="text-muted">· blank</span>` : multi ?esc(stemOf(s.path).slice(0, 18)) + ' · p' + (s.page + 1) : (s.page !== i ? `Page ${i + 1} <span class="text-muted">· was ${s.page + 1}</span>` : `Page ${i + 1}`)}</div>`;
         frag.appendChild(t);
         if (du === undefined) lazy.push(t);
       });
@@ -728,10 +725,10 @@ const PdfTools = (() => {
       $('#pt-a-status').className = 'pill ' + (dirty() ? 'pill-yellow pill-dot' : 'pill-neutral');
       ov.querySelector('[data-a="undo"]').disabled = !undoStack.length;
       ov.querySelector('[data-a="redo"]').disabled = !redoStack.length;
-      ov.querySelector('[data-a="extract"]').disabled = !n;
       ov.querySelector('[data-a="all"] .pt-all-label').textContent = (n && n === slots.length) ? 'Select none' : 'Select all';
       ['rotl', 'rotr', 'dup', 'del'].forEach(a => { ov.querySelector(`[data-a="${a}"]`).disabled = !targets().length; });
       $('#pt-a-save').disabled = !slots.length;
+      panelStatus();
       if (embed && embed.onChange) embed.onChange();
     }
 
@@ -789,7 +786,9 @@ const PdfTools = (() => {
       return nm && dir ? joinP(dir, nm + '.pdf') : '';
     }
     const overwriteChosen = () => canOverwrite && (ov.querySelector('input[name="pt-a-out"]:checked') || {}).value === 'over';
-    const payload = ix => ix.map(i => ({ path: slots[i].path, page: slots[i].page, rotate: slots[i].rotate }));
+    const payload = ix => ix.map(i => slots[i].blank
+      ? { blank: true, width: slots[i].width, height: slots[i].height, rotate: slots[i].rotate }
+      : { path: slots[i].path, page: slots[i].page, rotate: slots[i].rotate });
 
     async function runBuild(pages, out, replace, label) {
       if (busy) return null;
@@ -807,12 +806,129 @@ const PdfTools = (() => {
       return r;
     }
 
-    async function extractSelected() {
+    // ── Insert a blank page (size of the page it follows; A4 otherwise) ────
+    async function insertBlank() {
+      const ix = selIdx(), f = idx(focusId);
+      const ref = ix.length ? Math.max(...ix) : f;
+      const at = ref >= 0 ? ref + 1 : slots.length;
+      let w = 595, h = 842;
+      const near = slots[ref] || slots[at - 1];
+      if (near && near.blank) { w = near.width; h = near.height; }
+      else if (near) {
+        const r = await SFM.pdfInfo(near.path).catch(() => null);
+        const sz = r && r.ok && r.page_sizes && r.page_sizes[near.page];
+        if (sz && sz.length === 2) { w = sz[0]; h = sz[1]; }
+      }
+      snapshot();
+      const s = { id: ++uid, path: '', page: 0, rotate: 0, blank: true, width: w, height: h };
+      slots.splice(at, 0, s);
+      sel = new Set([s.id]); focusId = s.id; anchor = s.id;
+      render();
+      grid.querySelector(`.pt-tile[data-id="${s.id}"]`)?.scrollIntoView({ block: 'nearest' });
+    }
+
+    // ── Acrobat-style second bar: Extract / Split ──────────────────────────
+    function rangeText(ix) {               // [0,1,2,4] → "1-3, 5"
+      const n = [...ix].sort((a, b) => a - b).map(i => i + 1), runs = [];
+      for (let i = 0; i < n.length;) {
+        let j = i; while (j + 1 < n.length && n[j + 1] === n[j] + 1) j++;
+        runs.push(i === j ? '' + n[i] : `${n[i]}-${n[j]}`); i = j + 1;
+      }
+      return runs.join(', ');
+    }
+    function parseRange(text) {            // "1-3, 5, 8-end" → [0,1,2,4,7…] or null
+      const total = slots.length, out = [];
+      const parts = String(text).split(/[,;\s]+/).filter(Boolean);
+      for (const p of parts) {
+        const m = /^(\d+|end)(?:-(\d+|end))?$/i.exec(p);
+        if (!m) return null;
+        const v = x => /^end$/i.test(x) ? total : +x;
+        const a = v(m[1]), b = m[2] ? v(m[2]) : a;
+        if (a < 1 || b < 1 || a > total || b > total) return null;
+        const step = a <= b ? 1 : -1;
+        for (let k = a; ; k += step) { if (!out.includes(k - 1)) out.push(k - 1); if (k === b) break; }
+      }
+      return out;
+    }
+    function splitStarts() {               // indexes where a new file begins
+      const mode = (ov.querySelector('input[name="pt-sp-mode"]:checked') || {}).value || 'every';
+      const st = new Set([0]);
+      if (mode === 'each') slots.forEach((_, i) => st.add(i));
+      else if (mode === 'marks') selIdx().forEach(i => st.add(i));
+      else { const n = Math.max(1, +$('#pt-sp-every').value || 1); for (let i = 0; i < slots.length; i += n) st.add(i); }
+      return st;
+    }
+    function splitGroups() {
+      const st = [...splitStarts()].sort((a, b) => a - b);
+      return st.map((a, k) => slots.slice(a, k + 1 < st.length ? st[k + 1] : slots.length).map((_, j) => a + j)).filter(g => g.length);
+    }
+    function panelStatus() {
+      if (panel === 'extract') {
+        const ix = selIdx(), inp = $('#pt-x-range');
+        if (document.activeElement !== inp) { inp.value = rangeText(ix); inp.classList.remove('is-invalid'); }
+        const each = $('#pt-x-each').checked;
+        $('#pt-x-info').textContent = ix.length ? `${ix.length} page${ix.length === 1 ? '' : 's'} → ${each ? ix.length + ' file' + (ix.length === 1 ? '' : 's') : '1 file'}` : 'Click the pages to extract';
+        $('#pt-x-go').disabled = busy || !ix.length;
+      } else if (panel === 'split') {
+        const mode = (ov.querySelector('input[name="pt-sp-mode"]:checked') || {}).value;
+        $('#pt-sp-every-wrap').classList.toggle('hidden', mode !== 'every');
+        const g = splitGroups();
+        $('#pt-sp-info').textContent = mode === 'marks' && !selIdx().filter(i => i > 0).length
+          ? 'Select the first page of each new file' : `${g.length} file${g.length === 1 ? '' : 's'}`;
+        $('#pt-sp-go').disabled = busy || g.length < 2;
+        setBtn($('#pt-sp-go'), g.length >= 2 ? `Split into ${g.length} files` : 'Split', 'scissors');
+      }
+    }
+    function setPanel(p) {
+      if (p && panel && p !== panel) sel.clear();   // picks from one bar mean nothing in the other
+      panel = (p === panel) ? null : p;
+      ['extract', 'split'].forEach(k => $('#pt-a-sub-' + k).classList.toggle('hidden', panel !== k));
+      ov.querySelectorAll('.pt-panel-btn').forEach(b => b.classList.toggle('active', b.dataset.a === 'panel-' + panel));
+      render();
+      if (panel === 'extract' && !sel.size) setTimeout(() => $('#pt-x-range').focus(), 30);
+    }
+    const outDir = () => ($('#pt-a-dir').value.trim() || defDir);
+    async function freeOut(name) { return joinP(outDir(), cleanName(name) + '.pdf'); }   // engine never overwrites
+
+    async function extractRun() {
+      if (busy) return;
       const ix = selIdx();
-      if (!ix.length) { App.toast('Select pages first (click, Ctrl+click, Shift+click)', 'warning'); return; }
-      const dir = $('#pt-a-dir').value.trim() || dirOf(primary);
-      const r = await runBuild(payload(ix), joinP(dir, stemOf(primary) + '_extract.pdf'), false, 'Extracting pages…');
-      if (r) finish(r, r.ok ? `Extracted ${r.page_count} page(s) → <b>${esc(baseOf(r.out_path))}</b>` : '', r.out_path);
+      if (!ix.length) { App.toast('Click the pages to extract first', 'warning'); return; }
+      const de = await SFM.pathExists(outDir()).catch(() => null);
+      if (!de || !de.ok || !de.is_dir) { App.toast('Choose an existing folder (bottom bar)', 'warning'); return; }
+      const each = $('#pt-x-each').checked, del = $('#pt-x-del').checked;
+      const jobs = each ? ix.map(i => [[i], `${baseStem}_p${i + 1}`]) : [[ix, `${baseStem}_p${rangeText(ix).replace(/\s+/g, '').replace(/,/g, '_')}`]];
+      const outs = [];
+      for (const [g, nm] of jobs) {
+        const r = await runBuild(payload(g), await freeOut(nm.slice(0, 120)), false, 'Extracting pages…');
+        if (!r || !r.ok) { finish(r || { ok: false, error: 'Busy' }); return; }
+        outs.push(r.out_path);
+      }
+      let removed = false;
+      if (del) {
+        if (ix.length >= slots.length) App.toast('All pages were extracted; the PDF keeps its pages (it needs at least one)', 'info', 6000);
+        else { remove(ix); removed = true; }
+      }
+      const msg = outs.length === 1 ? `Extracted ${ix.length} page(s) → <b>${esc(baseOf(outs[0]))}</b>` : `Extracted ${outs.length} files into <b>${esc(baseOf(outDir()) || outDir())}</b>`;
+      finish({ ok: true }, msg + (removed ? ' · the pages were removed here; Save to keep that' : ''), outs[0]);
+    }
+
+    async function splitRun() {
+      if (busy) return;
+      const groups = splitGroups();
+      if (groups.length < 2) { App.toast('Choose where to split first', 'warning'); return; }
+      const de = await SFM.pathExists(outDir()).catch(() => null);
+      if (!de || !de.ok || !de.is_dir) { App.toast('Choose an existing folder (bottom bar)', 'warning'); return; }
+      if ($('#pt-sp-every').value) store('splitEvery', +$('#pt-sp-every').value || 2);
+      const outs = [];
+      for (let k = 0; k < groups.length; k++) {
+        const g = groups[k];
+        const nm = `${baseStem}_part${k + 1}_p${g[0] + 1}${g.length > 1 ? '-' + (g[g.length - 1] + 1) : ''}`;
+        const r = await runBuild(payload(g), await freeOut(nm), false, `Splitting… file ${k + 1} of ${groups.length}`);
+        if (!r || !r.ok) { finish(r || { ok: false, error: 'Busy' }); return; }
+        outs.push(r.out_path);
+      }
+      finish({ ok: true }, `Split into ${outs.length} files in <b>${esc(baseOf(outDir()) || outDir())}</b>`, outs[0]);
     }
 
     async function save() {
@@ -863,14 +979,46 @@ const PdfTools = (() => {
       else if (a === 'rotr') rotate(targets(), 90);
       else if (a === 'dup') duplicate(targets());
       else if (a === 'del') remove(targets());
-      else if (a === 'insert') insertPages();
-      else if (a === 'extract') extractSelected();
+      else if (a === 'insert-menu') { $('#pt-a-insmenu').classList.toggle('hidden'); return; }
+      else if (a === 'insert') { $('#pt-a-insmenu').classList.add('hidden'); insertPages(); }
+      else if (a === 'blank') { $('#pt-a-insmenu').classList.add('hidden'); insertBlank(); }
+      else if (a === 'panel-extract') setPanel('extract');
+      else if (a === 'panel-split') setPanel('split');
       else if (a === 'undo') undo();
       else if (a === 'redo') redo();
       else if (a === 'all') { sel = (sel.size === slots.length) ? new Set() : new Set(slots.map(s => s.id)); render(); }
       else if (a === 'zin' || a === 'zout') setTile(tileW * (a === 'zin' ? 1.2 : 1 / 1.2));
       grid.focus();
     });
+    ov.addEventListener('mousedown', e => {                // close the Insert menu on an outside click
+      if (!e.target.closest || !e.target.closest('.pt-menu-wrap')) $('#pt-a-insmenu')?.classList.add('hidden');
+    }, true);
+    // second bars (Extract / Split)
+    ov.querySelectorAll('[data-a="panel-close"]').forEach(b => b.addEventListener('click', () => { setPanel(null); grid.focus(); }));
+    $('#pt-x-go').addEventListener('click', extractRun);
+    $('#pt-sp-go').addEventListener('click', splitRun);
+    ['#pt-x-each', '#pt-x-del'].forEach(s => $(s).addEventListener('change', panelStatus));
+    ov.querySelectorAll('input[name="pt-sp-mode"]').forEach(rb => rb.addEventListener('change', () => {
+      render();
+      if (rb.value === 'marks' && rb.checked && !selIdx().length) App.toast('Click the first page of each new file', 'info', 3000);
+    }));
+    $('#pt-sp-every').addEventListener('input', render);
+    $('#pt-x-range').addEventListener('input', () => {
+      const inp = $('#pt-x-range'), v = inp.value.trim();
+      const ix = v ? parseRange(v) : [];
+      inp.classList.toggle('is-invalid', ix === null);
+      if (ix === null) { $('#pt-x-info').textContent = `Pages 1 to ${slots.length}, e.g. 1-3, 5`; $('#pt-x-go').disabled = true; return; }
+      sel = new Set(ix.map(i => slots[i].id));
+      if (ix.length) { focusId = slots[ix[0]].id; anchor = focusId; }
+      render();
+    });
+    $('#pt-x-range').addEventListener('change', () => { if (!$('#pt-x-range').classList.contains('is-invalid')) panelStatus(); });
+    ov.querySelectorAll('.pt-subbar').forEach(bar => bar.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox' && e.target.type !== 'radio') {
+        e.preventDefault(); e.stopPropagation();
+        if (panel === 'extract') extractRun(); else if (panel === 'split') splitRun();
+      }
+    }, true));
     function setTile(w) {
       tileW = Math.round(Math.max(90, Math.min(420, w)));
       store('arrangeTileW', tileW);
@@ -910,7 +1058,8 @@ const PdfTools = (() => {
         const [a, b] = [Math.min(idx(anchor), i), Math.max(idx(anchor), i)];
         if (!e.ctrlKey) sel.clear();
         for (let k = a; k <= b; k++) sel.add(slots[k].id);
-      } else if (e.ctrlKey || e.metaKey) {
+      } else if (e.ctrlKey || e.metaKey || panel) {
+        // Ctrl+click toggles; while Extract / Split is open a plain click toggles too (pick pages)
         sel.has(id) ? sel.delete(id) : sel.add(id); anchor = id;
       } else {
         sel = new Set([id]); anchor = id;
@@ -1003,7 +1152,7 @@ const PdfTools = (() => {
       const inInput = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '');
       const ctrl = e.ctrlKey || e.metaKey, k = e.key;
       if (ctrl && (k === 's' || k === 'S')) { e.preventDefault(); e.stopPropagation(); if (embed) embed.onKey('save'); else save(); return; }
-      if (inInput) { if (k === 'Enter') { e.preventDefault(); save(); } return; }
+      if (inInput) { if (k === 'Enter' && !e.target.closest('.pt-subbar')) { e.preventDefault(); save(); } return; }
       const handled = () => { e.preventDefault(); e.stopPropagation(); };
       if (ctrl && (k === 'z' || k === 'Z') && !e.shiftKey) { handled(); if (embed && !undoStack.length) embed.onKey('undo'); else undo(); }
       else if (ctrl && (k === 'y' || k === 'Y' || ((k === 'z' || k === 'Z') && e.shiftKey))) { handled(); if (embed && !redoStack.length) embed.onKey('redo'); else redo(); }
@@ -1036,6 +1185,8 @@ const PdfTools = (() => {
 
     render();
     grid.focus();
+    if (opts && opts.panel) setPanel(opts.panel);
+    if (sel.size) requestAnimationFrame(() => grid.querySelector(`.pt-tile[data-id="${focusId}"]`)?.scrollIntoView({ block: 'nearest' }));
     if (!embed) return;
     // PDF Studio: write the arranged pages into a new step file.
     return {

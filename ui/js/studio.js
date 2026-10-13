@@ -196,7 +196,7 @@ var Studio = (() => {
       try {
         if (mode === 'edit') ctl = await PdfEdit.open(cur(), { embed });
         else if (mode === 'annotate') ctl = await Annotate.open(cur(), { embed });
-        else if (mode === 'pages') ctl = await PdfTools.openArrange([cur()], { embed, mode: 'arrange', name: stemOf(sess.name) + '_pages', folder: dirOf(sess.source) });
+        else if (mode === 'pages') ctl = await PdfTools.openArrange([cur()], { embed, mode: 'arrange', name: stemOf(sess.name) + '_pages', folder: dirOf(sess.source), stem: stemOf(sess.name) });
         else reader = buildReader(host, cur(), lastPage);
       } finally {
         App.setStatus('Ready');
