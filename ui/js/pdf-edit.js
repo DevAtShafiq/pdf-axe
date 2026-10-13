@@ -515,7 +515,36 @@ var PdfEdit = (() => {
       if (s.kind === 'add') { const a = model.adds.find(x => x.id === s.key); return a ? a.page : 0; }
       return +s.key.split(':')[0];
     }
-    function startEdit(s) {
+    // Character index in textarea *ta* nearest to the screen point (x, y):
+    // a hidden copy of the box with one span per character, laid out the same.
+    function caretAt(ta, x, y) {
+      const text = ta.value;
+      if (!text) return 0;
+      const cs = getComputedStyle(ta), r = ta.getBoundingClientRect();
+      const m = document.createElement('div');
+      ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight', 'textAlign',
+       'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderLeftWidth',
+       'borderRightWidth', 'borderBottomWidth', 'boxSizing', 'wordSpacing', 'textIndent', 'tabSize']
+        .forEach(k => { m.style[k] = cs[k]; });
+      Object.assign(m.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px',
+        visibility: 'hidden', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', borderStyle: 'solid', margin: '0' });
+      const spans = [];
+      for (const ch of text) { const sp = document.createElement('span'); sp.textContent = ch; spans.push(sp); m.appendChild(sp); }
+      document.body.appendChild(m);
+      let best = text.length, bestD = Infinity, idx = 0;
+      try {
+        for (const sp of spans) {
+          const b = sp.getBoundingClientRect();
+          const dy = y < b.top ? b.top - y : y > b.bottom ? y - b.bottom : 0;
+          const before = Math.abs(x - b.left), after = Math.abs(x - b.right);
+          const d = dy * 1000 + Math.min(before, after);
+          if (d < bestD) { bestD = d; best = idx + (after < before ? sp.textContent.length : 0); }
+          idx += sp.textContent.length;
+        }
+      } finally { m.remove(); }
+      return best;
+    }
+    function startEdit(s, at = null) {
       const e = eff(s);
       if (!e || e.deleted) return;
       if (e.editable === false) { App.toast('Rotated text can be deleted, but not edited', 'info'); return; }
@@ -542,7 +571,9 @@ var PdfEdit = (() => {
       const focusIt = () => {
         if (!editing || editing.ta !== ta || document.activeElement === ta) return;
         ta.focus();
-        if (s.kind === 'block') ta.select(); else ta.setSelectionRange(ta.value.length, ta.value.length);
+        // A click puts the cursor where you clicked (like Word / Acrobat); Enter puts it at the end.
+        const i = at ? caretAt(ta, at[0], at[1]) : ta.value.length;
+        ta.setSelectionRange(i, i);
       };
       focusIt();
       setTimeout(focusIt, 0);       // the click that opened the editor may still move focus
@@ -714,7 +745,8 @@ var PdfEdit = (() => {
       if (!already) select(s);
       if (s.kind === 'image') { drag = null; return; }
       const e0 = eff(s);
-      drag = { mode: handle ? 'width' : 'move', s, p, start: pt, bbox: textBoxRect(e0), moved: false, snapped: false };
+      drag = { mode: handle ? 'width' : 'move', s, p, start: pt, bbox: textBoxRect(e0), moved: false, snapped: false,
+               at: [e.clientX, e.clientY] };
       capture(e);
     });
     // the box a move / width drag starts from: the block's (possibly moved) bbox
@@ -739,7 +771,7 @@ var PdfEdit = (() => {
     pagesEl.addEventListener('pointerup', () => {
       const d = drag; drag = null;
       if (!d || d.mode === 'pan') return;
-      if (!d.moved) startEdit(d.s);       // a click (no drag) edits in place
+      if (!d.moved) startEdit(d.s, d.at);  // a click (no drag) edits in place, cursor at the click
       else { status(); syncToolbar(); }
     });
     pagesEl.addEventListener('dblclick', e => { const item = e.target.closest('.pe-item'); if (item && item.dataset.kind !== 'image') startEdit({ kind: item.dataset.kind, key: item.dataset.k }); });
