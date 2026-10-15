@@ -431,5 +431,21 @@ def test_text_pdf_preserved_after_object_edits(tmp_path):
     with fitz.open(out) as d:
         assert len(d[0].get_images()) >= 2
         assert len(d[0].get_drawings()) >= 10        # vectors stay vectors
-        fonts = d[0].get_fonts()
-        assert fonts and all(f[1] != "n/a" or True for f in fonts)
+        assert d[0].get_fonts()
+
+
+def test_add_image_rotated_and_load_image_keeps_alpha(tmp_path):
+    p = _make(str(tmp_path / "f.pdf"))
+    png = tmp_path / "logo.png"
+    im = Image.new("RGBA", (100, 50), (0, 0, 0, 0))
+    ImageDraw.Draw(im).rectangle([0, 0, 49, 49], fill=(250, 120, 0, 255))   # orange left half
+    im.save(png)
+    li = pe.load_image(str(png))
+    assert li["data_url"].startswith("data:image/png") and (li["width"], li["height"]) == (100, 50)
+    out = _apply(p, [{"type": "add_image", "page": 0, "rect": [450, 300, 500, 400], "rotate": 90,
+                      "data_url": li["data_url"]}])
+    # rotated clockwise: the orange (left) half is now on top
+    c = _pixel(out, 475, 320)
+    assert c[0] > 200 and c[2] < 80
+    assert _pixel(out, 475, 380) == (255, 255, 255)          # transparent half shows the page
+    _assert_text_and_fields(out)

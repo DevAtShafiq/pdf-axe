@@ -20,6 +20,13 @@ Edits (one dict each, ``page`` is 0-based):
     {type:'add_text', page, rect, text, font?, size?, color?, bold?, italic?, align?}
     {type:'delete_image',  page, image_id}
     {type:'replace_image', page, image_id, data_url, fit?: 'contain'|'stretch'}
+    {type:'object', page, object_id, orig_bbox?, bbox?, rotate?, crop?, delete?,
+     stroke?, fill?, width?, data_url?}          # page objects (pdf_objects.py):
+                                                 # pictures, shapes, lines, graphics
+    {type:'add_image', page, rect, rotate?, data_url}
+
+extract_objects(path, page) lists the objects; render_page(…, opts={objects})
+previews pending object edits; render_object() draws one object alone.
 
 How a text change is written: the original glyphs are removed with redaction
 annotations that only touch text (images and vector graphics stay), then the new
@@ -491,6 +498,40 @@ def _preview_edits(edits) -> list:
             e["delete"] = True
         out.append(e)
     return out
+
+
+def load_image(path: str, max_dim: int = 2400) -> dict:
+    """Picture file → data URL for placing on a page: PNG when it has
+    transparency (logos, signatures), else JPEG; camera rotation applied,
+    at most *max_dim* px. The file is only read."""
+    from PIL import Image, ImageOps
+    path = os.path.abspath(str(path or ""))
+    if not os.path.isfile(path):
+        raise PdfEditError("Picture not found", "not_found")
+    try:
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)
+            alpha = im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
+            im = im.convert("RGBA" if alpha else "RGB")
+            if alpha and im.getchannel("A").getextrema()[0] == 255:
+                im, alpha = im.convert("RGB"), False
+            md = max(64, int(max_dim or 2400))
+            if max(im.size) > md:
+                im.thumbnail((md, md), Image.LANCZOS)
+            buf = io.BytesIO()
+            if alpha:
+                im.save(buf, "PNG", optimize=True)
+                mime = "image/png"
+            else:
+                im.save(buf, "JPEG", quality=92)
+                mime = "image/jpeg"
+            w, h = im.size
+    except PdfEditError:
+        raise
+    except Exception as exc:
+        raise PdfEditError(f"Couldn't open the picture: {exc}", "bad_image")
+    return {"data_url": f"data:{mime};base64," + base64.b64encode(buf.getvalue()).decode("ascii"),
+            "width": w, "height": h, "name": os.path.basename(path)}
 
 
 def _scale_for(pg, scale) -> float:
@@ -1036,7 +1077,8 @@ def _edit_bytes(path: str, edits: list) -> tuple:
                     if raw is None:
                         raw = _decode_data_url(e.get("data_url"))
                     if o is None:
-                        return _image_bytes_aspect(raw, None, "stretch")
+                        _image_bytes_aspect(raw, None, "stretch")    # validates; JPEG stays JPEG
+                        return raw
                     return _image_bytes_aspect(raw, o.get("aspect"), str(e.get("fit") or "contain"))
                 try:
                     page = _po.apply(doc, page, obj_edits, image_bytes=_img)

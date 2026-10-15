@@ -59,6 +59,10 @@ class PdfEditBridgeMixin:
         """Images, vector graphics and form XObjects of one page → {objects:[…]}."""
         return self._pdfedit_run("Read page objects", _pe.extract_objects, path, int(page or 0))
 
+    def pdfedit_load_image(self, path: str, max_dim: int = 2400) -> dict:
+        """Picture file → {data_url, width, height, name} (transparency kept)."""
+        return self._pdfedit_run("Open picture", _pe.load_image, path, int(max_dim or 2400))
+
     def pdfedit_object_png(self, path: str, page: int, object_id: str, scale: float = 1.5,
                            style: dict | None = None) -> dict:
         """One object alone on a transparent background → {data_url, bbox}."""

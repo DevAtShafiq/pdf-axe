@@ -36,8 +36,9 @@ var Studio = (() => {
       { id: 'read', mode: 'read', icon: 'text-select', label: 'Read & copy', hint: 'Select text and copy it · Ctrl+A selects a page' },
     ]],
     ['Edit', [
-      { id: 'edit', mode: 'edit', tool: 'select', icon: 'file-pen', label: 'Edit text', hint: 'Click a paragraph to change its words, font or colour' },
+      { id: 'edit', mode: 'edit', tool: 'select', icon: 'file-pen', label: 'Edit text & objects', hint: 'Click text to change it, or a picture, shape or line to move, resize, recolour or delete it' },
       { id: 'add-text', mode: 'edit', tool: 'add', icon: 'type', label: 'Add text', hint: 'Click on the page to add a new line of text' },
+      { id: 'add-image', mode: 'edit', tool: 'image', icon: 'image', label: 'Add image', hint: 'Place a picture on the page, then move or resize it' },
     ]],
     ['Comment', [
       { id: 'highlight', mode: 'annotate', tool: 'highlight', icon: 'highlighter', label: 'Highlight' },
@@ -61,7 +62,7 @@ var Studio = (() => {
   ];
   const ITEMS = RAIL.flatMap(([, items]) => items);
   const ITEM = Object.fromEntries(ITEMS.map(i => [i.id, i]));
-  const MODE_LABEL = { read: 'Read', edit: 'Text edits', annotate: 'Comments & signatures', pages: 'Page changes' };
+  const MODE_LABEL = { read: 'Read', edit: 'Text & object edits', annotate: 'Comments & signatures', pages: 'Page changes' };
 
   let _cur = null;
 
