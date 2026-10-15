@@ -821,10 +821,11 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         except Exception as exc:
             return _err(str(exc), path=path, folders=[])
 
-    def find_folders(self, root: str, query: str, limit: int = 200) -> dict:
-        """Folders under *root* whose name contains every word of *query*."""
+    def find_folders(self, root: str, query: str, limit: int = 200, prefer: str = "") -> dict:
+        """Folders under *root* whose name contains every word of *query*
+        (the *prefer* folder's subtree is searched first)."""
         try:
-            return _ok(**_fo.find_folders(root, query, limit=int(limit or 200)))
+            return _ok(**_fo.find_folders(root, query, limit=int(limit or 200), prefer=str(prefer or "")))
         except Exception as exc:
             return _err(str(exc), results=[])
 

@@ -774,33 +774,44 @@ const FileTree = (() => {
   }
 
   // ── New Folder ────────────────────────────────────────────────────────────
+  // Explorer style: "New folder" (or "New folder (2)") is created right away,
+  // selected, and its name opens for editing in place (Enter keeps the typed
+  // name, Esc keeps "New folder").
+  let _newFolderBusy = false;
   async function newFolder() {
     if (!_currentFolder) { App.toast('Open a folder first', 'warning'); return; }
-    const taken = new Set(_entries.map(e => String(e.name).toLowerCase()));
-    let suggestion = 'New folder';
-    for (let n = 2; taken.has(suggestion.toLowerCase()); n++) suggestion = `New folder (${n})`;
-    const name = await Dialogs.ask({
-      title: 'New folder',
-      subtitle: _currentFolder,
-      icon: 'folder-plus',
-      label: 'Folder name',
-      value: suggestion,
-      okLabel: 'Create folder',
-      okIcon: 'folder-plus',
-      validate: v => {
-        if (!v) return 'Enter a folder name.';
-        if (/[\\/:*?"<>|]/.test(v)) return 'A folder name can’t contain any of these characters: \\ / : * ? " < > |';
-        if (/[. ]$/.test(v)) return 'A folder name can’t end with a dot or a space.';
-        if (taken.has(v.toLowerCase())) return 'A file or folder with this name already exists here.';
-        return '';
-      },
-    });
-    if (!name) return;
-    const r = await SFM.createFolder(_currentFolder, name);
-    if (r.ok) {
-      App.toast(`Created folder “${name}”`, 'success');
-      await refreshAndSelect(r.path || (_currentFolder.replace(/[\\/]+$/, '') + '\\' + name));
-    } else { App.toast('Couldn’t create the folder: ' + r.error, 'error'); }
+    if (_newFolderBusy || (_edit && _edit.busy)) return;
+    if (_edit) _closeEditor(false);
+    _newFolderBusy = true;
+    try {
+      const listing = await SFM.listFolder(_currentFolder).catch(() => null);
+      const names = (listing && listing.ok ? listing.entries : _entries).map(e => String(e.name).toLowerCase());
+      const taken = new Set(names);
+      let suggestion = 'New folder';
+      for (let n = 2; taken.has(suggestion.toLowerCase()); n++) suggestion = `New folder (${n})`;
+      const r = await SFM.createFolder(_currentFolder, suggestion);
+      if (!r || !r.ok) { App.toast('Couldn’t create the folder: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
+      // A search that hides the new folder would leave nothing to rename.
+      if (_searchQuery) {
+        const si = $('search-input'); if (si) si.value = '';
+        _searchQuery = ''; App.state.searchQuery = '';
+      }
+      await refreshAndSelect(r.path);
+      if (!startRename(r.path)) App.toast(`Created folder “${suggestion}”`, 'success');
+    } finally {
+      _newFolderBusy = false;
+    }
+  }
+
+  // Refresh and select several items (e.g. folders made from a list).
+  async function selectPaths(paths) {
+    await refresh();
+    const want = new Set((paths || []).map(_normPath));
+    _selected = new Set(_filtered.filter(e => want.has(_normPath(e.path))).map(e => e.path));
+    _focusIdx = _filtered.findIndex(e => _selected.has(e.path));
+    _shiftAnchor = _focusIdx;
+    _renderCurrent(); _selectionChanged(); _scrollFocusedIntoView();
+    return _selected.size;
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -1479,7 +1490,7 @@ const FileTree = (() => {
   return {
     loadFolder, refresh, refreshAndSelect, revealPath, applySearch, setViewMode,
     copySelection, cutSelection, pasteSelection,
-    newFolder, deleteSelection, softDeletePaths,
+    newFolder, selectPaths, deleteSelection, softDeletePaths,
     combineSelected, browseFolder,
     getSelected, getFocusedEntry, getCurrentFolder, getEntry,
     expandAll, collapseAll,

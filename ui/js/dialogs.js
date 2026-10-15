@@ -713,6 +713,7 @@ const Dialogs = (() => {
         <div class="section-title" style="padding:12px 8px 2px">Files</div>
         ${item('mm-copyto', 'copy', 'Copy selection to&#x2026;')}
         ${item('mm-moveto', 'folder-input', 'Move selection to&#x2026;')}
+        ${item('mm-newfolders', 'list-checks', 'New folders from a list&#x2026;', 'Ctrl+Shift+L')}
         <div class="section-title" style="padding:12px 8px 2px">Folder tree</div>
         ${item('mm-expand-all', 'chevrons-up-down', 'Expand all folders')}
         ${item('mm-collapse-all', 'chevrons-down-up', 'Collapse all folders')}
@@ -732,110 +733,20 @@ const Dialogs = (() => {
     wire('mm-uppercase', () => openUppercase());
     wire('mm-copyto',    () => openCopyTo(App.state.selectedPaths || []));
     wire('mm-moveto',    () => openMoveTo(App.state.selectedPaths || []));
+    wire('mm-newfolders', () => FolderTools.openFromList());
     wire('mm-expand-all',    () => FileTree.expandAll());
     wire('mm-collapse-all',  () => FileTree.collapseAll());
   }
 
-  // ── 18. Copy To ─────────────────────────────────────────────────────────
-  async function openCopyTo(paths) {
-    if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = _destBody('ct', 'Copies are added to the destination; the originals stay where they are.');
-
-    _openModal('copyto', 'Copy to folder', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Copy', primary: true, icon: 'copy', onClick: async () => {
-        const dest = document.getElementById('ct-dest')?.value.trim();
-        if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
-        closeModal();
-        App.setStatus('Copying…', true);
-        const r = await SFM.copyFiles(paths, dest);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Copied ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
-        else       { App.toast('Copy failed: ' + r.error, 'error'); }
-      }},
-    ], { icon: 'copy', subtitle: _countLabel(paths), size: 'sm' });
-
-    document.getElementById('ct-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('ct-dest').value = r.path;
-    });
-  }
-
-  // ── 19. Move To ───────────────────────────────────────────────────────────
-  async function openMoveTo(paths) {
-    if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = _destBody('mv', 'The files are moved out of the current folder. An existing file is never replaced.');
-
-    _openModal('moveto', 'Move to folder', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Move', primary: true, icon: 'folder-input', onClick: async () => {
-        const dest = document.getElementById('mv-dest')?.value.trim();
-        if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
-        closeModal();
-        App.setStatus('Moving…', true);
-        const r = await SFM.moveFiles(paths, dest);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Moved ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
-        else       { App.toast('Move failed: ' + r.error, 'error'); }
-      }},
-    ], { icon: 'folder-input', subtitle: _countLabel(paths), size: 'sm' });
-
-    document.getElementById('mv-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('mv-dest').value = r.path;
-    });
-  }
+  // ── 18 / 19. Copy To / Move To — folder tree picker in folder-tools.js ──
+  function openCopyTo(paths) { FolderTools.openPicker('copy', paths); }
+  function openMoveTo(paths) { FolderTools.openPicker('move', paths); }
 
   // ── 21. PDF to Images — implemented in convert-tools.js ──────────────────
   function openPdfToImages(path) { return ConvertTools.openPdfToImages(path); }
 
   // ── 26b. Compress Image(s) — implemented in convert-tools.js ─────────────
   function openCompressImages(paths) { return ConvertTools.openCompressImages(paths); }
-
-  // ── Shared bodies for the job / destination dialogs ──────────────────────
-  function _countLabel(paths, noun) {
-    const n = (paths || []).length;
-    if (n === 1) return String(paths[0]).split(/[\\/]/).pop();
-    return `${n} ${noun || 'file'}${n === 1 ? '' : 's'}`;
-  }
-  function _destBody(p, hint) {
-    return `
-      <div class="field">
-        <label class="field-label" for="${p}-dest">Destination folder</label>
-        <div class="field-row">
-          <div class="input-group flex-1">
-            <span class="input-icon">${Icons.svg('folder', 14)}</span>
-            <input id="${p}-dest" class="input-text" placeholder="Choose a folder…">
-          </div>
-          <button class="btn" id="${p}-browse">Browse&#x2026;</button>
-        </div>
-        <div class="field-hint">${hint}</div>
-      </div>
-      <div id="${p}-status" class="progress-label"></div>`;
-  }
-  // Progress body: intro, indeterminate bar + status line, activity log.
-  function _jobBody(p, intro, logInit, statusText) {
-    return `
-      <p class="text-sm text-muted">${_esc(intro)}</p>
-      <div class="progress-block" id="${p}-progress">
-        <div class="progress-wrap"><div class="progress-bar indeterminate"></div></div>
-        <div class="progress-label" id="${p}-status"><span class="spinner"></span><span>${_esc(statusText || 'Working…')}</span></div>
-      </div>
-      <div class="field">
-        <span class="field-label">Activity</span>
-        <div id="${p}-log" class="log-output log-tall">${_esc(logInit || '')}</div>
-      </div>`;
-  }
-  // Replace the progress bar + status with a success / error callout.
-  function _jobDone(p, ok, title, text) {
-    const prog = document.getElementById(p + '-progress');
-    const st = document.getElementById(p + '-status');
-    if (!prog || !st) return;
-    prog.querySelector('.progress-wrap')?.remove();
-    st.className = 'callout ' + (ok ? 'success' : 'error');
-    st.innerHTML = `${Icons.svg(ok ? 'check-circle' : 'alert-circle', 16)}
-      <div class="callout-body"><span class="callout-title">${_esc(title)}</span><span>${_esc(text || '')}</span></div>`;
-  }
 
   // ── Helper ────────────────────────────────────────────────────────────────
   function _esc(s) {

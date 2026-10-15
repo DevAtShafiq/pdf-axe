@@ -186,3 +186,13 @@ def test_find_folders_breadth_first(b, tmp_path):
     assert b.find_folders(str(tmp_path), "  ")["results"] == []
     lim = b.find_folders(str(tmp_path), "i", limit=2)
     assert len(lim["results"]) == 2 and lim["truncated"]
+
+
+def test_find_folders_searches_the_preferred_subtree_first(b, tmp_path):
+    (tmp_path / "Invoices top").mkdir()
+    (tmp_path / "Other" / "deep" / "old invoices").mkdir(parents=True)
+    r = b.find_folders(str(tmp_path), "invoices", 200, str(tmp_path / "Other"))
+    assert [x["name"] for x in r["results"]] == ["old invoices", "Invoices top"]   # no repeats
+    # a prefer folder outside the root is ignored
+    r = b.find_folders(str(tmp_path / "Other"), "invoices", 200, str(tmp_path))
+    assert [x["name"] for x in r["results"]] == ["old invoices"]

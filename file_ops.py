@@ -9677,9 +9677,12 @@ def list_subfolders(path: str, show_hidden: bool = False, probe_limit: int = 400
 
 
 def find_folders(root: str, query: str, limit: int = 200, time_budget: float = 2.5,
-                 max_depth: int = 16) -> dict:
+                 max_depth: int = 16, prefer: str = "") -> dict:
     """Folders under *root* whose name contains every word of *query*
     (case-insensitive), breadth-first so shallow matches come first.
+    With *prefer* (a folder under *root*, e.g. the one the user is in) that
+    folder's subtree is searched first, then the rest of *root* — a whole
+    drive can take longer than the time budget.
     Stops after *limit* matches or *time_budget* seconds:
     ``{results: [{path, name, parent}], truncated}``."""
     import time as _time
@@ -9688,34 +9691,41 @@ def find_folders(root: str, query: str, limit: int = 200, time_budget: float = 2
         return {"results": [], "truncated": False}
     deadline = _time.monotonic() + max(0.1, float(time_budget))
     results: list[dict] = []
-    queue: list[tuple[str, int]] = [(root, 0)]
-    truncated = False
-    qi = 0
-    while qi < len(queue):
-        if _time.monotonic() > deadline:
-            truncated = True
-            break
-        folder, depth = queue[qi]
-        qi += 1
-        try:
-            with os.scandir(folder) as it:
-                subs = []
-                for e in it:
-                    try:
-                        if not e.is_dir(follow_symlinks=False) or _skip_dir_entry(e):
+
+    def norm(p: str) -> str:
+        return os.path.normcase(os.path.abspath(p)).rstrip("\\/")
+    phases = [(root, "")]
+    if prefer and os.path.isdir(prefer) and norm(prefer).startswith(norm(root) + os.sep):
+        phases = [(prefer, ""), (root, norm(prefer))]
+    for start, skip in phases:
+        queue: list[tuple[str, int]] = [(start, 0)]
+        qi = 0
+        while qi < len(queue):
+            if _time.monotonic() > deadline:
+                return {"results": results, "truncated": True}
+            folder, depth = queue[qi]
+            qi += 1
+            try:
+                with os.scandir(folder) as it:
+                    subs = []
+                    for e in it:
+                        try:
+                            if not e.is_dir(follow_symlinks=False) or _skip_dir_entry(e):
+                                continue
+                        except OSError:
                             continue
-                    except OSError:
-                        continue
-                    subs.append(e)
-        except OSError:
-            continue
-        subs.sort(key=lambda e: filesystem_natural_sort_key(e.name))
-        for e in subs:
-            low = e.name.casefold()
-            if all(w in low for w in words):
-                results.append({"path": e.path, "name": e.name, "parent": folder})
-                if len(results) >= limit:
-                    return {"results": results, "truncated": True}
-            if depth + 1 < max_depth:
-                queue.append((e.path, depth + 1))
-    return {"results": results, "truncated": truncated}
+                        if skip and norm(e.path) == skip:
+                            continue        # already searched first
+                        subs.append(e)
+            except OSError:
+                continue
+            subs.sort(key=lambda e: filesystem_natural_sort_key(e.name))
+            for e in subs:
+                low = e.name.casefold()
+                if all(w in low for w in words):
+                    results.append({"path": e.path, "name": e.name, "parent": folder})
+                    if len(results) >= limit:
+                        return {"results": results, "truncated": True}
+                if depth + 1 < max_depth:
+                    queue.append((e.path, depth + 1))
+    return {"results": results, "truncated": False}
