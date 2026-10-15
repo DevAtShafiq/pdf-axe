@@ -57,6 +57,7 @@ datas = [
     ("annotate_bridge.py",   "."),
     ("pdf_edit.py",          "."),   # PDF text editing engine (Edit text)
     ("pdf_edit_bridge.py",   "."),
+    ("pdf_objects.py",       "."),   # Edit: images / vector objects engine
     ("pdf_studio.py",        "."),
     ("studio_bridge.py",     "."),
     ("qr_scan.py",           "."),
@@ -95,6 +96,7 @@ hiddenimports = [
     "annotate_bridge",
     "pdf_edit",
     "pdf_edit_bridge",
+    "pdf_objects",
     "pdf_studio",
     "studio_bridge",
     "qr_scan",
