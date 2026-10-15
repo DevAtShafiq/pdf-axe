@@ -1830,7 +1830,13 @@ var Annotate = (() => {
       ov.addEventListener('pointerdown', e => {
         if (mode !== 'draw' || active || done) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
-        const onCtl = !!(e.target.closest && e.target.closest(CONTROL));
+        const ctlEl = e.target.closest && e.target.closest(CONTROL);
+        let onCtl = !!ctlEl;
+        // A pen tablet's position on the screen means nothing to the person
+        // (they look at the pad), so once signing has started a pen dot that
+        // happens to land on a swatch, a saved signature or the hint is ink,
+        // never a click. Only the action buttons (footer, close) stay tappable.
+        if (onCtl && e.pointerType === 'pen' && strokes.length && !ctlEl.closest('.modal-footer, .modal-close')) onCtl = false;
         const how = modeFor(e);
         active = { id: e.pointerId, how, s: { pts: [], type: e.pointerType }, pending: true, sx: e.clientX, sy: e.clientY, fromCtl: onCtl };
         addPoint(e);
@@ -1839,6 +1845,15 @@ var Annotate = (() => {
       }, true);
       ov.addEventListener('pointermove', e => {
         showCursor(e);
+        // The system cancelled the stroke (pen gesture, capture lost) while the
+        // pen is still down: carry on with the SAME stroke instead of leaving a gap.
+        if (!active && cut && (e.buttons & 1) && e.pointerId === cut.id && performance.now() - cut.t < 600 && strokes[strokes.length - 1] === cut.s) {
+          strokes.pop();
+          active = { id: e.pointerId, how: cut.how, s: cut.s, pending: false };
+          cut = null;
+          try { ov.setPointerCapture(e.pointerId); } catch (_) {}
+          ov.classList.add('is-inking');
+        }
         if (!active || e.pointerId !== active.id) return;
         const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
         for (const ev of (evs.length ? evs : [e])) addPoint(ev);
@@ -1857,12 +1872,15 @@ var Annotate = (() => {
         if (a.fromCtl) swallowUntil = performance.now() + 400;   // not a click on the button it started on
         if (!strokes.length) inputMode = a.how;
         strokes.push(a.s);
+        cut = e.type === 'pointerup' ? null : { id: a.id, how: a.how, s: a.s, t: performance.now() };
         cursorEl.classList.remove('down');
         schedule();
       };
+      let cut = null;                          // a stroke the system cut off (may resume)
       ov.addEventListener('pointerup', endInk, true);
       ov.addEventListener('pointercancel', endInk, true);
       ov.addEventListener('lostpointercapture', e => { if (active && !active.pending) endInk(e); }, true);
+      ov.addEventListener('contextmenu', e => { if (mode === 'draw') e.preventDefault(); }, true);   // pen press-and-hold
       ov.addEventListener('click', e => {
         if (performance.now() < swallowUntil) { e.preventDefault(); e.stopPropagation(); swallowUntil = 0; }
       }, true);

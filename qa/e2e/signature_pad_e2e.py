@@ -242,6 +242,39 @@ def run(d):
         R.check("Ctrl+Z undoes a stroke, pad still open",
                 page.evaluate("!!document.querySelector('.an-sig-overlay')") and n2 != n1, f"{n1:.0f} -> {n2:.0f}")
 
+        # 3b) while signing, a pen dot that lands on a swatch is ink, not a colour change
+        before_c = page.evaluate("document.querySelector('#an-sig-cols .active').dataset.c")
+        nb = pad_ink(page)["n"]
+        sw = page.query_selector("#an-sig-cols [data-c='#b91c1c']").bounding_box()
+        pen.stroke([(sw["x"] + sw["width"] / 2, sw["y"] + sw["height"] / 2), (sw["x"] + sw["width"] / 2 + 0.5, sw["y"] + sw["height"] / 2)], 0.6)
+        time.sleep(0.2)
+        R.check("pen dot on a swatch while signing = ink (no colour change)",
+                page.evaluate("document.querySelector('#an-sig-cols .active').dataset.c") == before_c and pad_ink(page)["n"] > nb,
+                page.evaluate("document.querySelector('#an-sig-cols .active').dataset.c"))
+        page.click("#an-sig-undo"); time.sleep(0.1)
+
+        # 3c) the system cancels a pen stroke half-way (gesture): the line continues, no gap
+        clear(page)
+        page.evaluate("window.__pid = null; document.querySelector('.an-sig-overlay').addEventListener('pointerdown', e => { __pid = e.pointerId; }, true)")
+        line = [(vw * 0.2 + i * 12, vh * 0.5 + 30 * math.sin(i / 5)) for i in range(80)]
+        c = pen.cdp
+        base = {"pointerType": "pen", "force": 0.6}
+        c.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": line[0][0], "y": line[0][1], "buttons": 0, **base})
+        c.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": line[0][0], "y": line[0][1], "button": "left", "buttons": 1, "clickCount": 1, **base})
+        for x, y in line[1:40]:
+            c.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y, "button": "left", "buttons": 1, **base})
+        page.evaluate("""() => document.querySelector('.an-sig-overlay').dispatchEvent(new PointerEvent('pointercancel',
+                         { pointerId: __pid, pointerType: 'pen', bubbles: true }))""")
+        for x, y in line[40:]:
+            c.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y, "button": "left", "buttons": 1, **base})
+        c.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": line[-1][0], "y": line[-1][1], "button": "left", "buttons": 0, "clickCount": 1, **base})
+        time.sleep(0.2)
+        full = pad_ink(page)
+        want = mapped_box(page, [line])
+        R.check("cancelled stroke continues to the end (no gap)", full.get("box") and abs(full["box"][2] - want[2]) < 4, f"{full.get('box')} vs {want}")
+        page.click("#an-sig-undo"); time.sleep(0.1)
+        R.check("…and it is still ONE stroke (one Undo removes it)", (pad_ink(page) or {}).get("n", 0) == 0)
+
         # 4) a pen stroke starting on a button is ink, not a click
         clear(page)
         bb = page.query_selector("#an-sig-cancel").bounding_box()

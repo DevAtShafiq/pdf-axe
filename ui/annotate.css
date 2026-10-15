@@ -237,6 +237,9 @@
 /* Draw mode: the whole window is the writing surface (pen tablets in absolute
    mode land anywhere on screen), so no scrolling/selection while inking. */
 .an-sig-overlay.is-draw { touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair; }
+/* touch-action is not inherited: without this a pen stroke that starts over the
+   dialog can be taken as a pan gesture and cancelled half-way (broken line) */
+.an-sig-overlay.is-draw * { touch-action: none; -webkit-user-drag: none; }
 .an-sig-overlay.is-draw .modal { cursor: default; }
 .an-sig-overlay.is-draw .an-sig-pad, .an-sig-overlay.is-draw .modal-body { cursor: crosshair; }
 .an-sig-overlay.is-inking, .an-sig-overlay.is-inking * { cursor: crosshair !important; }
