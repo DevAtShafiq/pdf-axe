@@ -1094,7 +1094,7 @@ var Annotate = (() => {
       setTool('select');
     }
     async function openSignaturePad() {
-      const url = await signaturePad();
+      const url = await signaturePad({ near: path });
       if (!url) return;
       const img = new Image();
       img.onload = () => { pendingSig = { url, ratio: img.width / Math.max(1, img.height) }; setTool('signature', true); };
@@ -1708,7 +1708,7 @@ var Annotate = (() => {
     return out.toDataURL('image/png');
   }
 
-  function signaturePad() {
+  function signaturePad(opts = {}) {
     return new Promise(async resolve => {
       const { W, H } = SIG;
       const ov = document.createElement('div');
@@ -1740,8 +1740,9 @@ var Annotate = (() => {
             <div class="footer-left an-sig-edit">
               <button class="btn" id="an-sig-undo" title="Undo the last stroke (Ctrl+Z)">${ic('undo')}Undo stroke</button>
               <button class="btn" id="an-sig-clear">${ic('eraser')}Clear</button>
+              <button class="btn" id="an-sig-png" title="Save this signature as a PNG in the signature folder on this drive">${ic('download')}Save as PNG</button>
             </div>
-            <label class="check an-sig-remember"><input type="checkbox" id="an-sig-rem" checked> Remember for next time</label>
+            <label class="check an-sig-remember" title="Keep this signature in Saved signatures for next time"><input type="checkbox" id="an-sig-rem" checked> Remember for next time</label>
             <button class="btn" id="an-sig-cancel">Cancel</button>
             <button class="btn btn-primary" id="an-sig-ok">${ic('check')}Use signature</button>
           </div>
@@ -1952,7 +1953,9 @@ var Annotate = (() => {
       $('#an-sig-clear').addEventListener('click', () => { if (mode === 'draw') { strokes = []; inputMode = null; } else $('#an-sig-type').value = ''; redraw(); });
       $('#an-sig-cancel').addEventListener('click', () => finish(null));
       ov.querySelector('.modal-close').addEventListener('click', () => finish(null));
+      let asking = false;                      // the name prompt is open: its keys are its own
       const onKey = e => {
+        if (asking) return;
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
         else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); e.stopPropagation(); $('#an-sig-ok').click(); }
         else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z') && mode === 'draw') { e.preventDefault(); e.stopPropagation(); undoStroke(); }
@@ -1983,6 +1986,23 @@ var Annotate = (() => {
         if (!url) { App.toast(mode === 'draw' ? 'Draw your signature first' : 'Type your name first', 'warning'); return; }
         if ($('#an-sig-rem').checked) SFM.annotSignatureSave(url).catch(() => {});
         finish(url);
+      });
+
+      $('#an-sig-png').addEventListener('click', async () => {
+        const url = mode === 'draw' ? sigExport(strokes, color) : typedPng();
+        if (!url) { App.toast(mode === 'draw' ? 'Draw your signature first' : 'Type your name first', 'warning'); return; }
+        asking = true;
+        const name = await Dialogs.ask({
+          title: 'Save signature as PNG', label: 'Name', icon: 'download', okLabel: 'Save', okIcon: 'download',
+          value: mode === 'type' ? $('#an-sig-type').value.trim() : '', placeholder: 'e.g. My signature',
+          hint: 'Saved in the "signature" folder at the root of this drive.',
+          validate: v => !v ? 'Please enter a name.' : (/[\\/:*?"<>|]/.test(v) ? 'A name can\'t contain \\ / : * ? " < > |' : ''),
+        }).catch(() => null);
+        asking = false;
+        if (!name) return;
+        const r = await SFM.annotSignatureExport(url, name, opts.near || '').catch(e => ({ ok: false, error: String(e) }));
+        if (r && r.ok) App.toast(`Saved ${r.path}`, 'success');
+        else App.toast((r && r.error) || 'Couldn\'t save the signature', 'error');
       });
 
       // remembered signatures

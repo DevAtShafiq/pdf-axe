@@ -190,6 +190,7 @@ const SFM = (() => {
     annotSignatures:     ()                        => call('annot_signatures'),
     annotSignatureSave:  (dataUrl)                 => call('annot_signature_save', dataUrl),
     annotSignatureForget:(index)                   => call('annot_signature_forget', index),
+    annotSignatureExport:(dataUrl, name, near)     => call('annot_signature_export', dataUrl, name, near || ''),
     annotPickPhoto:      ()                        => call('annot_pick_photo'),
     annotPhotoLoad:      (path, maxDim=1600)       => call('annot_photo_load', path, maxDim),
     // PDF text editor (pdf_edit_bridge.py)

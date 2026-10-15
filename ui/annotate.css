@@ -227,6 +227,8 @@
 .an-sig-forget { position: absolute; top: -6px; right: -6px; background: var(--bg-surface); border: 1px solid var(--border); }
 .an-sig-remember { margin-right: auto; }
 .an-sig-edit { display: flex; gap: var(--space-2); }
+.an-sig .modal-footer { flex-wrap: wrap; row-gap: var(--space-2); }
+.an-sig .modal-footer .an-sig-edit { flex: 1 0 100%; }
 .an-sig-hint {
   display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 var(--space-2);
   color: var(--text-secondary); font-size: var(--fs-sm);
