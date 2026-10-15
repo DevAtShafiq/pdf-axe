@@ -130,13 +130,8 @@ const ContextMenu = (() => {
             hide(); PdfTools.extractPage(mainPath, curPage);
           });
         }
-        _item(menu, 'sparkles', 'Smart Split & Rename…','', () => {
-          hide(); Dialogs.openSmartSplitProgress(mainPath);
-        });
-        _item(menu, 'scan-text', 'Rename by Doc Type (OCR)\u2026', '', () => { hide(); Dialogs.openOcrRenameProgress([mainPath]); });
         if (!multi) _item(menu, 'compress', 'Compress…', '', () => { hide(); ConvertTools.openCompress([mainPath]); });
         _item(menu, 'images', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
-        _item(menu, 'scan-text', 'Split & Rename by OCR…',   '', () => { hide(); Dialogs.openSplitRenameOcrProgress(mainPath); });
         _sep(menu);
       }
     }

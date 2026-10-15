@@ -209,11 +209,6 @@ const SFM = (() => {
     compressImage:       (path, quality=70, maxEdge=0, fmt='', out='', targetKb=0, saveSmallest=true) => call('compress_image', path, quality, maxEdge, fmt, out, targetKb, saveSmallest),
     compressImages:      (paths, quality=70, maxEdge=0, fmt='', targetKb=0)        => call('compress_images', paths, quality, maxEdge, fmt, targetKb),
     convertImage:        (path, fmt, out='', quality=92)               => call('convert_image', path, fmt, out, quality),
-    ocrRenameProgress:   (paths)                           => call('ocr_rename_with_progress', paths),
-    // Long async ops
-    smartSplit:          (path, outDir='')         => call('smart_split_rename', path, outDir),
-    splitAndRenameOcr:   (path)                    => call('split_and_rename_ocr', path),
-    ocrRename:           (paths)                   => call('ocr_rename', paths),
     // QR / misc
     qrPickStart:         ()                        => call('qr_pick_start'),
     scanQrFromFile:      (path)                    => call('scan_qr_from_file', path),

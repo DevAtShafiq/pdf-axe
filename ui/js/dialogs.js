@@ -5,9 +5,9 @@
  * Escape / close only pops the TOP modal.
  *
  * Dialogs: CombinePdf/ArrangePages/ExtractPages (→ pdf-tools.js), PdfFullView, Templates, Uppercase,
- *          CompressPdf, Settings, ExtractPages, MoreMenu, SmartSplitProgress,
- *          CopyTo, MoveTo, PdfToImages, SplitRenameOcrProgress, CropImage,
- *          CompressImages, OcrRenameProgress, QrOverlay
+ *          CompressPdf, Settings, ExtractPages, MoreMenu,
+ *          CopyTo / MoveTo / NewFoldersFromList (→ folder-tools.js),
+ *          PdfToImages, CropImage, CompressImages, QrOverlay
  */
 
 const Dialogs = (() => {
@@ -604,11 +604,6 @@ const Dialogs = (() => {
     const apiKey = '';
     const keyHint = rk && rk.ok && rk.has_key ? `Saved: ${rk.masked} — type a new key to replace it` : 'sk-…';
 
-    const OCR_LANGS = [
-      ['eng', 'English'], ['kor', 'Korean'], ['jpn', 'Japanese'], ['chi_sim', 'Chinese (Simplified)'],
-      ['chi_tra', 'Chinese (Traditional)'], ['ara', 'Arabic'], ['fra', 'French'], ['deu', 'German'],
-      ['spa', 'Spanish'], ['rus', 'Russian'],
-    ];
     const curTheme = s.theme || (document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
     const body = `
       <div class="settings-form">
@@ -622,17 +617,6 @@ const Dialogs = (() => {
                 <button class="btn" id="s-outfolder-browse">Browse&#x2026;</button>
               </div>
               <div class="field-hint">Where new PDFs and images are saved. Leave empty to save next to the original.</div>
-            </div>
-          </div>
-          <div class="settings-row">
-            <label class="field-label" for="s-ocrlang">OCR language</label>
-            <div>
-              <select id="s-ocrlang" class="input-text">
-                ${OCR_LANGS.map(([v, n]) =>
-                  `<option value="${v}" ${s.ocr_lang===v?'selected':''}>${n} (${v})</option>`
-                ).join('')}
-              </select>
-              <div class="field-hint">Used when reading text from scanned documents.</div>
             </div>
           </div>
         </section>
@@ -664,7 +648,7 @@ const Dialogs = (() => {
                 <input id="s-apikey" class="input-text mono" type="password" value="" placeholder="${_esc(keyHint)}" autocomplete="off" spellcheck="false">
                 <button type="button" class="icon-btn input-action" id="s-apikey-toggle" title="Show key" aria-label="Show key">${Icons.svg('eye', 16)}</button>
               </div>
-              <div class="field-hint">Needed for Smart Split and AI photo edits. Stored on this computer only.</div>
+              <div class="field-hint">Needed for AI photo edits. Stored on this computer only.</div>
             </div>
           </div>
         </section>
@@ -677,7 +661,6 @@ const Dialogs = (() => {
         if (newKey !== apiKey) await SFM.setApiKey(newKey);
         const ns = {
           output_folder:     document.getElementById('s-outfolder')?.value.trim() || '',
-          ocr_lang:          document.getElementById('s-ocrlang')?.value || 'eng',
           theme:             document.getElementById('s-theme')?.value || 'dark',
         };
         const r = await SFM.saveSettings(ns);
@@ -753,50 +736,6 @@ const Dialogs = (() => {
     wire('mm-collapse-all',  () => FileTree.collapseAll());
   }
 
-  // ── 17. Smart Split Progress ──────────────────────────────────────────────
-  function openSmartSplitProgress(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = _jobBody('ss', 'AI identifies each document in the PDF, splits it and merges related pages. Files are saved next to the original.', 'Starting…\n', 'Analysing pages…');
-
-    _openModal('smart-split', 'Smart Split & Merge', body, [
-      { label: 'Close', onClick: () => {
-          SFM.off('smart_rename_log', _onLog);
-          SFM.off('smart_rename_done', _onDone);
-          closeModal();
-        }
-      },
-    ], { icon: 'sparkles', subtitle: name });
-
-    const logEl    = document.getElementById('ss-log');
-    const statusEl = document.getElementById('ss-status');
-
-    function _onLog({ log }) {
-      if (!logEl) return;
-      logEl.textContent += log + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function _onDone(r) {
-      SFM.off('smart_rename_log', _onLog);
-      SFM.off('smart_rename_done', _onDone);
-      App.setStatus('Ready');
-      if (r.ok) {
-        _jobDone('ss', true, 'Smart Split complete', 'The new files are saved next to the original.');
-        App.toast('Smart Split complete', 'success');
-        FileTree.refresh();
-      } else {
-        _jobDone('ss', false, 'Smart Split failed', r.error || 'Failed');
-        App.toast('Smart Split failed: ' + r.error, 'error', 7000);
-      }
-    }
-
-    SFM.on('smart_rename_log', _onLog);
-    SFM.on('smart_rename_done', _onDone);
-
-    App.setStatus('Smart Split running…', true);
-    SFM.smartSplit(path);
-  }
-
   // ── 18. Copy To ─────────────────────────────────────────────────────────
   async function openCopyTo(paths) {
     if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
@@ -850,85 +789,8 @@ const Dialogs = (() => {
   // ── 21. PDF to Images — implemented in convert-tools.js ──────────────────
   function openPdfToImages(path) { return ConvertTools.openPdfToImages(path); }
 
-  // ── 22. Split & Rename OCR Progress ──────────────────────────────────────
-  function openSplitRenameOcrProgress(path) {
-    const name = path.split(/[\\\/]/).pop();
-    const body = _jobBody('sor', 'Reads every page with OCR, splits the PDF into documents and names each one by its type.', 'Starting OCR split…\n', 'Reading pages…');
-
-    _openModal('split-ocr', 'Split & rename by OCR', body, [
-      { label: 'Close', onClick: () => {
-          SFM.off('ocr_rename_log', _onLog);
-          SFM.off('ocr_rename_done', _onDone);
-          closeModal();
-        }
-      },
-    ], { icon: 'scan-text', subtitle: name });
-
-    const logEl    = document.getElementById('sor-log');
-    const statusEl = document.getElementById('sor-status');
-
-    function _onLog(p) {
-      if (!logEl) return;
-      logEl.textContent += (p.log || String(p)) + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-    function _onDone(r) {
-      SFM.off('ocr_rename_log', _onLog);
-      SFM.off('ocr_rename_done', _onDone);
-      App.setStatus('Ready');
-      if (r.ok) {
-        _jobDone('sor', true, 'OCR split complete', (r.files?.length || '?') + ' file(s) created next to the original.');
-        App.toast('OCR Split complete', 'success');
-        FileTree.refresh();
-      } else {
-        _jobDone('sor', false, 'OCR split failed', r.error || 'Failed');
-        App.toast('OCR Split failed: ' + r.error, 'error', 7000);
-      }
-    }
-
-    SFM.on('ocr_rename_log', _onLog);
-    SFM.on('ocr_rename_done', _onDone);
-    App.setStatus('OCR Split running…', true);
-    SFM.splitAndRenameOcr(path);
-  }
-
   // ── 26b. Compress Image(s) — implemented in convert-tools.js ─────────────
   function openCompressImages(paths) { return ConvertTools.openCompressImages(paths); }
-
-  // ── 27. OCR Rename Progress ───────────────────────────────────────────────
-  function openOcrRenameProgress(paths) {
-    const body = _jobBody('ocr', 'Each PDF is renamed by the document type detected with OCR. This takes a few seconds per file.', '', 'Starting…');
-
-    _openModal('ocr-rename-prog', 'Rename by document type', body, [
-      { label: 'Close', onClick: closeModal },
-    ], { icon: 'scan-text', subtitle: _countLabel(paths, 'PDF') });
-
-    const logEl  = document.getElementById('ocr-log');
-    const statEl = document.getElementById('ocr-status');
-    const _appendLog = msg => {
-      if (!logEl) return;
-      logEl.textContent += msg + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    };
-
-    const _unsubLog  = SFM.on('ocr_rename_log',  e => _appendLog(e.log || e.message || JSON.stringify(e)));
-    const _unsubDone = SFM.on('ocr_rename_done', e => {
-      _unsubLog(); _unsubDone();
-      if (e.ok) {
-        _jobDone('ocr', true, 'Rename complete', 'All files were renamed.');
-        App.toast('OCR rename complete', 'success');
-      } else {
-        _jobDone('ocr', false, 'Rename failed', e.error || 'unknown error');
-        App.toast('OCR rename failed', 'error');
-      }
-      FileTree.refresh();
-    });
-
-    SFM.ocrRenameProgress(paths).catch(err => {
-      _appendLog('Error starting: ' + err);
-      if (statEl) _jobDone('ocr', false, 'Could not start', String(err));
-    });
-  }
 
   // ── Shared bodies for the job / destination dialogs ──────────────────────
   function _countLabel(paths, noun) {
@@ -993,12 +855,10 @@ const Dialogs = (() => {
     openCombinePdf, openFullView, openArrangePages,
     openTemplates, openUppercase,
     openCompressPdf, openSettings, openExtractPages, openMoreMenu,
-    openSmartSplitProgress,
     openCopyTo, openMoveTo,
-    openPdfToImages, openSplitRenameOcrProgress,
+    openPdfToImages,
     openCropImage,
     openCompressImages,
-    openOcrRenameProgress,
     openQrOverlay,
     closeModal, closeAllModals,
     ask, confirm: confirmDialog,
