@@ -80,7 +80,7 @@ var Annotate = (() => {
     { id: 'text',      icon: 'type',          label: 'Text box',      key: 'T', hint: 'Click (or drag a box) and type' },
     { id: 'note',      icon: 'message-square',label: 'Comment',       key: 'C', hint: 'Click to pin a sticky-note comment' },
     { id: 'stamp',     icon: 'stamp',         label: 'Stamp',         key: '',  hint: 'Click on the page to place the stamp', menu: true },
-    { id: 'signature', icon: 'signature',     label: 'Signature',     key: 'G', hint: 'Click on the page to place your signature' },
+    { id: 'signature', icon: 'signature',     label: 'Signature',     key: 'G', hint: 'Click on the page to place your signature, or drag a box to fit it in' },
     { id: 'photo',     icon: 'image',         label: 'Photo',         key: 'I', hint: 'Drag a box (e.g. the form’s photo box) to fit the photo into it, or click to place it' },
     { sep: true },
     { id: 'cover',     icon: 'cover',         label: 'Cover box',     key: 'X', hint: 'Drag to cover an area with a white or black box (the content stays underneath)' },
@@ -704,6 +704,9 @@ var Annotate = (() => {
         showTab('props');
         setTimeout(() => $('#an-p-text')?.focus(), 30);
         return;
+      } else if (tool === 'signature' && pendingSig) {
+        // click = centred on the click; drag = fitted, centred, in the drawn box
+        drag = { mode: 'shape', p, start: pt, cur: pt };
       } else if (tool === 'stamp' || tool === 'signature') {
         placePending(p, pt);
         return;
@@ -810,6 +813,11 @@ var Annotate = (() => {
         placePhotoInBox(p, r);
         return;
       }
+      if (tool === 'signature') {
+        if (small || !pendingSig) { placePending(p, d.start); return; }
+        placeSigInBox(p, r);
+        return;
+      }
       if (small) return;
       if (tool === 'line' || tool === 'arrow') {
         const a = base(tool, p);
@@ -899,6 +907,12 @@ var Annotate = (() => {
           fake.image = pendingPhoto.url; fake.opacity = 0.75;
           live.innerHTML = svgFor(fake).replace('xMidYMid meet', 'xMidYMid slice') +
             `<rect x="${fake.rect[0]}" y="${fake.rect[1]}" width="${fake.rect[2] - fake.rect[0]}" height="${fake.rect[3] - fake.rect[1]}" fill="none" stroke="var(--accent)" stroke-dasharray="${4 / zoom} ${3 / zoom}" stroke-width="${1 / zoom}"/>`;
+        }
+        else if (tool === 'signature' && pendingSig) {
+          const box = fake.rect;
+          Object.assign(fake, { image: pendingSig.url, color: null, opacity: 0.75, rect: sigRectIn(box) });
+          live.innerHTML = svgFor(fake) +
+            `<rect x="${box[0]}" y="${box[1]}" width="${box[2] - box[0]}" height="${box[3] - box[1]}" fill="none" stroke="var(--accent)" stroke-dasharray="${4 / zoom} ${3 / zoom}" stroke-width="${1 / zoom}"/>`;
         }
         else live.innerHTML = svgFor(fake);
       }
@@ -1038,6 +1052,23 @@ var Annotate = (() => {
       img.src = src.url;
     }
 
+    // The largest rect with the signature's shape that fits the box, centred in it.
+    function sigRectIn(r) {
+      const bw = r[2] - r[0], bh = r[3] - r[1], ratio = pendingSig ? pendingSig.ratio : 3;
+      let w = bw, h = bw / ratio;
+      if (h > bh) { h = bh; w = bh * ratio; }
+      const cx = (r[0] + r[2]) / 2, cy = (r[1] + r[3]) / 2;
+      return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2].map(r2);
+    }
+    function placeSigInBox(p, r) {
+      if (!pendingSig) return;
+      const a = base('signature', p);
+      a.image = pendingSig.url; a.color = null;
+      a.rect = sigRectIn(r);
+      add(a);
+      pageEls[p].querySelector('.an-live').innerHTML = '';
+      setTool('select');
+    }
     async function openSignaturePad() {
       const url = await signaturePad();
       if (!url) return;
@@ -1177,7 +1208,7 @@ var Annotate = (() => {
         box.innerHTML = `<div class="empty-state empty-state-sm an-empty">
           <div class="empty-state-icon">${ic(t === 'eraser' ? 'eraser' : 'mouse-pointer', 22)}</div>
           <div class="empty-state-title">${t === 'eraser' ? 'Eraser' : t === 'signature' ? 'Signature' : t === 'photo' ? 'Photo' : 'Nothing selected'}</div>
-          <div class="empty-state-text">${t === 'eraser' ? 'Click or drag over annotations to remove them.' : t === 'signature' ? 'Click on the page to place your signature.' : t === 'photo' ? 'Drag a box over the form’s photo area to fit the photo into it, or click to place it. Drag the corners to resize; it keeps its shape.' : 'Pick a tool above, or click an annotation to edit its colour, size and comment.'}</div></div>
+          <div class="empty-state-text">${t === 'eraser' ? 'Click or drag over annotations to remove them.' : t === 'signature' ? 'Click on the page to place your signature centred there, or drag a box (e.g. over a form’s signature line) to fit it in, centred.' : t === 'photo' ? 'Drag a box over the form’s photo area to fit the photo into it, or click to place it. Drag the corners to resize; it keeps its shape.' : 'Pick a tool above, or click an annotation to edit its colour, size and comment.'}</div></div>
           <div class="an-kbd-help">${shortcutHelp()}</div>`;
         return;
       }
@@ -1527,11 +1558,117 @@ var Annotate = (() => {
 
   // =========================================================================
   // SIGNATURE PAD — draw or type; remembered signatures (settings)
+  //
+  // Drawing works ANYWHERE on the window while the pad is open: a pen tablet
+  // in absolute mode maps its whole surface to the whole screen, so the ink
+  // can land far outside the little pad. Strokes are kept as raw vectors
+  // (window px + per-point width) and re-fitted on every change so the
+  // signature's ink box is always centred in the pad with even padding,
+  // the same size however big/small or wherever it was signed. Small marks far
+  // from the signature (a tap while reaching for the tablet) are left out.
+  // The saved PNG is cropped tight to the ink (small even margin), transparent
+  // and high resolution, so it sits centred in whatever box it is placed in.
   // =========================================================================
+  const SIG = {
+    W: 560, H: 190,          // pad size (CSS px)
+    PADX: 30, PADY: 26,      // even padding around the fitted ink in the pad
+    MAXSC: 14,               // never blow a tiny mark up more than this
+    MINW: 1.1,               // thinnest line (pad px)
+    MARGIN: 6,               // margin around the ink in the saved PNG (pad px)
+    OUT: 4,                  // saved PNG = pad px × this (up to ≈2000 px wide)
+    START: 6,                // px a press on a button must move to become ink
+  };
+  // ── pure geometry (also used by the QA script through Annotate._sig) ──────
+  function sigBox(strokes) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const s of strokes) for (const p of s.pts) {
+      if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+      if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+    }
+    return x1 < x0 ? null : [x0, y0, x1, y1];
+  }
+  function sigLen(pts) {
+    let L = 0;
+    for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    return L;
+  }
+  // Keep the signature, drop stray marks: grow a cluster from the longest
+  // stroke; a stroke joins when it is close to the cluster (gap ≤ the larger of
+  // 48 px, the cluster's height, 30 % of its width) or is itself substantial
+  // (≥ 35 % of the cluster's ink). What never joins is a small mark far away.
+  function sigKeep(strokes) {
+    if (strokes.length < 2) return { kept: strokes.slice(), dropped: [] };
+    const info = strokes.map(s => ({ s, b: sigBox([s]), len: sigLen(s.pts) }));
+    let seed = info[0];
+    info.forEach(i => { if (i.len > seed.len) seed = i; });
+    const inC = new Set([seed]);
+    let cb = seed.b.slice(), clen = seed.len, changed = true;
+    while (changed) {
+      changed = false;
+      for (const i of info) {
+        if (inC.has(i)) continue;
+        const gx = Math.max(0, i.b[0] - cb[2], cb[0] - i.b[2]), gy = Math.max(0, i.b[1] - cb[3], cb[1] - i.b[3]);
+        const thr = Math.max(48, cb[3] - cb[1], 0.3 * (cb[2] - cb[0]));
+        if (Math.hypot(gx, gy) <= thr || i.len >= 0.35 * clen) {
+          inC.add(i); clen += i.len; changed = true;
+          cb = [Math.min(cb[0], i.b[0]), Math.min(cb[1], i.b[1]), Math.max(cb[2], i.b[2]), Math.max(cb[3], i.b[3])];
+        }
+      }
+    }
+    return { kept: strokes.filter((_, k) => inC.has(info[k])), dropped: strokes.filter((_, k) => !inC.has(info[k])) };
+  }
+  // Scale + offset that centre the strokes' box in a W×H area with padding.
+  function sigFit(strokes, W, H, px, py) {
+    const b = sigBox(strokes); if (!b) return null;
+    const bw = b[2] - b[0], bh = b[3] - b[1];
+    const sc = Math.min((W - 2 * px) / Math.max(bw, 1), (H - 2 * py) / Math.max(bh, 1), SIG.MAXSC);
+    return { sc, ox: W / 2 - (b[0] + b[2]) / 2 * sc, oy: H / 2 - (b[1] + b[3]) / 2 * sc };
+  }
+  // Smooth variable-width ink: quadratic curves through the segment midpoints,
+  // each piece with its own width (round caps make the joins seamless).
+  function sigDraw(ctx, strokes, f, color) {
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const s of strokes) {
+      const P = s.pts.map(p => [p[0] * f.sc + f.ox, p[1] * f.sc + f.oy, Math.max(SIG.MINW, p[2])]);
+      if (P.length === 1) { ctx.beginPath(); ctx.arc(P[0][0], P[0][1], P[0][2] * 0.6, 0, Math.PI * 2); ctx.fill(); continue; }
+      if (P.length === 2) { ctx.beginPath(); ctx.lineWidth = (P[0][2] + P[1][2]) / 2; ctx.moveTo(P[0][0], P[0][1]); ctx.lineTo(P[1][0], P[1][1]); ctx.stroke(); continue; }
+      const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      let m0 = mid(P[0], P[1]);
+      ctx.beginPath(); ctx.lineWidth = P[0][2]; ctx.moveTo(P[0][0], P[0][1]); ctx.lineTo(m0[0], m0[1]); ctx.stroke();
+      for (let i = 1; i < P.length - 1; i++) {
+        const m1 = mid(P[i], P[i + 1]);
+        ctx.beginPath(); ctx.lineWidth = P[i][2];
+        ctx.moveTo(m0[0], m0[1]); ctx.quadraticCurveTo(P[i][0], P[i][1], m1[0], m1[1]); ctx.stroke();
+        m0 = m1;
+      }
+      const l = P[P.length - 1];
+      ctx.beginPath(); ctx.lineWidth = l[2]; ctx.moveTo(m0[0], m0[1]); ctx.lineTo(l[0], l[1]); ctx.stroke();
+    }
+  }
+  // Tight, transparent, hi-res PNG of the drawn signature (ink centred, even margin).
+  function sigExport(strokes, color) {
+    const { kept } = sigKeep(strokes);
+    const f = sigFit(kept, SIG.W, SIG.H, SIG.PADX, SIG.PADY); if (!f) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const s of kept) for (const p of s.pts) {
+      const x = p[0] * f.sc + f.ox, y = p[1] * f.sc + f.oy, r = Math.max(SIG.MINW, p[2]) * (s.pts.length === 1 ? 0.6 : 0.5);
+      x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); y0 = Math.min(y0, y - r); y1 = Math.max(y1, y + r);
+    }
+    const m = SIG.MARGIN, K = SIG.OUT;
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.ceil((x1 - x0 + 2 * m) * K)); out.height = Math.max(1, Math.ceil((y1 - y0 + 2 * m) * K));
+    const c = out.getContext('2d');
+    // centre the ink in the (integer-sized) canvas
+    c.setTransform(K, 0, 0, K, out.width / 2 - (x0 + x1) / 2 * K, out.height / 2 - (y0 + y1) / 2 * K);
+    sigDraw(c, kept, f, color);
+    return out.toDataURL('image/png');
+  }
+
   function signaturePad() {
     return new Promise(async resolve => {
+      const { W, H } = SIG;
       const ov = document.createElement('div');
-      ov.className = 'modal-overlay dlg-top an-sig-overlay';
+      ov.className = 'modal-overlay dlg-top an-sig-overlay is-draw';
       ov.style.zIndex = 10050;
       ov.innerHTML = `
         <div class="modal an-sig" role="dialog">
@@ -1549,74 +1686,164 @@ var Annotate = (() => {
                 <button class="swatch" style="--swatch:#b91c1c" data-c="#b91c1c" title="Red" aria-label="Red"></button>
               </div>
             </div>
+            <div class="an-sig-hint" id="an-sig-hint">${ic('pen', 14)}<span><b>Sign anywhere</b> — on your pen tablet or here. It is centred in the box automatically.</span></div>
             <div class="an-sig-pad"><canvas id="an-sig-canvas"></canvas><div class="an-sig-line"></div><div class="an-sig-ph" id="an-sig-ph">Sign here</div></div>
+            <div class="an-sig-note hidden" id="an-sig-note"></div>
             <div class="field hidden" id="an-sig-typef"><input class="input-text" id="an-sig-type" placeholder="Type your name" autocomplete="off" spellcheck="false"></div>
             <div class="an-sig-saved hidden" id="an-sig-saved"></div>
           </div>
           <div class="modal-footer">
-            <button class="btn footer-left" id="an-sig-clear">${ic('eraser')}Clear</button>
+            <div class="footer-left an-sig-edit">
+              <button class="btn" id="an-sig-undo" title="Undo the last stroke (Ctrl+Z)">${ic('undo')}Undo stroke</button>
+              <button class="btn" id="an-sig-clear">${ic('eraser')}Clear</button>
+            </div>
             <label class="check an-sig-remember"><input type="checkbox" id="an-sig-rem" checked> Remember for next time</label>
             <button class="btn" id="an-sig-cancel">Cancel</button>
             <button class="btn btn-primary" id="an-sig-ok">${ic('check')}Use signature</button>
           </div>
-        </div>`;
+        </div>
+        <canvas class="an-sig-trace" id="an-sig-trace" aria-hidden="true"></canvas>`;
       document.body.appendChild(ov);
       const $ = s => ov.querySelector(s);
       const cv = $('#an-sig-canvas'), ctx = cv.getContext('2d');
-      let mode = 'draw', color = '#111111', strokes = [], cur = null, done = false;
-      const W = 560, H = 190, D = Math.max(2, window.devicePixelRatio || 1);
+      const tr = $('#an-sig-trace'), tctx = tr.getContext('2d');
+      let mode = 'draw', color = '#111111', strokes = [], active = null, done = false, raf = 0, swallowUntil = 0;
+      const D = Math.max(2, window.devicePixelRatio || 1);
       cv.width = W * D; cv.height = H * D; cv.style.width = W + 'px'; cv.style.height = H + 'px';
-      const finish = v => { if (done) return; done = true; document.removeEventListener('keydown', onKey, true); ov.remove(); resolve(v); };
+      const finish = v => {
+        if (done) return; done = true;
+        document.removeEventListener('keydown', onKey, true);
+        cancelAnimationFrame(raf); ov.remove(); resolve(v);
+      };
 
+      function drawTyped(c, w, h) {
+        const t = $('#an-sig-type').value.trim(); if (!t) return false;
+        let fs = 64;
+        c.fillStyle = color; c.textBaseline = 'alphabetic';
+        const font = s => `${s}px "Segoe Script", "Brush Script MT", "Lucida Handwriting", cursive`;
+        c.font = font(fs);
+        while (c.measureText(t).width > w - 40 && fs > 18) { fs -= 2; c.font = font(fs); }
+        c.fillText(t, (w - c.measureText(t).width) / 2, h * 0.62);
+        return true;
+      }
+      function current() {   // committed strokes + the one being drawn
+        return active && !active.pending ? strokes.concat([active.s]) : strokes;
+      }
       function redraw() {
+        raf = 0;
         ctx.setTransform(D, 0, 0, D, 0, 0);
         ctx.clearRect(0, 0, W, H);
+        const note = $('#an-sig-note');
         if (mode === 'draw') {
-          ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-          strokes.forEach(s => {
-            if (s.length === 1) { ctx.beginPath(); ctx.arc(s[0][0], s[0][1], 1.6, 0, 7); ctx.fill(); return; }
-            ctx.beginPath(); ctx.moveTo(s[0][0], s[0][1]);
-            for (let i = 1; i < s.length - 1; i++) {
-              const mx = (s[i][0] + s[i + 1][0]) / 2, my = (s[i][1] + s[i + 1][1]) / 2;
-              ctx.lineWidth = s[i][2]; ctx.quadraticCurveTo(s[i][0], s[i][1], mx, my);
-            }
-            const l = s[s.length - 1]; ctx.lineTo(l[0], l[1]); ctx.stroke();
-          });
-          $('#an-sig-ph').classList.toggle('hidden', strokes.length > 0);
+          const all = current();
+          const { kept, dropped } = sigKeep(all);
+          const f = sigFit(kept, W, H, SIG.PADX, SIG.PADY);
+          if (f) sigDraw(ctx, kept, f, color);
+          $('#an-sig-ph').classList.toggle('hidden', all.length > 0);
+          $('.an-sig-line').classList.toggle('hidden', all.length > 0);
+          const n = active ? dropped.filter(s => s !== active.s).length : dropped.length;
+          note.classList.toggle('hidden', !n);
+          if (n) note.textContent = `${n === 1 ? 'A small mark' : n + ' small marks'} far from the signature ${n === 1 ? 'was' : 'were'} left out (Undo stroke removes the last one).`;
+          $('#an-sig-undo').disabled = !strokes.length;
+          $('#an-sig-clear').disabled = !strokes.length;
         } else {
-          const t = $('#an-sig-type').value.trim();
-          $('#an-sig-ph').classList.toggle('hidden', !!t);
-          if (t) {
-            let fs = 64;
-            ctx.fillStyle = color; ctx.textBaseline = 'alphabetic';
-            const font = s => `${s}px "Segoe Script", "Brush Script MT", "Lucida Handwriting", cursive`;
-            ctx.font = font(fs);
-            while (ctx.measureText(t).width > W - 40 && fs > 18) { fs -= 2; ctx.font = font(fs); }
-            ctx.fillText(t, (W - ctx.measureText(t).width) / 2, H * 0.68);
-          }
+          note.classList.add('hidden');
+          $('.an-sig-line').classList.remove('hidden');
+          $('#an-sig-ph').classList.toggle('hidden', drawTyped(ctx, W, H));
+          $('#an-sig-undo').disabled = true;
+          $('#an-sig-clear').disabled = !$('#an-sig-type').value;
         }
       }
-      const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; };
-      cv.addEventListener('pointerdown', e => {
-        if (mode !== 'draw') return;
-        cv.setPointerCapture(e.pointerId);
-        cur = [[...pos(e), 2.6]]; strokes.push(cur); redraw();
-      });
-      cv.addEventListener('pointermove', e => {
-        if (!cur) return;
-        const p = pos(e), l = cur[cur.length - 1];
-        const v = Math.hypot(p[0] - l[0], p[1] - l[1]);
-        if (v < 1) return;
-        const w = clamp(3.4 - v * 0.08, 1.4, 3.4) * (e.pressure && e.pointerType === 'pen' ? 0.5 + e.pressure : 1);
-        cur.push([p[0], p[1], (l[2] * 0.6 + w * 0.4)]); redraw();
-      });
-      const up = () => { cur = null; };
-      cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+      const schedule = () => { if (!raf) raf = requestAnimationFrame(redraw); };
 
+      // ── ink capture: the whole window, not just the pad ───────────────────
+      // A press on a control (button, swatch, saved signature…) is still a
+      // click unless it moves a few px — then it becomes ink (a pen sweeping
+      // across the screen). Everywhere else a press starts ink at once.
+      const CONTROL = 'button, input, select, textarea, label, a, .segmented, .swatches, .an-sig-saved, .modal-header, .modal-footer';
+      function width(ev, prev) {
+        let w;
+        if (ev.pointerType === 'pen') {
+          const p = ev.pressure > 0 ? ev.pressure : 0.5;
+          w = 0.8 + p * 3.2;                                     // ~1.2 … 4 px with pressure
+        } else {
+          const v = prev ? Math.hypot(ev.clientX - prev[0], ev.clientY - prev[1]) / Math.max(1, ev.timeStamp - prev[3]) : 0;
+          w = clamp(3.2 - v * 0.9, 1.5, 3.2);                    // a touch thinner when fast
+        }
+        return Math.max(SIG.MINW, prev ? prev[2] * 0.6 + w * 0.4 : w);
+      }
+      function addPoint(ev) {
+        const pts = active.s.pts, prev = pts[pts.length - 1];
+        if (prev && Math.hypot(ev.clientX - prev[0], ev.clientY - prev[1]) < 0.75) {
+          if (ev.pointerType === 'pen' && ev.pressure > 0) prev[2] = Math.max(prev[2], width(ev, prev));
+          return false;
+        }
+        pts.push([ev.clientX, ev.clientY, width(ev, prev), ev.timeStamp]);
+        return true;
+      }
+      function traceTo(ev) {
+        const pts = active.s.pts, n = pts.length;
+        if (n < 2) return;
+        const a = pts[n - 2], b = pts[n - 1];
+        tctx.beginPath(); tctx.moveTo(a[0], a[1]); tctx.lineTo(b[0], b[1]); tctx.stroke();
+      }
+      function startInk(e) {
+        active.pending = false;
+        try { ov.setPointerCapture(active.id); } catch (_) {}
+        ov.classList.add('is-inking');
+        const dpr = window.devicePixelRatio || 1;
+        tr.width = Math.round(window.innerWidth * dpr); tr.height = Math.round(window.innerHeight * dpr);
+        tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        tctx.strokeStyle = 'rgba(37, 99, 235, .55)'; tctx.lineWidth = 2; tctx.lineCap = 'round'; tctx.lineJoin = 'round';
+        const pts = active.s.pts;
+        for (let i = 1; i < pts.length; i++) { tctx.beginPath(); tctx.moveTo(pts[i - 1][0], pts[i - 1][1]); tctx.lineTo(pts[i][0], pts[i][1]); tctx.stroke(); }
+        if (e) e.preventDefault();
+        schedule();
+      }
+      ov.addEventListener('pointerdown', e => {
+        if (mode !== 'draw' || active || done) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const onCtl = !!(e.target.closest && e.target.closest(CONTROL));
+        active = { id: e.pointerId, s: { pts: [], type: e.pointerType }, pending: true, sx: e.clientX, sy: e.clientY, fromCtl: onCtl };
+        addPoint(e);
+        if (!onCtl) startInk(e);
+      }, true);
+      ov.addEventListener('pointermove', e => {
+        if (!active || e.pointerId !== active.id) return;
+        const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
+        for (const ev of (evs.length ? evs : [e])) if (addPoint(ev) && !active.pending) traceTo(ev);
+        if (active.pending) {
+          if (Math.hypot(e.clientX - active.sx, e.clientY - active.sy) < SIG.START) return;
+          startInk(e);
+        }
+        e.preventDefault();
+        schedule();
+      }, true);
+      const endInk = e => {
+        if (!active || e.pointerId !== active.id) return;
+        const a = active; active = null;
+        ov.classList.remove('is-inking');
+        tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, tr.width, tr.height);
+        if (a.pending) return;                                   // it was a plain click
+        if (a.fromCtl) swallowUntil = performance.now() + 400;   // not a click on the button it started on
+        strokes.push(a.s);
+        schedule();
+      };
+      ov.addEventListener('pointerup', endInk, true);
+      ov.addEventListener('pointercancel', endInk, true);
+      ov.addEventListener('lostpointercapture', e => { if (active && !active.pending) endInk(e); }, true);
+      ov.addEventListener('click', e => {
+        if (performance.now() < swallowUntil) { e.preventDefault(); e.stopPropagation(); swallowUntil = 0; }
+      }, true);
+
+      function undoStroke() { if (strokes.length) { strokes.pop(); schedule(); } }
       ov.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
         mode = b.dataset.mode;
         ov.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('active', x === b));
+        ov.classList.toggle('is-draw', mode === 'draw');
         $('#an-sig-typef').classList.toggle('hidden', mode !== 'type');
+        $('#an-sig-hint').classList.toggle('hidden', mode !== 'draw');
+        $('#an-sig-undo').classList.toggle('hidden', mode !== 'draw');
         $('#an-sig-ph').textContent = mode === 'draw' ? 'Sign here' : 'Your typed signature appears here';
         redraw();
         if (mode === 'type') setTimeout(() => $('#an-sig-type').focus(), 20);
@@ -1628,33 +1855,38 @@ var Annotate = (() => {
         $('#an-sig-cols').querySelectorAll('.swatch').forEach(s => s.classList.toggle('active', s === b));
         redraw();
       });
-      $('#an-sig-clear').addEventListener('click', () => { strokes = []; $('#an-sig-type').value = ''; redraw(); });
+      $('#an-sig-undo').addEventListener('click', undoStroke);
+      $('#an-sig-clear').addEventListener('click', () => { if (mode === 'draw') strokes = []; else $('#an-sig-type').value = ''; redraw(); });
       $('#an-sig-cancel').addEventListener('click', () => finish(null));
       ov.querySelector('.modal-close').addEventListener('click', () => finish(null));
       const onKey = e => {
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
         else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); e.stopPropagation(); $('#an-sig-ok').click(); }
+        else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z') && mode === 'draw') { e.preventDefault(); e.stopPropagation(); undoStroke(); }
         else e.stopPropagation();
       };
       document.addEventListener('keydown', onKey, true);
 
-      function trimmed() {
-        // crop to the ink with a small margin → PNG data URL (transparent)
-        const img = ctx.getImageData(0, 0, cv.width, cv.height), d = img.data;
-        let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
-        for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
-          if (d[(y * cv.width + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      function typedPng() {
+        // hi-res render, then crop to the ink with an even margin (transparent)
+        const K = SIG.OUT, c = document.createElement('canvas');
+        c.width = W * K; c.height = H * K;
+        const cx = c.getContext('2d'); cx.setTransform(K, 0, 0, K, 0, 0);
+        if (!drawTyped(cx, W, H)) return null;
+        const d = cx.getImageData(0, 0, c.width, c.height).data;
+        let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+          if (d[(y * c.width + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
         }
         if (x1 < 0) return null;
-        const m = 6 * D;
-        x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(cv.width, x1 + m); y1 = Math.min(cv.height, y1 + m);
+        const m = SIG.MARGIN * K;
         const out = document.createElement('canvas');
-        out.width = x1 - x0; out.height = y1 - y0;
-        out.getContext('2d').drawImage(cv, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+        out.width = x1 - x0 + 1 + 2 * m; out.height = y1 - y0 + 1 + 2 * m;
+        out.getContext('2d').drawImage(c, x0, y0, x1 - x0 + 1, y1 - y0 + 1, m, m, x1 - x0 + 1, y1 - y0 + 1);
         return out.toDataURL('image/png');
       }
       $('#an-sig-ok').addEventListener('click', async () => {
-        const url = trimmed();
+        const url = mode === 'draw' ? sigExport(strokes, color) : typedPng();
         if (!url) { App.toast(mode === 'draw' ? 'Draw your signature first' : 'Type your name first', 'warning'); return; }
         if ($('#an-sig-rem').checked) SFM.annotSignatureSave(url).catch(() => {});
         finish(url);
