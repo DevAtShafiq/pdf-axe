@@ -11,7 +11,17 @@
  * Click a text block to edit it in place (Enter = new line, Esc = cancel,
  * click outside = keep). Drag a block to move it; the handle on its right edge
  * changes the wrap width. Toolbar: Add text, font, size, bold/italic, colour,
- * alignment, Delete, image replace/delete, Undo/Redo, zoom, page navigation.
+ * alignment, Delete, Undo/Redo, zoom, page navigation.
+ *
+ * Every other thing on the page is an object too (pdf_objects.py): pictures,
+ * shapes, lines, table grids, logos. Click one to select it (handles appear),
+ * drag to move (Shift = straight), drag a handle to resize (corners keep the
+ * proportions of pictures; Shift toggles), arrows nudge (Shift = 10 pt),
+ * Delete removes, Esc deselects, Tab walks through the objects of the page.
+ * Pictures: replace, crop, rotate 90°; shapes: line / fill colour, line width.
+ * "Add image" places a new picture. While you work the page picture is
+ * re-rendered with the changes (pdfedit_page_png with the pending edits), and
+ * a dragged object is shown as its own transparent sprite.
  * Edits are shown live (white patch + new text) and written on Save by
  * pdf_edit_bridge.py → pdf_edit.py, to a NEW file (<name>_edited.pdf) unless
  * "Save over original" is chosen (backup to _to_review/ first).
@@ -84,6 +94,7 @@ var PdfEdit = (() => {
           <div class="an-tb-group">
             <button class="icon-btn an-tool pe-tool" data-a="mode-select" data-tooltip="Select / edit text · V" aria-label="Select and edit text">${ic('text-select')}</button>
             <button class="btn btn-sm btn-ghost pe-tool pe-add-btn" data-a="mode-add" data-tooltip="Click on the page to add a text box · T" aria-label="Add text">${ic('type', 14)}Add text</button>
+            <button class="btn btn-sm btn-ghost pe-tool pe-add-btn" data-a="add-image" data-tooltip="Place a picture on the page · I" aria-label="Add image">${ic('image', 14)}Add image</button>
           </div>
           <span class="toolbar-sep"></span>
           <div class="an-tb-group pe-style" id="pe-style">
@@ -99,9 +110,23 @@ var PdfEdit = (() => {
             </div>
             <button class="icon-btn icon-btn-danger pe-tool" data-a="delete" data-tooltip="Delete block · Del" aria-label="Delete block">${ic('trash')}</button>
           </div>
-          <div class="an-tb-group pe-imgtools hidden" id="pe-imgtools">
-            <button class="btn btn-sm btn-ghost pe-tool" data-a="img-replace" title="Replace the selected image">${ic('image', 14)}Replace image…</button>
-            <button class="btn btn-sm btn-ghost pe-tool" data-a="img-delete" title="Delete the selected image">${ic('trash', 14)}Delete image</button>
+          <div class="an-tb-group pe-objtools hidden" id="pe-objtools" aria-label="Object tools">
+            <span class="pe-objkind" id="pe-objkind"></span>
+            <button class="btn btn-sm btn-ghost pe-tool" data-a="img-replace" data-tooltip="Replace this picture" aria-label="Replace picture">${ic('image', 14)}Replace…</button>
+            <button class="icon-btn pe-tool" data-a="obj-crop" data-tooltip="Crop · C (Enter applies)" aria-label="Crop">${ic('crop')}</button>
+            <button class="icon-btn pe-tool" data-a="obj-rotate" data-tooltip="Rotate 90° · R" aria-label="Rotate 90 degrees">${ic('rotate-cw')}</button>
+            <span class="pe-objstyle" id="pe-objstyle">
+              <span class="toolbar-sep"></span>
+              <span class="pe-swlabel">Line</span>
+              <label class="pe-color" data-tooltip="Line colour"><input type="color" id="pe-ostroke" aria-label="Line colour"><span class="pe-color-sw" id="pe-ostroke-sw"></span></label>
+              <input class="input-text pe-size pe-owidth" id="pe-owidth" type="number" min="0" max="72" step="0.25" aria-label="Line width" title="Line width (pt)">
+              <button class="icon-btn icon-btn-sm pe-tool pe-none" data-a="stroke-none" data-tooltip="No line" aria-label="No line" aria-pressed="false"><span class="pe-none-sw"></span></button>
+              <span class="pe-swlabel">Fill</span>
+              <label class="pe-color" data-tooltip="Fill colour"><input type="color" id="pe-ofill" aria-label="Fill colour"><span class="pe-color-sw" id="pe-ofill-sw"></span></label>
+              <button class="icon-btn icon-btn-sm pe-tool pe-none" data-a="fill-none" data-tooltip="No fill" aria-label="No fill" aria-pressed="false"><span class="pe-none-sw"></span></button>
+            </span>
+            <span class="toolbar-sep"></span>
+            <button class="icon-btn icon-btn-danger pe-tool" data-a="obj-delete" data-tooltip="Delete · Del" aria-label="Delete object">${ic('trash')}</button>
           </div>
           <span class="toolbar-sep"></span>
           <div class="an-tb-group">
@@ -155,21 +180,29 @@ var PdfEdit = (() => {
     let src = path;                 // file being shown (switches to the output after Save)
     let info = null;                // {pages:[{w,h,scanned}]}
     let zoom = 1, curPage = 0, mode = 'select';
-    let pageData = new Map();       // p -> {blocks, images, scanned, error} | Promise
-    let model = { ov: {}, adds: [], imgs: {} };
+    let pageData = new Map();       // p -> {blocks, objects, scanned, error} | Promise
+    // ov: text block changes · adds: new text boxes · objs: object changes
+    // {bbox, rotate, crop, delete, stroke, fill, width, replace: imgStore id}
+    // · addImgs: new pictures {id, page, rect, rotate, img: imgStore id}
+    let model = { ov: {}, adds: [], objs: {}, addImgs: [] };
+    const imgStore = new Map();     // id -> {data_url, w, h, name} (kept out of the undo snapshots)
     let undoStack = [], redoStack = [];
-    let sel = null;                 // {kind:'block'|'add'|'image', key}
+    let sel = null;                 // {kind:'block'|'add'|'obj'|'aimg', key}
     let editing = null;             // {kind, key, ta, before}
+    let cropping = null;            // {key, rect} while the crop frame is shown
     let busy = false, closed = false;
     const pageEls = [], thumbEls = [];
-    const rendered = new Map();
+    const rendered = new Map();     // p -> {scale, key, shown:{object id: edit json}}
+    const sprites = new Map();      // "key|scale|style" -> data_url | Promise
+    let lastNudge = null;           // {key, t}: arrow-key nudges in a row are one undo step
 
     const pages = () => (info ? info.pages : []);
     const snap = () => JSON.stringify(model);
-    const dirty = () => Object.keys(model.ov).length + model.adds.length + Object.keys(model.imgs).length > 0;
-    function pushUndo() { undoStack.push(snap()); if (undoStack.length > 300) undoStack.shift(); redoStack = []; }
-    function undo() { commitEdit(); if (!undoStack.length) return; redoStack.push(snap()); model = JSON.parse(undoStack.pop()); fixSel(); renderAll(); }
-    function redo() { commitEdit(); if (!redoStack.length) return; undoStack.push(snap()); model = JSON.parse(redoStack.pop()); fixSel(); renderAll(); }
+    const nChanges = () => Object.keys(model.ov).length + model.adds.length + Object.keys(model.objs).length + model.addImgs.length;
+    const dirty = () => nChanges() > 0;
+    function pushUndo() { undoStack.push(snap()); if (undoStack.length > 300) undoStack.shift(); redoStack = []; lastNudge = null; }
+    function undo() { commitEdit(); endCrop(false); if (!undoStack.length) return; redoStack.push(snap()); model = JSON.parse(undoStack.pop()); lastNudge = null; fixSel(); renderAll(); refreshBgs(); }
+    function redo() { commitEdit(); endCrop(false); if (!redoStack.length) return; undoStack.push(snap()); model = JSON.parse(redoStack.pop()); lastNudge = null; fixSel(); renderAll(); refreshBgs(); }
     function fixSel() { if (sel && !itemOf(sel)) sel = null; }
 
     // ── model helpers ──────────────────────────────────────────────────────
@@ -178,18 +211,22 @@ var PdfEdit = (() => {
       const [p, id] = key.split(':'); const d = pageData.get(+p);
       return d && d.blocks ? d.blocks.find(b => b.id === id) : null;
     }
-    function imageOf(key) {
+    function objOf(key) {
       const [p, id] = key.split(':'); const d = pageData.get(+p);
-      return d && d.images ? d.images.find(b => b.id === id) : null;
+      return d && d.objects ? d.objects.find(o => o.id === id) : null;
     }
+    const aimgOf = id => model.addImgs.find(a => a.id === id) || null;
     function itemOf(s) {
       if (!s) return null;
       if (s.kind === 'block') return blockOf(s.key);
-      if (s.kind === 'image') return imageOf(s.key);
+      if (s.kind === 'obj') { const o = objOf(s.key); return o && !(model.objs[s.key] || {}).delete ? o : null; }
+      if (s.kind === 'aimg') return aimgOf(s.key);
       return model.adds.find(a => a.id === s.key) || null;
     }
+    const isObjSel = s => !!(s && (s.kind === 'obj' || s.kind === 'aimg'));
     /** effective view of a block or added box: {page, text, font, family, size, color, bold, italic, align, bbox, single, lh, deleted} */
     function eff(s) {
+      if (isObjSel(s)) return null;
       if (s.kind === 'add') {
         const a = model.adds.find(x => x.id === s.key); if (!a) return null;
         return { ...a, family: fontCss(a.font), bbox: a.rect, single: false, lh: a.size * 1.2, editable: true };
@@ -237,6 +274,119 @@ var PdfEdit = (() => {
       if (Object.keys(o).length) model.ov[key] = o; else delete model.ov[key];
     }
 
+    // ── page objects: geometry ─────────────────────────────────────────────
+    // Matrices [a,b,c,d,e,f] with row vectors, like PDF / PyMuPDF: p·A·B applies A first.
+    const mMul = (A, B) => [A[0] * B[0] + A[1] * B[2], A[0] * B[1] + A[1] * B[3], A[2] * B[0] + A[3] * B[2],
+                            A[2] * B[1] + A[3] * B[3], A[4] * B[0] + A[5] * B[2] + B[4], A[4] * B[1] + A[5] * B[3] + B[5]];
+    const mInv = A => {
+      const det = A[0] * A[3] - A[1] * A[2] || 1e-9;
+      const a = A[3] / det, b = -A[1] / det, c = -A[2] / det, d = A[0] / det;
+      return [a, b, c, d, -(A[4] * a + A[5] * c), -(A[4] * b + A[5] * d)];
+    };
+    const mPt = (A, x, y) => [x * A[0] + y * A[2] + A[4], x * A[1] + y * A[3] + A[5]];
+    function mRect(A, r) {
+      const ps = [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]].map(q => mPt(A, q[0], q[1]));
+      const xs = ps.map(q => q[0]), ys = ps.map(q => q[1]);
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }
+    const normDeg = d => (((Math.round((d || 0) / 90) * 90) % 360) + 360) % 360;
+    /** rotate *src* by deg (clockwise) about its centre, then scale / move it onto *dst* (= pdf_objects.rect_transform) */
+    function rectT(src, deg, dst) {
+      deg = normDeg(deg);
+      let sw = Math.max(src[2] - src[0], 1e-6), sh = Math.max(src[3] - src[1], 1e-6);
+      if (deg === 90 || deg === 270) [sw, sh] = [sh, sw];
+      const c = Math.round(Math.cos(deg * Math.PI / 180)), s = Math.round(Math.sin(deg * Math.PI / 180));
+      let m = [1, 0, 0, 1, -(src[0] + src[2]) / 2, -(src[1] + src[3]) / 2];
+      m = mMul(m, [c, s, -s, c, 0, 0]);
+      return mMul(m, [(dst[2] - dst[0]) / sw, 0, 0, (dst[3] - dst[1]) / sh, (dst[0] + dst[2]) / 2, (dst[1] + dst[3]) / 2]);
+    }
+    const swapBox = r => { const cx = (r[0] + r[2]) / 2, cy = (r[1] + r[3]) / 2, w = r[2] - r[0], h = r[3] - r[1];
+                           return [cx - h / 2, cy - w / 2, cx + h / 2, cy + w / 2]; };
+    const pageOfKey = k => +String(k).split(':')[0];
+    /** effective view of an object or added picture → {page, full, src, rot, bbox, T, kind, …} */
+    function effObj(s) {
+      if (s.kind === 'aimg') {
+        const a = aimgOf(s.key); if (!a) return null;
+        const rot = normDeg(a.rotate), full = (rot === 90 || rot === 270) ? swapBox(a.rect) : a.rect.slice();
+        return { page: a.page, kind: 'image', added: true, a, full, src: full, rot, bbox: a.rect, T: rectT(full, rot, a.rect), v: {}, aspect: true };
+      }
+      const o = objOf(s.key); if (!o) return null;
+      const v = model.objs[s.key] || {};
+      const rot = normDeg(v.rotate), src = v.crop || o.full, bbox = v.bbox || o.full;
+      return { page: pageOfKey(s.key), kind: o.kind, o, v, full: o.full, src, rot, bbox, T: rectT(src, rot, bbox),
+               deleted: !!v.delete, aspect: o.kind !== 'path' };
+    }
+    /** set / merge changes of object *key*; values equal to the original are dropped */
+    function setObj(key, patch, { undoable = true } = {}) {
+      if (undoable) pushUndo();
+      const o = objOf(key); if (!o) return;
+      const v = { ...(model.objs[key] || {}), ...patch };
+      if (v.bbox && v.bbox.every((x, i) => Math.abs(x - o.full[i]) < 0.05)) delete v.bbox;
+      if (!normDeg(v.rotate)) delete v.rotate;
+      if (v.crop && v.crop.every((x, i) => Math.abs(x - o.full[i]) < 0.05)) delete v.crop;
+      if (!v.delete) delete v.delete;
+      if (v.stroke === undefined) delete v.stroke;
+      if (v.fill === undefined) delete v.fill;
+      if (v.width === undefined || v.width === null) delete v.width;
+      if (v.replace == null) delete v.replace;
+      if (Object.keys(v).length) model.objs[key] = v; else delete model.objs[key];
+    }
+    /** edit for the engine; preview=true: no picture data, replaced pictures hidden */
+    function objEdit(key, v, o, preview) {
+      const e = { type: 'object', page: pageOfKey(key), object_id: o.id };
+      if (v.bbox) e.bbox = v.bbox.map(r2);
+      if (v.rotate) e.rotate = v.rotate;
+      if (v.crop) e.crop = v.crop.map(r2);
+      if (v.delete) e.delete = true;
+      ['stroke', 'fill', 'width'].forEach(x => { if (v[x] !== undefined) e[x] = v[x]; });
+      if (v.replace) { if (preview) e.replace = true; else { e.data_url = (imgStore.get(v.replace) || {}).data_url; e.fit = 'contain'; } }
+      if (!preview) e.orig_bbox = o.bbox;
+      return e;
+    }
+    /** object edits drawn into the page picture of page p (the dragged object is hidden) */
+    function bgEdits(p) {
+      const out = [];
+      const hide = drag && drag.moved && drag.s && drag.s.kind === 'obj' && pageOfKey(drag.s.key) === p ? drag.s.key
+        : cropping && pageOfKey(cropping.key) === p ? cropping.key : null;
+      Object.entries(model.objs).forEach(([k, v]) => {
+        if (pageOfKey(k) !== p || k === hide) return;
+        const o = objOf(k); if (o) out.push(objEdit(k, v, o, true));
+      });
+      if (hide) out.push({ type: 'object', page: p, object_id: objOf(hide).id, delete: true });
+      return out;
+    }
+    const editJson = e => JSON.stringify(e);
+    /** does the page picture already show object *key* as the model wants it? */
+    function bgShows(key) {
+      const p = pageOfKey(key), have = rendered.get(p), o = objOf(key);
+      if (!have || !o) return false;
+      const v = model.objs[key];
+      const want = v ? editJson(objEdit(key, v, o, true)) : undefined;
+      return have.shown[o.id] === want;
+    }
+    function refreshBgs() { pages().forEach((_, p) => { if (pageData.get(p) && !(pageData.get(p) instanceof Promise)) wantPage(p); }); }
+
+    // sprite = the object alone (transparent around it), for dragging and while the page picture catches up
+    function spriteFor(key, e) {
+      const st = {};
+      ['stroke', 'fill', 'width'].forEach(x => { if (e.v[x] !== undefined) st[x] = e.v[x]; });
+      const sc = r2(clamp(zoom * dpr(), 0.75, 4));
+      const id = `${key}|${sc}|${JSON.stringify(st)}`;
+      const have = sprites.get(id);
+      if (typeof have === 'string') return have;
+      if (!have) {
+        const file = src;
+        sprites.set(id, SFM.pdfeditObjectPng(file, pageOfKey(key), e.o.id, sc, Object.keys(st).length ? st : null).then(r => {
+          if (file !== src) return;
+          if (r && r.ok) { sprites.set(id, r.data_url); renderPage(pageOfKey(key)); }
+          else sprites.delete(id);
+        }).catch(() => sprites.delete(id)));
+      }
+      // a slightly older sprite (other zoom / colour) is better than nothing
+      for (const [k2, v2] of sprites) if (k2.startsWith(key + '|') && typeof v2 === 'string') return v2;
+      return null;
+    }
+
     // ── pages / rendering ──────────────────────────────────────────────────
     const dpr = () => Math.max(1, window.devicePixelRatio || 1);
     const neededScale = () => clamp(zoom * dpr(), 0.5, 4);
@@ -244,7 +394,9 @@ var PdfEdit = (() => {
     function wantPage(p) {
       loadData(p);
       const need = neededScale(), have = rendered.get(p);
-      if (have && have >= need * 0.85 && have <= need * 2.2) return;
+      const d = pageData.get(p), ready = d && !(d instanceof Promise);
+      const key = ready ? JSON.stringify(bgEdits(p)) : (have ? have.key : '[]');
+      if (have && have.scale >= need * 0.85 && have.scale <= need * 2.2 && have.key === key) return;
       if (!renderQ.includes(p)) renderQ.push(p);
       pump();
     }
@@ -254,13 +406,22 @@ var PdfEdit = (() => {
       try {
         while (renderQ.length && !closed) {
           const p = renderQ.shift(), sc = neededScale(), file = src;
-          const r = await SFM.pdfeditPagePng(file, p, sc).catch(() => null);
+          const d = pageData.get(p), ready = d && !(d instanceof Promise);
+          const edits = ready ? bgEdits(p) : [];
+          const key = JSON.stringify(edits);
+          const r = await SFM.pdfeditPagePng(file, p, sc, edits.length ? { objects: edits } : null).catch(() => null);
           if (closed || file !== src) return;
           const el = pageEls[p];
           if (r && r.ok && el) {
             const img = el.querySelector('.an-bg'); img.src = r.data_url; img.classList.add('on');
             el.querySelector('.an-ph')?.remove();
-            rendered.set(p, sc);
+            const shown = {};
+            edits.forEach(e => { shown[e.object_id] = editJson(e); });
+            rendered.set(p, { scale: sc, key, shown });
+            if (ready) renderPage(p);
+            if (ready && JSON.stringify(bgEdits(p)) !== key && !renderQ.includes(p)) renderQ.push(p);   // changed meanwhile
+          } else if (r && !r.ok && r.code === 'stale') {
+            App.toast(esc(r.error), 'error', 6000);
           }
         }
       } finally { pumping = false; }
@@ -268,17 +429,19 @@ var PdfEdit = (() => {
     function loadData(p) {
       if (pageData.has(p)) return pageData.get(p);
       const file = src;
-      const pr = SFM.pdfeditBlocks(file, p).then(r => {
+      const pr = Promise.all([SFM.pdfeditBlocks(file, p).catch(() => null), SFM.pdfeditObjects(file, p).catch(() => null)]).then(([r, ro]) => {
         if (file !== src) return;
+        const objects = (ro && ro.ok && ro.objects) || [];
         let d;
-        if (r && r.ok) d = { blocks: r.blocks || [], images: r.images || [] };
-        else if (r && r.code === 'scanned_page') d = { blocks: [], images: [], scanned: true };
-        else d = { blocks: [], images: [], error: (r && r.error) || 'Could not read the text on this page' };
+        if (r && r.ok) d = { blocks: r.blocks || [], objects };
+        else if (r && r.code === 'scanned_page') d = { blocks: [], objects, scanned: true };
+        else d = { blocks: [], objects, error: (r && r.error) || 'Could not read the text on this page' };
         pageData.set(p, d);
         renderPage(p);
+        if (Object.keys(model.objs).some(k => pageOfKey(k) === p)) wantPage(p);
         if (p === curPage) hint();
         return d;
-      }).catch(() => { pageData.set(p, { blocks: [], images: [], error: 'Could not read the text on this page' }); });
+      }).catch(() => { pageData.set(p, { blocks: [], objects: [], error: 'Could not read the text on this page' }); });
       pageData.set(p, pr);
       return pr;
     }
@@ -291,16 +454,14 @@ var PdfEdit = (() => {
       el.querySelector('.pe-scan').classList.toggle('hidden', !(d && d.scanned));
       if (!d || d instanceof Promise) { layer.innerHTML = ''; return; }
       let h = '';
-      // images (under the text)
-      d.images.forEach(im => {
-        const k = keyOf(p, im.id), op = model.imgs[k];
-        const [x0, y0, x1, y1] = im.bbox;
-        const isSel = sel && sel.kind === 'image' && sel.key === k;
-        let inner = '';
-        if (op) inner = `<div class="pe-patch"></div>` + (op.op === 'replace' ? `<img class="pe-newimg" src="${op.data_url}" alt="">` : '');
-        h += `<div class="pe-item pe-imgbox${im.background ? ' pe-bgimg' : ''}${isSel ? ' is-sel' : ''}" data-kind="image" data-k="${esc(k)}"
-               style="left:${px(x0)};top:${px(y0)};width:${px(x1 - x0)};height:${px(y1 - y0)}">${inner}</div>`;
-      });
+      // page objects (under the text): bigger ones first so smaller ones stay clickable
+      const objs = (d.objects || []).map(o => ({ o, s: { kind: 'obj', key: keyOf(p, o.id) } }))
+        .concat(model.addImgs.filter(a => a.page === p).map(a => ({ o: null, s: { kind: 'aimg', key: a.id } })));
+      const area = r => (r[2] - r[0]) * (r[3] - r[1]);
+      objs.forEach(x => { x.e = effObj(x.s); });
+      objs.filter(x => x.e && !x.e.deleted).sort((a, b) => (a.o ? 0 : 1) - (b.o ? 0 : 1) || area(b.e.bbox) - area(a.e.bbox))
+        .forEach(x => { h += objHtml(x.s, x.e); });
+      if (dragBadge && dragBadge.p === p) h += `<div class="pe-badge" style="left:${px(dragBadge.x)};top:${px(dragBadge.y)}">${esc(dragBadge.text)}</div>`;
       // text blocks
       d.blocks.forEach(b => {
         const k = keyOf(p, b.id), s = { kind: 'block', key: k }, e = eff(s);
@@ -322,12 +483,13 @@ var PdfEdit = (() => {
         h += `<div class="pe-item pe-block pe-added${isSel ? ' is-sel' : ''}${isEd ? ' is-editing' : ''}" data-kind="add" data-k="${esc(a.id)}"
                style="left:${px(tb.x)};top:${px(tb.y)};width:${px(tb.w)};height:${px(tb.h)}">${isEd ? '' : textHtml(e, tb)}${isSel && !isEd ? '<span class="pe-handle" data-h="e"></span>' : ''}</div>`;
       });
+      if (isObjSel(sel)) { const se = effObj(sel); if (se && se.page === p && !se.deleted) h += selHtml(se); }
       layer.innerHTML = h;
       if (editing && editing.page === p) layer.appendChild(editing.ta);
       const tb = thumbEls[p];
       if (tb) {
         const n = Object.keys(model.ov).filter(k => +k.split(':')[0] === p).length + model.adds.filter(a => a.page === p).length +
-                  Object.keys(model.imgs).filter(k => +k.split(':')[0] === p).length;
+                  Object.keys(model.objs).filter(k => pageOfKey(k) === p).length + model.addImgs.filter(a => a.page === p).length;
         const c = tb.querySelector('.an-thumb-n'); c.textContent = n || ''; c.classList.toggle('hidden', !n);
       }
     }
@@ -336,6 +498,64 @@ var PdfEdit = (() => {
         `font-weight:${e.bold ? 700 : 400};font-style:${e.italic ? 'italic' : 'normal'};text-align:${e.align};` +
         `white-space:${e.single ? 'pre' : 'pre-wrap'}`;
       return `<div class="pe-text" style="${st}">${esc(e.text)}</div>`;
+    }
+    // The whole original object (picture *url*), rotated / scaled like the
+    // model says, positioned relative to *origin* (page units).
+    function visImg(e, url, fit, origin, extra = '') {
+      const tf = mRect(e.T, e.full);
+      const cx = (tf[0] + tf[2]) / 2 - origin[0], cy = (tf[1] + tf[3]) / 2 - origin[1];
+      const W = (e.full[2] - e.full[0]) * Math.hypot(e.T[0], e.T[1]), H = (e.full[3] - e.full[1]) * Math.hypot(e.T[2], e.T[3]);
+      return `<img class="pe-objvis${extra}" src="${url}" alt="" draggable="false" style="left:${px(cx - W / 2)};top:${px(cy - H / 2)};` +
+             `width:${px(W)};height:${px(H)};object-fit:${fit};${e.rot ? `transform:rotate(${e.rot}deg);` : ''}">`;
+    }
+    function visUrl(s, e, live) {
+      if (s.kind === 'aimg') return [(imgStore.get(e.a.img) || {}).data_url, 'fill'];
+      if (e.v.replace) return [(imgStore.get(e.v.replace) || {}).data_url, 'contain'];
+      if (live) return [spriteFor(s.key, e), 'fill'];
+      return [null];
+    }
+    function objHtml(s, e) {
+      const k = s.key, isSel = !!(sel && sel.kind === s.kind && sel.key === k);
+      const crop = !!(cropping && s.kind === 'obj' && cropping.key === k);
+      const b = crop ? cropping.rect : e.bbox;          // while cropping: only the kept part at full strength
+      const dragging = !!(drag && drag.moved && drag.s && drag.s.kind === s.kind && drag.s.key === k);
+      const live = s.kind === 'obj' && (dragging || crop || (!!model.objs[k] && !bgShows(k)));
+      const [url, fit] = visUrl(s, e, live);
+      const bg = !!(e.o && e.o.background);
+      const vis = url ? `<div class="pe-objclip">${visImg(e, url, fit, b)}</div>` : '';
+      let hits = '';
+      if (!bg) {
+        const parts = (e.o && e.o.parts) || [e.full];
+        const minH = 7 / zoom;
+        hits = parts.map(r0 => {
+          const q = mRect(e.T, r0);
+          if (q[2] - q[0] < minH) { const c = (q[0] + q[2]) / 2; q[0] = c - minH / 2; q[2] = c + minH / 2; }
+          if (q[3] - q[1] < minH) { const c = (q[1] + q[3]) / 2; q[1] = c - minH / 2; q[3] = c + minH / 2; }
+          return `<div class="pe-hit" style="left:${px(q[0] - b[0])};top:${px(q[1] - b[1])};width:${px(q[2] - q[0])};height:${px(q[3] - q[1])}"></div>`;
+        }).join('');
+      }
+      const cls = `pe-obj pe-obj-${e.kind}${s.kind === 'aimg' ? ' pe-obj-added' : ''}${bg ? ' pe-bgobj' : ''}${isSel ? ' is-sel' : ''}${dragging ? ' is-drag' : ''}`;
+      return `<div class="${cls}" data-kind="${s.kind}" data-k="${esc(k)}"
+               style="left:${px(b[0])};top:${px(b[1])};width:${px(b[2] - b[0])};height:${px(b[3] - b[1])}">${vis}${hits}</div>`;
+    }
+    // selection frame with 8 handles (crop mode: the crop frame over a faint full picture)
+    function selHtml(e) {
+      const r = cropping ? cropping.rect : e.bbox;
+      let ghost = '';
+      if (cropping) {
+        const [url, fit] = visUrl(sel, e, true);
+        if (url) ghost = `<div class="pe-cropghost">${visImg(e, url, fit, [0, 0])}</div>`;
+      }
+      const wpx = (r[2] - r[0]) * zoom, hpx = (r[3] - r[1]) * zoom;
+      const hs = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].filter(hd => {
+        if (hpx < 14 && /[ns]/.test(hd)) return false;        // a horizontal line: only left / right
+        if (wpx < 14 && /[ew]/.test(hd)) return false;
+        if ((hd === 'n' || hd === 's') && wpx < 40) return false;
+        if ((hd === 'e' || hd === 'w') && hpx < 40) return false;
+        return true;
+      });
+      return ghost + `<div class="pe-selbox${cropping ? ' is-crop' : ''}" style="left:${px(r[0])};top:${px(r[1])};width:${px(r[2] - r[0])};height:${px(r[3] - r[1])}">` +
+        hs.map(hd => `<span class="pe-oh pe-oh-${hd}" data-oh="${hd}"></span>`).join('') + `</div>`;
     }
     function renderAll() { pages().forEach((_, p) => renderPage(p)); syncToolbar(); status(); }
 
@@ -455,12 +675,14 @@ var PdfEdit = (() => {
       if (d && d.scanned) { t = SCAN_MSG + ' You can still add new text on top.'; icon = 'scan'; }
       else if (d && d.error) { t = d.error; icon = 'alert-circle'; }
       else if (mode === 'add') { t = 'Click on the page where the new text should go'; icon = 'type'; }
-      else t = 'Click text to edit it · drag to move · Enter = new line · Esc cancels · click outside to keep';
+      else if (cropping) { t = 'Drag the handles to crop · Enter applies · Esc cancels'; icon = 'crop'; }
+      else if (isObjSel(sel)) t = 'Drag to move (Shift = straight) · handles resize · arrows nudge · Del deletes · Esc deselects · Tab = next object';
+      else t = 'Click text to edit it · click a picture, shape or line to select it · drag to move · Enter = new line · Esc cancels';
       $('#pe-hint').innerHTML = `${ic(icon, 14)}<span>${esc(t)}</span>`;
       $('#pe-hint').classList.toggle('pe-hint-warn', !!(d && d.scanned));
     }
     function status() {
-      const n = Object.keys(model.ov).length + model.adds.length + Object.keys(model.imgs).length;
+      const n = nChanges();
       $('#pe-status').textContent = n ? `${n} change${n === 1 ? '' : 's'} · unsaved` : 'No changes';
       $('#pe-status').className = 'pill ' + (n ? 'pill-yellow' : 'pill-neutral');
       ov.querySelector('[data-a="undo"]').disabled = busy || !undoStack.length;
@@ -468,15 +690,44 @@ var PdfEdit = (() => {
       if (embed && embed.onChange) embed.onChange();
     }
     function syncToolbar() {
-      const s = sel, e = s && s.kind !== 'image' ? eff(s) : null;
+      const s = sel, e = s && !isObjSel(s) ? eff(s) : null;
       const textOn = !!(e && !e.deleted && e.editable !== false);
+      const oe = isObjSel(s) ? effObj(s) : null;
+      $('#pe-style').classList.toggle('hidden', !!oe);
       $('#pe-style').classList.toggle('is-off', !textOn && !(s && s.kind === 'block'));
       $$('#pe-style select, #pe-style input, #pe-style button').forEach(c => { c.disabled = busy || !textOn; });
-      ov.querySelector('[data-a="delete"]').disabled = busy || !(s && s.kind !== 'image' && !(e && e.deleted));
-      $('#pe-imgtools').classList.toggle('hidden', !(s && s.kind === 'image'));
-      const imOp = s && s.kind === 'image' ? model.imgs[s.key] : null;
-      const im = s && s.kind === 'image' ? imageOf(s.key) : null;
-      $$('#pe-imgtools button').forEach(b => { b.disabled = busy || !im || !im.replaceable || (b.dataset.a === 'img-delete' && imOp && imOp.op === 'delete'); });
+      ov.querySelector('[data-a="delete"]').disabled = busy || !(s && !isObjSel(s) && !(e && e.deleted));
+      $('#pe-objtools').classList.toggle('hidden', !oe);
+      if (oe) {
+        const pic = oe.kind === 'image' || oe.kind === 'inline';
+        const n = oe.o ? oe.o.paths : 0;
+        $('#pe-objkind').textContent = oe.added ? 'New picture' : pic ? 'Picture' : oe.kind === 'path' ? (n > 1 ? `Graphic · ${n} parts` : 'Shape') :
+          oe.kind === 'shade' ? 'Shading' : 'Graphic';
+        ov.querySelector('[data-a="img-replace"]').classList.toggle('hidden', !pic);
+        ov.querySelector('[data-a="obj-crop"]').classList.toggle('hidden', !pic || !!oe.added);
+        ov.querySelector('[data-a="obj-crop"]').classList.toggle('active', !!cropping);
+        const shape = oe.kind === 'path';
+        $('#pe-objstyle').classList.toggle('hidden', !shape);
+        if (shape) {
+          const v = oe.v, o = oe.o;
+          const sk = v.stroke !== undefined ? v.stroke : (o.has_stroke ? (o.stroke || '#000000') : 'none');
+          const fl = v.fill !== undefined ? v.fill : (o.has_fill ? (o.fill || '#000000') : 'none');
+          const setSw = (id, val) => {
+            const none = val === 'none';
+            if (!none && /^#[0-9a-f]{6}$/i.test(val)) $('#' + id).value = val;
+            $('#' + id + '-sw').style.background = none ? 'transparent' : val;
+            $('#' + id + '-sw').classList.toggle('is-none', none);
+          };
+          setSw('pe-ostroke', sk); setSw('pe-ofill', fl);
+          ov.querySelector('[data-a="stroke-none"]').classList.toggle('active', sk === 'none');
+          ov.querySelector('[data-a="stroke-none"]').setAttribute('aria-pressed', sk === 'none');
+          ov.querySelector('[data-a="fill-none"]').classList.toggle('active', fl === 'none');
+          ov.querySelector('[data-a="fill-none"]').setAttribute('aria-pressed', fl === 'none');
+          if (document.activeElement !== $('#pe-owidth')) $('#pe-owidth').value = r2(v.width != null ? v.width : (o.width || (sk === 'none' ? 0 : 1)));
+          $('#pe-owidth').disabled = busy || sk === 'none';
+        }
+        $$('#pe-objtools button, #pe-objtools input').forEach(c => { if (c.id !== 'pe-owidth') c.disabled = busy; });
+      }
       if (e) {
         $('#pe-font').value = e.font || 'original';
         if (document.activeElement !== $('#pe-size')) $('#pe-size').value = r2(e.size);
@@ -505,14 +756,16 @@ var PdfEdit = (() => {
     // ── selection / inline editor ──────────────────────────────────────────
     function select(s) {
       commitEdit();
+      if (cropping && !(s && sel && s.key === sel.key && s.kind === sel.kind)) endCrop(true);
       const old = sel;
       sel = s;
       if (old) renderPage(pageOfSel(old));
       if (s) renderPage(pageOfSel(s));
-      syncToolbar();
+      syncToolbar(); hint();
     }
     function pageOfSel(s) {
       if (s.kind === 'add') { const a = model.adds.find(x => x.id === s.key); return a ? a.page : 0; }
+      if (s.kind === 'aimg') { const a = aimgOf(s.key); return a ? a.page : 0; }
       return +s.key.split(':')[0];
     }
     // Character index in textarea *ta* nearest to the screen point (x, y):
@@ -636,7 +889,7 @@ var PdfEdit = (() => {
       editing.before = val;
     }
     function applyStyle(patch) {
-      if (!sel || sel.kind === 'image') return;
+      if (!sel || isObjSel(sel)) return;
       flushEditText();
       // no-op changes (e.g. the size box firing 'change' twice) must not add undo steps
       const cur = eff(sel);
@@ -662,22 +915,126 @@ var PdfEdit = (() => {
     function deleteSel() {
       if (!sel) return;
       if (editing) { const ed = editing; editing = null; ed.ta.remove(); }
+      if (cropping) endCrop(false);
+      const p = pageOfSel(sel);
       if (sel.kind === 'block') setOv(sel.key, { deleted: true });
       else if (sel.kind === 'add') { pushUndo(); model.adds = model.adds.filter(a => a.id !== sel.key); sel = null; }
-      else if (sel.kind === 'image') return imgOp('delete');
+      else if (sel.kind === 'obj') { setObj(sel.key, { delete: true }); sel = null; wantPage(p); }
+      else if (sel.kind === 'aimg') { pushUndo(); model.addImgs = model.addImgs.filter(a => a.id !== sel.key); sel = null; }
+      renderAll(); hint();
+    }
+
+    // ── object commands ────────────────────────────────────────────────────
+    let _imgN = 0;
+    async function pickImage() {
+      const pick = await SFM.annotPickPhoto().catch(() => null);
+      if (!pick || !pick.ok || !pick.path) return null;
+      App.setStatus('Opening picture…', true);
+      const r = await SFM.pdfeditLoadImage(pick.path, 2400).catch(() => null);
+      App.setStatus('Ready');
+      if (!r || !r.ok) { App.toast(esc((r && r.error) || 'Could not open the picture'), 'error'); return null; }
+      const id = 'im' + Date.now().toString(36) + (++_imgN);
+      imgStore.set(id, { data_url: r.data_url, w: r.width, h: r.height, name: r.name });
+      return id;
+    }
+    async function addImage() {
+      commitEdit(); endCrop(true);
+      if (mode !== 'select') setMode('select');
+      const id = await pickImage(); if (!id || closed) return;
+      const im = imgStore.get(id), p = clamp(curPage, 0, pages().length - 1), pg = pages()[p];
+      // natural size at 96 dpi, at most half the page wide / 40 % high
+      let w = im.w * 0.75, h = im.h * 0.75;
+      const k = Math.min(1, pg.w * 0.5 / w, pg.h * 0.4 / h);
+      w *= k; h *= k;
+      // centre of the visible part of the page
+      const r = pageEls[p].getBoundingClientRect(), vr = view.getBoundingClientRect();
+      const cy = clamp(((Math.max(r.top, vr.top) + Math.min(r.bottom, vr.bottom)) / 2 - r.top) / zoom, h / 2, pg.h - h / 2);
+      const cx = pg.w / 2;
+      pushUndo();
+      const a = { id: 'aimg' + Date.now().toString(36) + (++_uid), page: p, rect: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2].map(r2), rotate: 0, img: id };
+      model.addImgs.push(a);
+      sel = { kind: 'aimg', key: a.id };
+      renderAll(); hint();
+    }
+    async function replaceImg() {
+      if (!isObjSel(sel)) return;
+      const s = sel;
+      const id = await pickImage(); if (!id || closed) return;
+      if (s.kind === 'obj') { setObj(s.key, { replace: id }); wantPage(pageOfKey(s.key)); }
+      else { const a = aimgOf(s.key); if (!a) return; pushUndo(); a.img = id; }
       renderAll();
     }
-    async function imgOp(op) {
-      if (!sel || sel.kind !== 'image') return;
-      const key = sel.key, im = imageOf(key); if (!im) return;
-      if (op === 'delete') { pushUndo(); model.imgs[key] = { op: 'delete' }; renderAll(); return; }
-      const pick = await SFM.annotPickPhoto().catch(() => null);
-      if (!pick || !pick.ok || !pick.path) return;
-      const r = await SFM.annotPhotoLoad(pick.path, 2000).catch(() => null);
-      if (!r || !r.ok) { App.toast(esc((r && r.error) || 'Could not open the image'), 'error'); return; }
-      pushUndo();
-      model.imgs[key] = { op: 'replace', data_url: r.data_url, name: r.name };
+    function rotateSel() {
+      if (!isObjSel(sel)) return;
+      endCrop(true);
+      const e = effObj(sel); if (!e) return;
+      const rot = normDeg(e.rot + 90), box = swapBox(e.bbox).map(r2);
+      if (sel.kind === 'obj') { setObj(sel.key, { rotate: rot, bbox: box }); wantPage(e.page); }
+      else { pushUndo(); e.a.rotate = rot; e.a.rect = box; }
       renderAll();
+    }
+    function setObjStyle(patch) {
+      if (!sel || sel.kind !== 'obj') return;
+      const e = effObj(sel); if (!e || e.kind !== 'path') return;
+      if (Object.keys(patch).every(k => e.v[k] === patch[k])) return;
+      setObj(sel.key, patch);
+      renderAll(); wantPage(e.page);
+    }
+    function startCrop() {
+      if (!sel || sel.kind !== 'obj') return;
+      const e = effObj(sel); if (!e || (e.kind !== 'image' && e.kind !== 'inline')) return;
+      cropping = { key: sel.key, rect: e.bbox.slice() };
+      renderPage(e.page); syncToolbar(); hint(); wantPage(e.page);
+    }
+    function endCrop(apply) {
+      if (!cropping) return;
+      const c = cropping; cropping = null;
+      const s = { kind: 'obj', key: c.key }, e = effObj(s);
+      if (apply && e && c.rect.some((v, i) => Math.abs(v - e.bbox[i]) > 0.05)) {
+        const inv = mRect(mInv(e.T), c.rect);
+        const crop = [Math.max(inv[0], e.full[0]), Math.max(inv[1], e.full[1]), Math.min(inv[2], e.full[2]), Math.min(inv[3], e.full[3])].map(r2);
+        setObj(c.key, { crop, bbox: c.rect.map(r2) });
+        wantPage(e.page);
+      }
+      if (e) { renderPage(e.page); wantPage(e.page); }
+      syncToolbar(); hint(); status();
+    }
+    function nudge(dx, dy) {
+      if (!sel || editing) return;
+      const now = Date.now();
+      const merge = lastNudge && lastNudge.key === sel.kind + sel.key && now - lastNudge.t < 1200;
+      const mv = b => [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy].map(r2);
+      if (!merge) pushUndo();
+      if (sel.kind === 'obj') { const e = effObj(sel); if (!e) return; setObj(sel.key, { bbox: mv(e.bbox) }, { undoable: false }); }
+      else if (sel.kind === 'aimg') { const a = aimgOf(sel.key); if (a) a.rect = mv(a.rect); }
+      else if (sel.kind === 'block') { const e = eff(sel); if (!e || e.deleted) return; setOv(sel.key, { bbox: mv(e.bbox) }, { undoable: false }); }
+      else if (sel.kind === 'add') { const a = model.adds.find(x => x.id === sel.key); if (a) a.rect = mv(a.rect); }
+      lastNudge = { key: sel.kind + sel.key, t: now };
+      renderPage(pageOfSel(sel)); status();
+      clearTimeout(nudge._t);
+      nudge._t = setTimeout(() => { if (sel) wantPage(pageOfSel(sel)); }, 350);
+    }
+    /** Tab / Shift+Tab: next / previous object of the current page (background ones included) */
+    function cycleObj(dir) {
+      const p = isObjSel(sel) ? pageOfSel(sel) : curPage;
+      const d = pageData.get(p); if (!d || d instanceof Promise) return;
+      const list = (d.objects || []).filter(o => !(model.objs[keyOf(p, o.id)] || {}).delete).map(o => ({ kind: 'obj', key: keyOf(p, o.id) }))
+        .concat(model.addImgs.filter(a => a.page === p).map(a => ({ kind: 'aimg', key: a.id })));
+      if (!list.length) return;
+      let i = isObjSel(sel) ? list.findIndex(x => x.kind === sel.kind && x.key === sel.key) : -1;
+      i = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
+      select(list[i]);
+    }
+    $('#pe-ostroke').addEventListener('input', () => { $('#pe-ostroke-sw').style.background = $('#pe-ostroke').value; });
+    $('#pe-ostroke').addEventListener('change', () => setObjStyle({ stroke: $('#pe-ostroke').value }));
+    $('#pe-ofill').addEventListener('input', () => { $('#pe-ofill-sw').style.background = $('#pe-ofill').value; });
+    $('#pe-ofill').addEventListener('change', () => setObjStyle({ fill: $('#pe-ofill').value }));
+    $('#pe-owidth').addEventListener('change', () => { const v = parseFloat($('#pe-owidth').value); if (v >= 0 && v <= 72) setObjStyle({ width: r2(v) }); });
+    function toggleNone(which) {
+      const e = sel && sel.kind === 'obj' ? effObj(sel) : null; if (!e) return;
+      const cur = e.v[which] !== undefined ? e.v[which] : (e.o['has_' + which] ? (e.o[which] || '#000000') : 'none');
+      if (cur === 'none') setObjStyle({ [which]: e.o['has_' + which] ? undefined : (which === 'fill' ? '#ffffff' : '#000000') });
+      else setObjStyle({ [which]: 'none' });
     }
 
     // ── toolbar clicks: match buttons by their own class (never the root) ──
@@ -692,8 +1049,13 @@ var PdfEdit = (() => {
       else if (a === 'italic') { const e2 = sel && eff(sel); if (e2) applyStyle({ italic: !e2.italic }); }
       else if (a.startsWith('align-')) applyStyle({ align: a.slice(6) });
       else if (a === 'delete') deleteSel();
-      else if (a === 'img-replace') imgOp('replace');
-      else if (a === 'img-delete') imgOp('delete');
+      else if (a === 'add-image') addImage();
+      else if (a === 'img-replace') replaceImg();
+      else if (a === 'obj-crop') { if (cropping) endCrop(true); else startCrop(); }
+      else if (a === 'obj-rotate') rotateSel();
+      else if (a === 'obj-delete') deleteSel();
+      else if (a === 'stroke-none') toggleNone('stroke');
+      else if (a === 'fill-none') toggleNone('fill');
       else if (a === 'undo') undo();
       else if (a === 'redo') redo();
       else if (a === 'zin') { zoomStep(1); keepFocus(); }
@@ -709,8 +1071,13 @@ var PdfEdit = (() => {
       if (editing && e.target.closest('button.pe-tool')) e.preventDefault();
     });
 
-    // ── pointer: click = edit, drag = move, right handle = width ───────────
+    // ── pointer: click = edit, drag = move, handles = resize ───────────────
+    // Text: click edits in place, drag moves, the right handle sets the width.
+    // Objects: click selects, drag moves (Shift = straight), the 8 handles
+    // resize (corners keep a picture's proportions; Shift toggles that), in
+    // crop mode the handles move the crop frame.
     let drag = null;
+    let dragBadge = null;            // {p, x, y, text} — size / position read-out while dragging
     function toUnits(e, p) {
       const r = pageEls[p].getBoundingClientRect(), pg = pages()[p];
       return [r2((e.clientX - r.left) / r.width * pg.w), r2((e.clientY - r.top) / r.height * pg.h)];
@@ -722,6 +1089,8 @@ var PdfEdit = (() => {
       const p = +pageEl.dataset.p;
       const pt = toUnits(e, p);
       const item = e.target.closest('.pe-item');
+      const oh = e.target.closest('.pe-oh');
+      const objEl = !item && e.target.closest('.pe-hit') ? e.target.closest('.pe-obj') : null;
       commitEdit();
       view.focus({ preventScroll: true });
       if (mode === 'add') {
@@ -738,12 +1107,30 @@ var PdfEdit = (() => {
         status();
         return;
       }
+      if (oh && isObjSel(sel)) {                       // resize / crop handle of the selected object
+        e.preventDefault();
+        const oe = effObj(sel);
+        drag = { mode: cropping ? 'crop' : 'oresize', hd: oh.dataset.oh, s: sel, p: oe.page, start: pt, moved: false,
+                 bbox: (cropping ? cropping.rect : oe.bbox).slice(), aspect: oe.aspect, bounds: cropping ? mRect(oe.T, oe.full) : null };
+        capture(e);
+        return;
+      }
+      if (cropping) endCrop(true);
+      if (objEl) {
+        e.preventDefault();
+        const s = { kind: objEl.dataset.kind, key: objEl.dataset.k };
+        if (!(sel && sel.kind === s.kind && sel.key === s.key)) select(s);
+        const oe = effObj(s); if (!oe) return;
+        if (s.kind === 'obj') spriteFor(s.key, oe);    // have the sprite ready for the drag
+        drag = { mode: 'omove', s, p: oe.page, start: pt, bbox: oe.bbox.slice(), moved: false };
+        capture(e);
+        return;
+      }
       if (!item) { if (sel) select(null); drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, sl: view.scrollLeft, st: view.scrollTop }; capture(e); return; }
       const s = { kind: item.dataset.kind, key: item.dataset.k };
       const handle = e.target.closest('.pe-handle');
       const already = sel && sel.kind === s.kind && sel.key === s.key;
       if (!already) select(s);
-      if (s.kind === 'image') { drag = null; return; }
       const e0 = eff(s);
       drag = { mode: handle ? 'width' : 'move', s, p, start: pt, bbox: textBoxRect(e0), moved: false, snapped: false,
                at: [e.clientX, e.clientY] };
@@ -752,15 +1139,62 @@ var PdfEdit = (() => {
     // the box a move / width drag starts from: the block's (possibly moved) bbox
     const textBoxRect = e => e.bbox.slice();
     function capture(e) { try { pagesEl.setPointerCapture(e.pointerId); } catch (_) {} }
+    /** new box for handle *hd* dragged by (dx, dy); keep=true keeps the proportions */
+    function resizeBox(b, hd, dx, dy, keep, minS) {
+      let [x0, y0, x1, y1] = b;
+      if (hd.includes('w')) x0 = Math.min(x1 - minS, x0 + dx);
+      if (hd.includes('e')) x1 = Math.max(x0 + minS, x1 + dx);
+      if (hd.includes('n')) y0 = Math.min(y1 - minS, y0 + dy);
+      if (hd.includes('s')) y1 = Math.max(y0 + minS, y1 + dy);
+      if (keep && hd.length === 2) {
+        const w0 = b[2] - b[0], h0 = b[3] - b[1];
+        if (w0 > 0 && h0 > 0) {
+          const sx = (x1 - x0) / w0, sy = (y1 - y0) / h0;
+          const k = Math.abs(sx - 1) > Math.abs(sy - 1) ? sx : sy;
+          const w = w0 * k, h = h0 * k;
+          if (hd.includes('w')) x0 = x1 - w; else x1 = x0 + w;
+          if (hd.includes('n')) y0 = y1 - h; else y1 = y0 + h;
+        }
+      }
+      return [x0, y0, x1, y1];
+    }
     pagesEl.addEventListener('pointermove', e => {
       if (!drag) return;
       if (drag.mode === 'pan') { view.scrollLeft = drag.sl - (e.clientX - drag.sx); view.scrollTop = drag.st - (e.clientY - drag.sy); return; }
       const pt = toUnits(e, drag.p);
-      const dx = pt[0] - drag.start[0], dy = pt[1] - drag.start[1];
+      let dx = pt[0] - drag.start[0], dy = pt[1] - drag.start[1];
       if (!drag.moved && Math.hypot(dx, dy) * zoom < 4) return;
-      if (!drag.moved) { drag.moved = true; pushUndo(); }
       const b = drag.bbox;
       let nb;
+      if (drag.mode === 'crop') {
+        drag.moved = true;
+        nb = resizeBox(b, drag.hd, dx, dy, false, 2);
+        const B = drag.bounds;            // the crop frame stays on the picture
+        nb = [Math.max(nb[0], B[0]), Math.max(nb[1], B[1]), Math.min(nb[2], B[2]), Math.min(nb[3], B[3])];
+        cropping.rect = nb.map(r2);
+        dragBadge = { p: drag.p, x: nb[0], y: nb[3] + 4 / zoom, text: `${Math.round(nb[2] - nb[0])} × ${Math.round(nb[3] - nb[1])} pt` };
+        renderPage(drag.p);
+        return;
+      }
+      const first = !drag.moved;
+      if (first) { drag.moved = true; pushUndo(); }
+      if (drag.mode === 'omove' || drag.mode === 'oresize') {
+        if (drag.mode === 'omove') {
+          if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+          nb = [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy];
+        } else {
+          nb = resizeBox(b, drag.hd, dx, dy, drag.aspect !== e.shiftKey, 2);
+        }
+        nb = nb.map(r2);
+        if (drag.s.kind === 'obj') setObj(drag.s.key, { bbox: nb }, { undoable: false });
+        else { const a = aimgOf(drag.s.key); if (a) a.rect = nb; }
+        dragBadge = drag.mode === 'omove'
+          ? { p: drag.p, x: nb[0], y: nb[3] + 4 / zoom, text: `${Math.round(nb[0])}, ${Math.round(nb[1])} pt` }
+          : { p: drag.p, x: nb[0], y: nb[3] + 4 / zoom, text: `${Math.round(nb[2] - nb[0])} × ${Math.round(nb[3] - nb[1])} pt` };
+        renderPage(drag.p);
+        if (first && drag.s.kind === 'obj') wantPage(drag.p);     // page picture without the object
+        return;
+      }
       if (drag.mode === 'move') nb = [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy];
       else nb = [b[0], b[1], Math.max(b[0] + 10, b[2] + dx), b[3]];
       nb = nb.map(r2);
@@ -768,13 +1202,21 @@ var PdfEdit = (() => {
       else { const a = model.adds.find(x => x.id === drag.s.key); if (a) a.rect = nb; }
       renderPage(drag.p);
     });
-    pagesEl.addEventListener('pointerup', () => {
+    function endDrag() {
       const d = drag; drag = null;
+      if (dragBadge) { const bp = dragBadge.p; dragBadge = null; renderPage(bp); }
       if (!d || d.mode === 'pan') return;
+      if (d.mode === 'crop') return;
+      if (d.mode === 'omove' || d.mode === 'oresize') {
+        if (d.moved) { renderPage(d.p); status(); syncToolbar(); if (d.s.kind === 'obj') wantPage(d.p); }
+        return;
+      }
       if (!d.moved) startEdit(d.s, d.at);  // a click (no drag) edits in place, cursor at the click
       else { status(); syncToolbar(); }
-    });
-    pagesEl.addEventListener('dblclick', e => { const item = e.target.closest('.pe-item'); if (item && item.dataset.kind !== 'image') startEdit({ kind: item.dataset.kind, key: item.dataset.k }); });
+    }
+    pagesEl.addEventListener('pointerup', endDrag);
+    pagesEl.addEventListener('pointercancel', endDrag);
+    pagesEl.addEventListener('dblclick', e => { const item = e.target.closest('.pe-item'); if (item) startEdit({ kind: item.dataset.kind, key: item.dataset.k }); });
 
     // ── keyboard (case-insensitive: Caps Lock must not break shortcuts) ────
     function onKey(e) {
@@ -789,6 +1231,7 @@ var PdfEdit = (() => {
         handled();
         if (editing) { cancelEdit(); return; }
         if (typing) { t.blur(); view.focus(); return; }
+        if (cropping) { endCrop(false); return; }
         if (mode !== 'select') { setMode('select'); return; }
         if (sel) { select(null); return; }
         if (embed) embed.onKey('close'); else tryClose();
@@ -802,7 +1245,14 @@ var PdfEdit = (() => {
       if (ctrl && k === '0') { handled(); fitWidth(); return; }
       if (ctrl || e.altKey) return;
       if ((k === 'delete' || k === 'backspace') && sel) { handled(); deleteSel(); return; }
-      if (k === 'enter' && sel && sel.kind !== 'image') { handled(); startEdit(sel); return; }
+      if (k === 'enter' && cropping) { handled(); endCrop(true); return; }
+      if (k === 'enter' && sel && !isObjSel(sel)) { handled(); startEdit(sel); return; }
+      const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
+      if (arrows[k] && sel && !cropping) { handled(); const st = e.shiftKey ? 10 : 1; nudge(arrows[k][0] * st, arrows[k][1] * st); return; }
+      if (k === 'tab') { handled(); cycleObj(e.shiftKey ? -1 : 1); return; }
+      if (k === 'i') { handled(); addImage(); return; }
+      if (k === 'r' && isObjSel(sel)) { handled(); rotateSel(); return; }
+      if (k === 'c' && sel && sel.kind === 'obj') { handled(); if (cropping) endCrop(true); else startCrop(); return; }
       if (k === 'pagedown') { handled(); goPage(curPage + 1); return; }
       if (k === 'pageup') { handled(); goPage(curPage - 1); return; }
       if (k === 't') { handled(); setMode('add'); return; }
@@ -840,12 +1290,14 @@ var PdfEdit = (() => {
         out.push(e);
       });
       model.adds.forEach(a => { if (a.text.trim()) out.push({ type: 'add_text', page: a.page, rect: a.rect, text: a.text, font: a.font, size: a.size, color: a.color, bold: a.bold, italic: a.italic, align: a.align }); });
-      Object.entries(model.imgs).forEach(([k, op]) => {
-        const [p, id] = k.split(':');
-        out.push(op.op === 'delete' ? { type: 'delete_image', page: +p, image_id: id }
-                                     : { type: 'replace_image', page: +p, image_id: id, data_url: op.data_url, fit: 'contain' });
+      // objects first in the list (the engine applies them before the text anyway)
+      const objs = [];
+      Object.entries(model.objs).forEach(([k, v]) => { const o = objOf(k); if (o) objs.push(objEdit(k, v, o, false)); });
+      model.addImgs.forEach(a => {
+        const im = imgStore.get(a.img); if (!im) return;
+        objs.push({ type: 'add_image', page: a.page, rect: a.rect.map(r2), rotate: normDeg(a.rotate), data_url: im.data_url });
       });
-      return out;
+      return objs.concat(out);
     }
     function notice(html, tone = 'warning') {
       const n = $('#pe-notice');
@@ -857,7 +1309,7 @@ var PdfEdit = (() => {
     }
     async function save() {
       if (busy || !info) return;
-      commitEdit();
+      commitEdit(); endCrop(true);
       const edits = buildEdits();
       if (!edits.length) { App.toast('No changes to save', 'info'); return; }
       const over = overChosen();
@@ -926,7 +1378,12 @@ var PdfEdit = (() => {
     window.addEventListener('resize', onResize);
 
     _open = { focus: () => view.focus(), path,
-              state: () => ({ src, model: JSON.parse(snap()), undo: undoStack.length, redo: redoStack.length, sel, mode, editing: !!editing }) };
+              state: () => ({ src, model: JSON.parse(snap()), undo: undoStack.length, redo: redoStack.length, sel, mode, editing: !!editing,
+                              cropping: !!cropping, pageW: (pages()[0] || {}).w,
+                              bgInSync: !pumping && !renderQ.length && pages().every((_, p) => {
+                                const d = pageData.get(p); if (!d || d instanceof Promise) return true;
+                                const h = rendered.get(p); return !h || h.key === JSON.stringify(bgEdits(p));
+                              }) }) };
 
     // ── load (also after Save: re-render from the output) ──────────────────
     async function load(file, keepPage = 0) {
@@ -939,8 +1396,8 @@ var PdfEdit = (() => {
       src = file;
       info = r;
       pageData = new Map(); rendered.clear(); renderQ = [];
-      model = { ov: {}, adds: [], imgs: {} }; undoStack = []; redoStack = [];
-      sel = null; editing = null;
+      model = { ov: {}, adds: [], objs: {}, addImgs: [] }; undoStack = []; redoStack = [];
+      sel = null; editing = null; cropping = null; lastNudge = null; sprites.clear();
       $('#pe-sub').textContent = baseOf(file); $('#pe-sub').title = file;
       $('#pe-name').value = stemOf(file).replace(/_edited( \(\d+\))?$/, '') + '_edited';
       $('#pe-dir').value = dirOf(file);
@@ -958,7 +1415,7 @@ var PdfEdit = (() => {
     // ── PDF Studio: write the text edits into a new step file ──────────────
     async function commit(outPath) {
       if (busy || !info) return { ok: false, error: 'Busy' };
-      commitEdit();
+      commitEdit(); endCrop(true);
       const edits = buildEdits();
       if (!edits.length) return { ok: true, unchanged: true };
       setBusy(true);
@@ -968,11 +1425,11 @@ var PdfEdit = (() => {
     }
     const controller = {
       kind: 'edit',
-      dirty, flush: commitEdit,          // dirty() has no side effects (it runs on every refresh)
+      dirty, flush: () => { commitEdit(); endCrop(true); },   // dirty() has no side effects (it runs on every refresh)
       canUndo: () => undoStack.length > 0, canRedo: () => redoStack.length > 0,
       undo, redo, commit, close: forceClose, focus: () => view.focus({ preventScroll: true }),
       page: () => curPage, goPage: p => goPage(p),
-      tool: t => setMode(t === 'add' ? 'add' : 'select'),
+      tool: t => { if (t === 'image') { setMode('select'); addImage(); } else setMode(t === 'add' ? 'add' : 'select'); },
       busy: () => busy,
     };
 

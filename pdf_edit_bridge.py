@@ -49,9 +49,25 @@ class PdfEditBridgeMixin:
         A scanned page answers {ok:false, code:'scanned_page'}."""
         return self._pdfedit_run("Read text blocks", _pe.extract_blocks, path, int(page or 0))
 
-    def pdfedit_page_png(self, path: str, page: int = 0, scale: float = 1.5) -> dict:
-        """Page image (form fields and annotations included) → {data_url, width, height}."""
-        return self._pdfedit_run("Render page", _pe.render_page, path, int(page or 0), float(scale or 1.5))
+    def pdfedit_page_png(self, path: str, page: int = 0, scale: float = 1.5, opts: dict | None = None) -> dict:
+        """Page image (form fields and annotations included) → {data_url, width, height}.
+        opts.objects: pending object edits of this page to show."""
+        return self._pdfedit_run("Render page", _pe.render_page, path, int(page or 0), float(scale or 1.5),
+                                 opts if isinstance(opts, dict) else None)
+
+    def pdfedit_objects(self, path: str, page: int = 0) -> dict:
+        """Images, vector graphics and form XObjects of one page → {objects:[…]}."""
+        return self._pdfedit_run("Read page objects", _pe.extract_objects, path, int(page or 0))
+
+    def pdfedit_load_image(self, path: str, max_dim: int = 2400) -> dict:
+        """Picture file → {data_url, width, height, name} (transparency kept)."""
+        return self._pdfedit_run("Open picture", _pe.load_image, path, int(max_dim or 2400))
+
+    def pdfedit_object_png(self, path: str, page: int, object_id: str, scale: float = 1.5,
+                           style: dict | None = None) -> dict:
+        """One object alone on a transparent background → {data_url, bbox}."""
+        return self._pdfedit_run("Render object", _pe.render_object, path, int(page or 0), str(object_id or ""),
+                                 float(scale or 1.5), style if isinstance(style, dict) else None)
 
     def pdfedit_apply(self, path: str, edits: list, opts: dict | None = None) -> dict:
         """opts: {mode:'new'|'over', out_path} → {out_path, backup, replaced,

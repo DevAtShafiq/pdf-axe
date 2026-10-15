@@ -195,7 +195,10 @@ const SFM = (() => {
     // PDF text editor (pdf_edit_bridge.py)
     pdfeditOpen:         (path)                    => call('pdfedit_open', path),
     pdfeditBlocks:       (path, page=0)            => call('pdfedit_blocks', path, page),
-    pdfeditPagePng:      (path, page=0, scale=1.5) => call('pdfedit_page_png', path, page, scale),
+    pdfeditPagePng:      (path, page=0, scale=1.5, opts=null) => call('pdfedit_page_png', path, page, scale, opts),
+    pdfeditObjects:      (path, page=0)            => call('pdfedit_objects', path, page),
+    pdfeditLoadImage:    (path, maxDim=2400)       => call('pdfedit_load_image', path, maxDim),
+    pdfeditObjectPng:    (path, page, id, scale=1.5, style=null) => call('pdfedit_object_png', path, page, id, scale, style),
     pdfeditApply:        (path, edits, opts={})    => call('pdfedit_apply', path, edits, opts),
     pdfeditFonts:        ()                        => call('pdfedit_fonts'),
     // PDF Studio (studio_bridge.py)

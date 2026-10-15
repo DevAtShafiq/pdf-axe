@@ -20,6 +20,13 @@ Edits (one dict each, ``page`` is 0-based):
     {type:'add_text', page, rect, text, font?, size?, color?, bold?, italic?, align?}
     {type:'delete_image',  page, image_id}
     {type:'replace_image', page, image_id, data_url, fit?: 'contain'|'stretch'}
+    {type:'object', page, object_id, orig_bbox?, bbox?, rotate?, crop?, delete?,
+     stroke?, fill?, width?, data_url?}          # page objects (pdf_objects.py):
+                                                 # pictures, shapes, lines, graphics
+    {type:'add_image', page, rect, rotate?, data_url}
+
+extract_objects(path, page) lists the objects; render_page(…, opts={objects})
+previews pending object edits; render_object() draws one object alone.
 
 How a text change is written: the original glyphs are removed with redaction
 annotations that only touch text (images and vector graphics stay), then the new
@@ -39,6 +46,7 @@ import math
 import os
 import re
 
+import pdf_objects as _po
 import pdf_tools as _pt
 
 
@@ -463,8 +471,78 @@ def extract_blocks(path: str, page: int = 0) -> dict:
         doc.close()
 
 
-def render_page(path: str, page: int = 0, scale: float = 1.5) -> dict:
-    """Page image (with form fields / annotations) → {data_url, width, height}."""
+def extract_objects(path: str, page: int = 0) -> dict:
+    """Selectable page objects — images, vector graphics, form XObjects —
+    of one page (display coords, stacking order). Works on scanned pages too."""
+    doc = _open(path)
+    try:
+        pno = int(page or 0)
+        if pno < 0 or pno >= doc.page_count:
+            raise PdfEditError("Page out of range", "bad_page")
+        pg = doc.load_page(pno)
+        return {"page": pno, "width": round(pg.rect.width, 2), "height": round(pg.rect.height, 2),
+                "objects": _po.extract(doc, pg)}
+    finally:
+        doc.close()
+
+
+def _preview_edits(edits) -> list:
+    """Object edits for an on-screen preview: replaced pictures are hidden (the
+    editor draws the new picture itself), no image data travels."""
+    out = []
+    for e in edits or []:
+        if not isinstance(e, dict) or e.get("type") != "object":
+            continue
+        e = {k: v for k, v in e.items() if k not in ("data_url", "image", "orig_bbox")}
+        if e.pop("replace", None):
+            e["delete"] = True
+        out.append(e)
+    return out
+
+
+def load_image(path: str, max_dim: int = 2400) -> dict:
+    """Picture file → data URL for placing on a page: PNG when it has
+    transparency (logos, signatures), else JPEG; camera rotation applied,
+    at most *max_dim* px. The file is only read."""
+    from PIL import Image, ImageOps
+    path = os.path.abspath(str(path or ""))
+    if not os.path.isfile(path):
+        raise PdfEditError("Picture not found", "not_found")
+    try:
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)
+            alpha = im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
+            im = im.convert("RGBA" if alpha else "RGB")
+            if alpha and im.getchannel("A").getextrema()[0] == 255:
+                im, alpha = im.convert("RGB"), False
+            md = max(64, int(max_dim or 2400))
+            if max(im.size) > md:
+                im.thumbnail((md, md), Image.LANCZOS)
+            buf = io.BytesIO()
+            if alpha:
+                im.save(buf, "PNG", optimize=True)
+                mime = "image/png"
+            else:
+                im.save(buf, "JPEG", quality=92)
+                mime = "image/jpeg"
+            w, h = im.size
+    except PdfEditError:
+        raise
+    except Exception as exc:
+        raise PdfEditError(f"Couldn't open the picture: {exc}", "bad_image")
+    return {"data_url": f"data:{mime};base64," + base64.b64encode(buf.getvalue()).decode("ascii"),
+            "width": w, "height": h, "name": os.path.basename(path)}
+
+
+def _scale_for(pg, scale) -> float:
+    r = pg.rect
+    s = max(0.05, min(float(scale or 1.5), 6.0))
+    return min(s, math.sqrt(24e6 / max(1.0, r.width * r.height)))
+
+
+def render_page(path: str, page: int = 0, scale: float = 1.5, opts: dict | None = None) -> dict:
+    """Page image (with form fields / annotations) → {data_url, width, height}.
+    opts.objects: object edits of this page to show (moved / hidden / recoloured)."""
     fitz = _fitz()
     doc = _open(path)
     try:
@@ -472,13 +550,55 @@ def render_page(path: str, page: int = 0, scale: float = 1.5) -> dict:
         if pno < 0 or pno >= doc.page_count:
             raise PdfEditError("Page out of range", "bad_page")
         pg = doc.load_page(pno)
-        r = pg.rect
-        s = max(0.05, min(float(scale or 1.5), 6.0))
-        s = min(s, math.sqrt(24e6 / max(1.0, r.width * r.height)))
+        oe = _preview_edits((opts or {}).get("objects"))
+        if oe:
+            try:
+                pg = _po.apply(doc, pg, oe)
+            except _po.ObjectEditError as exc:
+                raise PdfEditError(str(exc), exc.code)
+        s = _scale_for(pg, scale)
         pix = pg.get_pixmap(matrix=fitz.Matrix(s, s), annots=True)
         data = pix.tobytes("png")
         return {"data_url": "data:image/png;base64," + base64.b64encode(data).decode("ascii"),
                 "width": pix.width, "height": pix.height}
+    finally:
+        doc.close()
+
+
+def render_object(path: str, page: int, object_id: str, scale: float = 1.5, style: dict | None = None) -> dict:
+    """Just one object, transparent around it, at its original place and size
+    (with an optional colour change) → {data_url, bbox}. The editor drags this
+    picture around while the page underneath is shown without the object."""
+    fitz = _fitz()
+    doc = _open(path)
+    try:
+        pno = int(page or 0)
+        if pno < 0 or pno >= doc.page_count:
+            raise PdfEditError("Page out of range", "bad_page")
+        pg = doc.load_page(pno)
+        objs = {o["id"]: o for o in _po.extract(doc, pg)}
+        o = objs.get(str(object_id or ""))
+        if o is None:
+            raise PdfEditError("That object was not found on the page — reload the file.", "stale")
+        edits = []
+        st = {k: v for k, v in (style or {}).items() if k in ("stroke", "fill", "width")}
+        if st and o["kind"] == "path":
+            edits.append({"type": "object", "object_id": o["id"], **st})
+        try:
+            pg = _po.apply(doc, pg, edits, isolate=o["id"])
+        except _po.ObjectEditError as exc:
+            raise PdfEditError(str(exc), exc.code)
+        r = fitz.Rect(o["full"])
+        if r.width * r.height <= 0:
+            raise PdfEditError("This object has no size", "empty")
+        s = _scale_for(pg, scale)
+        s = min(s, math.sqrt(16e6 / max(1.0, r.width * r.height)))
+        # display rect → unrotated page rect for the clip
+        clip = (r * pg.derotation_matrix).normalize()
+        pix = pg.get_pixmap(matrix=fitz.Matrix(s, s), clip=clip, alpha=True, annots=False)
+        data = pix.tobytes("png")
+        return {"data_url": "data:image/png;base64," + base64.b64encode(data).decode("ascii"),
+                "bbox": o["full"], "width": pix.width, "height": pix.height}
     finally:
         doc.close()
 
@@ -828,6 +948,15 @@ def _decode_data_url(du: str) -> bytes:
 
 def _image_bytes_for(im: dict, page, data: bytes, fit: str) -> bytes:
     """New image bytes, padded (transparent) to the placement's aspect for 'contain'."""
+    fitz = _fitz()
+    t = fitz.Matrix(im["_transform"]) * page.rotation_matrix
+    bw, bh = im["bbox"][2] - im["bbox"][0], im["bbox"][3] - im["bbox"][1]
+    swapped = abs(t.a) + abs(t.d) < abs(t.b) + abs(t.c)
+    return _image_bytes_aspect(data, (bh / bw) if swapped else (bw / bh), fit)
+
+
+def _image_bytes_aspect(data: bytes, target: float | None, fit: str = "contain") -> bytes:
+    """Image bytes as PNG; for 'contain' padded (transparent) to width/height *target*."""
     from PIL import Image
     try:
         src = Image.open(io.BytesIO(data))
@@ -836,12 +965,7 @@ def _image_bytes_for(im: dict, page, data: bytes, fit: str) -> bytes:
         raise PdfEditError(f"Couldn't read the new image: {exc}", "bad_image")
     if src.mode not in ("RGB", "RGBA"):
         src = src.convert("RGBA")
-    if fit != "stretch":
-        fitz = _fitz()
-        t = fitz.Matrix(im["_transform"]) * page.rotation_matrix
-        bw, bh = im["bbox"][2] - im["bbox"][0], im["bbox"][3] - im["bbox"][1]
-        swapped = abs(t.a) + abs(t.d) < abs(t.b) + abs(t.c)
-        target = (bh / bw) if swapped else (bw / bh)
+    if fit != "stretch" and target and target > 0:
         sw, sh = src.size
         if abs(sw / sh - target) > 0.01:
             if sw / sh > target:
@@ -943,6 +1067,25 @@ def _edit_bytes(path: str, edits: list) -> tuple:
                     page.replace_image(im["xref"], stream=data)
                 count += 1
 
+            # 1b) page objects: move / resize / rotate / crop / delete /
+            #     recolour / replace pictures, add new pictures (content
+            #     stream rewrite; text operators are copied untouched)
+            obj_edits = [e for e in pedits if e["type"] in ("object", "add_image")]
+            if obj_edits:
+                def _img(e, o):
+                    raw = e.get("image")
+                    if raw is None:
+                        raw = _decode_data_url(e.get("data_url"))
+                    if o is None:
+                        _image_bytes_aspect(raw, None, "stretch")    # validates; JPEG stays JPEG
+                        return raw
+                    return _image_bytes_aspect(raw, o.get("aspect"), str(e.get("fit") or "contain"))
+                try:
+                    page = _po.apply(doc, page, obj_edits, image_bytes=_img)
+                except _po.ObjectEditError as exc:
+                    raise PdfEditError(str(exc), exc.code)
+                count += len(obj_edits)
+
             # 2) remove old glyphs of every changed / moved / deleted block
             writes = []
             rects = []
@@ -1004,7 +1147,8 @@ def _edit_bytes(path: str, edits: list) -> tuple:
                     substituted.append({"block_id": "", "page": pno, "wanted": wanted, "used": pick.used})
                 count += 1
             for e in pedits:
-                if e["type"] not in ("text", "move", "delete", "add_text", "delete_image", "replace_image"):
+                if e["type"] not in ("text", "move", "delete", "add_text", "delete_image", "replace_image",
+                                     "object", "add_image"):
                     raise PdfEditError(f"Unknown edit: {e['type']}", "bad_edit")
 
         _set_metadata(doc)

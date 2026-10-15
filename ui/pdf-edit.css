@@ -20,7 +20,21 @@
 .pe-color-sw { width: 16px; height: 16px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--border-strong); pointer-events: none; }
 .pe-align .seg-btn { padding: 0 6px; height: var(--control-h-sm); }
 .pe-align .seg-btn.active { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm); }
-.pe-imgtools .btn { gap: 6px; }
+.pe-objtools { gap: var(--space-1); }
+.pe-objtools .btn { gap: 6px; }
+.pe-objtools .icon-btn.active { background: var(--accent-subtle); color: var(--accent-text); }
+.pe-objkind { font-size: var(--fs-sm); color: var(--text-secondary); padding: 0 var(--space-2) 0 var(--space-1); white-space: nowrap; }
+.pe-objstyle { display: inline-flex; align-items: center; gap: var(--space-1); }
+.pe-objstyle.hidden { display: none; }
+.pe-swlabel { font-size: var(--fs-xs, 11px); color: var(--text-muted); margin-left: var(--space-1); }
+.pe-owidth { width: 54px; }
+.pe-none-sw, .pe-color-sw.is-none {
+  width: 16px; height: 16px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--border-strong);
+  background: linear-gradient(to top right, transparent calc(50% - 1px), var(--red, #dc2626) calc(50% - 1px),
+              var(--red, #dc2626) calc(50% + 1px), transparent calc(50% + 1px)), #fff;                   /* paper */
+}
+.pe-none-sw { display: inline-block; }
+.pe-tool.pe-none.active { background: var(--accent-subtle); box-shadow: inset 0 0 0 1px var(--accent); }
 .an-hintbar.pe-hint-warn { color: var(--text-primary); background: var(--yellow-subtle); }
 .an-hintbar.pe-hint-warn svg { color: var(--yellow); }
 
@@ -42,11 +56,49 @@
 .pe-block.is-sel { outline: 1.5px solid var(--accent) !important; outline-offset: 1px; cursor: move; }
 .pe-block.is-deleted { outline: none !important; pointer-events: none; }
 .pe-block.is-editing { outline: none !important; }
-.pe-imgbox { cursor: pointer; }
-.pe-imgbox.pe-bgimg { pointer-events: none; }
-.pe-editor[data-mode="select"] .pe-imgbox:hover { outline: 1px dashed var(--purple); outline-offset: 1px; }
-.pe-imgbox.is-sel { outline: 1.5px solid var(--purple); outline-offset: 1px; }
-.pe-editor[data-mode="add"] .pe-page, .pe-editor[data-mode="add"] .pe-item { cursor: crosshair; }
+.pe-editor[data-mode="add"] .pe-page, .pe-editor[data-mode="add"] .pe-item,
+.pe-editor[data-mode="add"] .pe-hit { cursor: crosshair; }
+
+/* ── page objects (pictures, shapes, lines, graphics) ─────── */
+/* The container is only a frame; its .pe-hit children (where something is
+   drawn) catch the pointer, so empty table cells and frame insides don't. */
+.pe-obj { position: absolute; box-sizing: border-box; pointer-events: none; }
+.pe-objclip { position: absolute; inset: 0; overflow: hidden; }
+.pe-objvis { position: absolute; max-width: none; max-height: none; pointer-events: none; user-select: none; transform-origin: 50% 50%; }
+.pe-hit { position: absolute; pointer-events: auto; cursor: move; }
+.pe-editor[data-mode="select"] .pe-obj:hover:not(.is-sel) {
+  outline: 1px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 1px;
+}
+.pe-obj.is-drag .pe-objvis { opacity: .92; }
+.pe-obj-added .pe-objvis { box-shadow: none; }
+
+/* selection frame + handles */
+.pe-selbox {
+  position: absolute; box-sizing: border-box; pointer-events: none; z-index: 4;
+  outline: 1px solid var(--accent); outline-offset: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .85);                      /* contrast on dark artwork */
+}
+.pe-selbox.is-crop { outline: 1.5px dashed var(--accent); }
+.pe-oh {
+  position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px; box-sizing: border-box;
+  background: #fff; border: 1.5px solid var(--accent); border-radius: 2px;                  /* paper */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25); pointer-events: auto;
+}
+.pe-selbox.is-crop .pe-oh { background: var(--accent); border-color: #fff; }
+.pe-oh-nw { left: 0; top: 0; cursor: nwse-resize; }
+.pe-oh-n { left: 50%; top: 0; cursor: ns-resize; }
+.pe-oh-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.pe-oh-e { left: 100%; top: 50%; cursor: ew-resize; }
+.pe-oh-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.pe-oh-s { left: 50%; top: 100%; cursor: ns-resize; }
+.pe-oh-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.pe-oh-w { left: 0; top: 50%; cursor: ew-resize; }
+.pe-cropghost { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: visible; opacity: .35; pointer-events: none; z-index: 3; }
+.pe-badge {
+  position: absolute; z-index: 5; pointer-events: none; white-space: nowrap;
+  padding: 2px 6px; border-radius: var(--radius-sm); font-size: 11px; font-variant-numeric: tabular-nums;
+  background: rgba(17, 24, 39, .88); color: #fff;                                          /* fixed: over paper */
+}
 
 /* live edits: paper patch over the original + the new text */
 .pe-patch { position: absolute; inset: 0; background: #fff; }                    /* paper */
