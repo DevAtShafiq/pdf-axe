@@ -770,6 +770,9 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             return _err("A folder name can't end with a dot or a space.")
         if any(c in cleaned for c in '\\/:*?"<>|'):
             return _err("A folder name can't contain any of these characters: \\ / : * ? \" < > |")
+        problem = _fo.folder_name_problem(cleaned)   # reserved names (CON, LPT1 …), length
+        if problem:
+            return _err(problem + ".")
         if not parent or not os.path.isdir(str(parent)):
             return _err("That folder does not exist.")
         new_path = os.path.join(parent, cleaned)
@@ -781,10 +784,49 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         if os.path.exists(new_path) or cleaned.casefold() in taken:
             return _err("A file or folder with this name already exists here.")
         try:
-            os.makedirs(new_path)
+            os.mkdir(new_path)          # never merges into a folder that appeared meanwhile
             return _ok(path=new_path)
         except Exception as exc:
             return _err(str(exc))
+
+    @staticmethod
+    def _folder_list_opts(opts) -> dict:
+        o = opts if isinstance(opts, dict) else {}
+        return {"prefix": str(o.get("prefix") or ""), "suffix": str(o.get("suffix") or ""),
+                "numbering": str(o.get("numbering") or "none"),
+                "start": o.get("start", 1), "pad": o.get("pad", 0),
+                "sep": str(o.get("sep") if o.get("sep") is not None else " ")}
+
+    def plan_folders_from_list(self, parent: str, text: str, opts: dict = None) -> dict:
+        """Preview for "New folders from a list" (nothing is created):
+        rows with status ok / invalid / exists / duplicate + counts."""
+        try:
+            return _ok(**_fo.plan_folders_from_list(parent, text, **self._folder_list_opts(opts)))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def create_folders_from_list(self, parent: str, text: str, opts: dict = None) -> dict:
+        """Create all valid names in *parent* at once; problem rows are skipped,
+        existing folders are never overwritten or merged."""
+        try:
+            r = _fo.create_folders_from_list(parent, text, **self._folder_list_opts(opts))
+            return _ok(**r)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def list_subfolders(self, path: str) -> dict:
+        """Subfolders of *path* for the Copy / Move folder tree (lazy-loaded)."""
+        try:
+            return _ok(path=path, folders=_fo.list_subfolders(path))
+        except Exception as exc:
+            return _err(str(exc), path=path, folders=[])
+
+    def find_folders(self, root: str, query: str, limit: int = 200) -> dict:
+        """Folders under *root* whose name contains every word of *query*."""
+        try:
+            return _ok(**_fo.find_folders(root, query, limit=int(limit or 200)))
+        except Exception as exc:
+            return _err(str(exc), results=[])
 
     def set_clipboard(self, text: str) -> dict:
         """Put Unicode text on the Windows clipboard (Korean etc. safe)."""
