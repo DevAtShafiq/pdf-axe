@@ -4,15 +4,19 @@ simulated pen tablet.
     set QA_CDP_PORT=9363
     python qa/e2e/signature_pad_e2e.py <scratch dir>
 
-A pen tablet in absolute mode maps its whole surface to the whole screen, so
-the ink lands anywhere on the window. The script signs with real CDP pen
-events (Input.dispatchMouseEvent pointerType "pen" + force = pressure) in far
-corners of the window, huge and tiny, plus touch and mouse, and checks:
+A pen tablet in absolute mode maps its whole surface to the whole screen. The
+pad is a mini-screen: every pen position on the window is mapped
+proportionally into the pad, ink stays where it was written (no re-centring
+while signing) and a dot follows the hovering pen, so each next letter can be
+lined up with the last one. The script signs with real CDP pen events
+(pointerType "pen" + force = pressure) and checks:
 
-* the ink shown in the pad is centred (within a few px) and fitted;
-* the same signature gives the same result wherever / however big it is signed;
-* a small far-away mark is left out; Undo stroke / Clear work;
-* a stroke that starts on a button is ink, not a click;
+* the pad is shaped like the window; ink lands at the mapped place;
+* a hovering pen shows the dot at the mapped place (smaller while pressing);
+* earlier letters never move when the next one is written (also after a pause);
+* mouse inside the box draws exactly where the mouse is;
+* a small far-away mark is shown faint and left out of the saved image;
+  Undo stroke / Ctrl+Z / Clear work; a stroke starting on a button is ink;
 * pressure changes the line width; blue ink is blue;
 * the saved PNG is tightly cropped, transparent, hi-res, ink centred;
 * placing it (click or drawn box) centres it, keeping its aspect ratio, and
@@ -78,21 +82,24 @@ class Pen:
         c.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1, **base})
         time.sleep(0.05)
 
+    def hover(self, x, y):
+        self.cdp.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y, "buttons": 0, "pointerType": "pen"})
+        time.sleep(0.08)
+
     def sign(self, strokes, pressure=0.6, kind="pen", pause=True):
         for s in strokes:
             self.stroke(s, pressure, kind)
-        # the pad shows the centred signature after a short writing pause
-        time.sleep(1.35 if pause else 0.12)
+        time.sleep(0.3 if pause else 0.12)
 
 
 # ── measurements in the page ──────────────────────────────────────────────────
-PAD_INK = """() => {
+PAD_INK = """(dark) => {
   const cv = document.querySelector('#an-sig-canvas'); if (!cv) return null;
   const D = cv.width / 560, d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
   let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, n = 0, r = 0, g = 0, b = 0;
   for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
     const i = (y * cv.width + x) * 4;
-    if (d[i + 3] > 40) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2];
+    if (d[i + 3] > 40 && (!dark || Math.min(d[i], d[i + 1], d[i + 2]) < 150)) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2];
       if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   }
   if (x1 < 0) return { n: 0 };
@@ -100,20 +107,30 @@ PAD_INK = """() => {
 }"""
 
 
-def pad_ink(page):
+def pad_ink(page, dark=True):
     time.sleep(0.08)
-    return page.evaluate(PAD_INK)
+    return page.evaluate(PAD_INK, dark)
 
 
-def centred_and_fitted(ink, tol=3.0):
-    if not ink or not ink.get("box"):
-        return False, "no ink"
-    x0, y0, x1, y1 = ink["box"]
-    cx, cy, w, h = (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0
-    centred = abs(cx - PAD_W / 2) <= tol and abs(cy - PAD_H / 2) <= tol
-    inside = x0 >= PADX - 8 and x1 <= PAD_W - PADX + 8 and y0 >= PADY - 8 and y1 <= PAD_H - PADY + 8
-    fills = w >= PAD_W - 2 * PADX - 2 or h >= PAD_H - 2 * PADY - 2
-    return centred and inside and fills, f"centre=({cx:.1f},{cy:.1f}) size={w:.0f}x{h:.0f}"
+def pad_h(page):
+    return page.evaluate("document.querySelector('#an-sig-canvas').getBoundingClientRect().height")
+
+
+def mapping(page):
+    vw, vh = page.evaluate("[innerWidth, innerHeight]")
+    ph = pad_h(page)
+    sc = min(PAD_W / vw, ph / vh)
+    return sc, (PAD_W - vw * sc) / 2, (ph - vh * sc) / 2
+
+
+def mapped_box(page, strokes):
+    sc, ox, oy = mapping(page)
+    xs = [x for s in strokes for x, _ in s]; ys = [y for s in strokes for _, y in s]
+    return [min(xs) * sc + ox, min(ys) * sc + oy, max(xs) * sc + ox, max(ys) * sc + oy]
+
+
+def near(a, b, tol):
+    return all(abs(x - y) <= tol for x, y in zip(a, b))
 
 
 def clear(page):
@@ -172,123 +189,102 @@ def run(d):
         open_pad(page)
         pen = Pen(page)
         shape = signature_shape()
-        R.check("hint says sign anywhere", "Sign anywhere" in page.inner_text("#an-sig-hint"))
+        R.check("hint explains the tablet → box mapping", "whole tablet is this box" in page.inner_text("#an-sig-hint"))
+        ph = pad_h(page)
+        R.check("pad is shaped like the window (a mini-screen)", abs(ph - min(320, max(190, PAD_W * vh / vw))) < 2, f"pad 560x{ph:.0f}, window {vw}x{vh}")
         page.screenshot(path=os.path.join(d, "sig_0_empty.png"))
+        sc, ox, oy = mapping(page)
 
-        # 1) top-left corner of the window (far outside the pad)
-        pen.sign(placed(shape, 14, 75, 220), 0.6)
+        # 1) the hovering pen shows a dot at the mapped place
+        hx, hy = vw * 0.30, vh * 0.40
+        pen.hover(hx, hy)
+        cur = page.evaluate("""(() => { const c = document.querySelector('#an-sig-cursor'); if (!c || c.classList.contains('hidden')) return null;
+                                 const m = /translate\\(([-\\d.]+)px, ([-\\d.]+)px\\)/.exec(c.style.transform); return m ? [+m[1], +m[2]] : null; })()""")
+        R.check("hovering pen shows the dot in the pad", cur is not None, cur)
+        if cur:
+            R.check("dot is at the mapped pen position", near(cur, [hx * sc + ox, hy * sc + oy], 1.0), f"{cur} vs {[hx * sc + ox, hy * sc + oy]}")
+
+        # 2) write letter by letter: earlier letters never move
+        sig = placed(shape, vw * 0.22, vh * 0.42, vw * 0.5)
+        pen.sign([sig[0]], 0.6, pause=False)
+        first = pad_ink(page)
         R.check("pen events arrive as pen with pressure",
                 page.evaluate("__pt.some(p => p[0] === 'pen' && p[1] > 0.5 && p[1] < 0.7)"), page.evaluate("__pt.slice(-2)"))
-        ink_tl = pad_ink(page)
-        ok, info = centred_and_fitted(ink_tl)
-        R.check("top-left signature centred + fitted in pad", ok, info)
-        page.screenshot(path=os.path.join(d, "sig_1_topleft.png"))
-        R.check("after the pause the writing layer is hidden (only the centred copy shows)", page.evaluate(
-            "(() => { const o = document.querySelector('.an-sig-overlay'); return !o.classList.contains('is-writing') && getComputedStyle(document.querySelector('#an-sig-trace')).opacity === '0' })()"))
+        R.check("first letter lands at the mapped place in the pad", first.get("box") and near(first["box"], mapped_box(page, [sig[0]]), 4),
+                f"{first.get('box')} vs {mapped_box(page, [sig[0]])}")
+        img1 = page.evaluate("document.querySelector('#an-sig-canvas').toDataURL()")
+        time.sleep(1.5)                                      # a pause must not move anything
+        R.check("ink does not move after a pause", page.evaluate("document.querySelector('#an-sig-canvas').toDataURL()") == img1)
+        pen.hover(sig[1][0][0], sig[1][0][1])
+        R.check("dot shows where the next letter will start",
+                page.evaluate("!document.querySelector('#an-sig-cursor').classList.contains('hidden')"))
+        pen.sign(sig[1:], 0.6, pause=False)
+        both = pad_ink(page)
+        R.check("next letters are added next to the first, first one unchanged",
+                both["box"][0] <= first["box"][0] + 0.5 and both["n"] > first["n"] and near(both["box"], mapped_box(page, sig), 4),
+                f"{first['box']} -> {both['box']}")
+        page.screenshot(path=os.path.join(d, "sig_1_letters.png"))
 
-        # 1b) while writing: ONE copy (where the pen is), earlier strokes stay visible
-        clear(page)
-        strokes = placed(shape, 14, 75, 220)
-        TRACE_N = """(() => { const t = document.querySelector('#an-sig-trace'); const d = t.getContext('2d').getImageData(0, 0, t.width, t.height).data;
-                       let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) n++; return n; })()"""
-        pen.stroke(strokes[0], 0.6); time.sleep(0.15)
-        n1 = page.evaluate(TRACE_N)
-        writing = page.evaluate("document.querySelector('.an-sig-overlay').classList.contains('is-writing')")
-        R.check("while writing: ink shown where the pen is", writing and n1 > 50, n1)
-        R.check("while writing: pad shows no second copy", (pad_ink(page) or {}).get("n", 0) == 0)
-        for s in strokes[1:]:
-            pen.stroke(s, 0.6)
-        time.sleep(0.15)
-        n2 = page.evaluate(TRACE_N)
-        R.check("earlier strokes stay visible for the next letter", n2 > n1 and page.evaluate("document.querySelector('.an-sig-overlay').classList.contains('is-writing')"), f"{n1} -> {n2}")
-        page.screenshot(path=os.path.join(d, "sig_1b_writing.png"))
-        time.sleep(1.35)
-        ok, info = centred_and_fitted(pad_ink(page))
-        R.check("after a pause: centred copy appears in the pad", ok, info)
-
-        # 2) far right / bottom, huge: same shape → same pad result
-        clear(page)
-        w_big = vw * 0.62
-        pen.sign(placed(shape, vw - w_big - 10, vh - 0.32 * w_big, w_big), 0.6)
-        ink_big = pad_ink(page)
-        ok, info = centred_and_fitted(ink_big)
-        R.check("huge bottom-right signature centred + fitted", ok, info)
-        same = all(abs(a - b) <= 3 for a, b in zip(ink_tl["box"], ink_big["box"]))
-        R.check("same size/place regardless of where/how big signed", same, f"{ink_tl['box']} vs {ink_big['box']}")
-
-        # 3) tiny signature far right top
-        clear(page)
-        pen.sign(placed(shape, vw - 70, 30, 50), 0.6)
-        ok, info = centred_and_fitted(pad_ink(page), tol=3.5)
-        R.check("tiny signature centred + fitted", ok, info)
-
-        # 4) stray tap far away (pen touching while moving to the tablet) — before and after
-        clear(page)
-        pen.stroke([(vw - 12, vh - 12), (vw - 11, vh - 12)], 0.4)            # tap in the far corner first
-        pen.sign(placed(shape, vw * 0.3, vh * 0.35, 300), 0.6)
-        pen.stroke([(8, vh - 10), (10, vh - 9)], 0.4)                        # and another one at the end
-        time.sleep(1.35)
-        ink_stray = pad_ink(page)
-        ok, info = centred_and_fitted(ink_stray)
-        R.check("stray far marks ignored (still centred)", ok and all(abs(a - b) <= 3 for a, b in zip(ink_stray["box"], ink_tl["box"])), info)
+        # 3) stray tap far away: shown faint, left out of the saved image
+        pen.stroke([(vw - 12, vh - 12), (vw - 11, vh - 12)], 0.4)
+        time.sleep(0.2)
         R.check("stray note shown", page.evaluate("!document.querySelector('#an-sig-note').classList.contains('hidden')"),
                 page.inner_text("#an-sig-note"))
+        R.check("stray mark drawn faint, signature unchanged", near(pad_ink(page)["box"], both["box"], 0.5))
         page.screenshot(path=os.path.join(d, "sig_2_stray.png"))
         page.click("#an-sig-undo")
-        page.click("#an-sig-undo")
         time.sleep(0.1)
-        # 2 undos: the end tap, then the signature's dot → still centred
-        ok, info = centred_and_fitted(pad_ink(page))
-        R.check("undo stroke keeps it centred", ok, info)
+        R.check("Undo stroke removes the stray mark", page.evaluate("document.querySelector('#an-sig-note').classList.contains('hidden')"))
         n1 = pad_ink(page)["n"]
-        page.keyboard.press("Control+z")          # removes the underline
+        page.keyboard.press("Control+z")          # removes the dot of the "i"
         time.sleep(0.1)
         n2 = pad_ink(page)["n"]
         R.check("Ctrl+Z undoes a stroke, pad still open",
                 page.evaluate("!!document.querySelector('.an-sig-overlay')") and n2 != n1, f"{n1:.0f} -> {n2:.0f}")
 
-        # 5) a pen stroke starting on a button is ink, not a click
+        # 4) a pen stroke starting on a button is ink, not a click
         clear(page)
         bb = page.query_selector("#an-sig-cancel").bounding_box()
         sx, sy = bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2
         pen.stroke([(sx - i * 6, sy - 40 * math.sin(i / 6)) for i in range(60)], 0.6)
-        time.sleep(1.35)
+        time.sleep(0.2)
         R.check("stroke from Cancel button = ink, dialog stays open",
-                page.evaluate("!!document.querySelector('.an-sig-overlay')") and (pad_ink(page) or {}).get("n", 0) > 50)
-        # a plain click on a swatch still works (blue)
+                page.evaluate("!!document.querySelector('.an-sig-overlay')") and (pad_ink(page) or {}).get("n", 0) > 20)
         clear(page)
         page.click("#an-sig-cols [data-c='#1e3a8a']")
         R.check("swatch click still a click", page.evaluate("document.querySelector('#an-sig-cols .active').dataset.c") == "#1e3a8a")
 
-        # 6) pressure → line width
-        clear(page)
-        pen.sign(placed(shape, 40, 60, 400), 0.15)
+        # 5) pressure → line width
+        big = placed(shape, 40, 60, vw * 0.8)
+        pen.sign(big, 0.15, pause=False)
         light = pad_ink(page)
         clear(page)
-        pen.sign(placed(shape, 40, 60, 400), 1.0)
+        pen.sign(big, 1.0, pause=False)
         heavy = pad_ink(page)
-        R.check("pressure changes line width", heavy["n"] > light["n"] * 1.5, f"{light['n']:.0f} vs {heavy['n']:.0f} ink px")
+        R.check("pressure changes line width", heavy["n"] > light["n"] * 1.3, f"{light['n']:.0f} vs {heavy['n']:.0f} ink px")
         R.check("blue ink", heavy["rgb"][2] > heavy["rgb"][0] + 40, heavy["rgb"])
 
-        # 7) touch and mouse work too
+        # 6) touch outside the box is mapped too; mouse inside the box draws where the mouse is
         clear(page)
-        pen.sign(placed(shape, vw * 0.5, vh * 0.1, 260), kind="touch")
-        ok, info = centred_and_fitted(pad_ink(page))
-        R.check("touch signature centred", ok and page.evaluate("__pt.some(p => p[0] === 'touch')"), info)
+        pen.sign(placed(shape, vw * 0.5, vh * 0.1, 260), kind="touch", pause=False)
+        R.check("touch signature appears", (pad_ink(page) or {}).get("n", 0) > 10 and page.evaluate("__pt.some(p => p[0] === 'touch')"))
         clear(page)
         cb = page.query_selector("#an-sig-canvas").bounding_box()
-        for s in placed(shape, cb["x"] + 20, cb["y"] + 40, 120):
+        ms = placed(shape, cb["x"] + 60, cb["y"] + 60, 200)
+        for s in ms:
             page.mouse.move(*s[0]); page.mouse.down()
-            for p in s[1:]:
-                page.mouse.move(*p)
+            for q in s[1:]:
+                page.mouse.move(*q)
             page.mouse.up()
-        time.sleep(1.35)
-        ok, info = centred_and_fitted(pad_ink(page))
-        R.check("mouse signature (in a pad corner) centred", ok, info)
+        time.sleep(0.1)
+        mi = pad_ink(page)
+        want = [min(x for s in ms for x, _ in s) - cb["x"], min(y for s in ms for _, y in s) - cb["y"],
+                max(x for s in ms for x, _ in s) - cb["x"], max(y for s in ms for _, y in s) - cb["y"]]
+        R.check("mouse in the box draws exactly under the mouse", mi.get("box") and near(mi["box"], want, 4), f"{mi.get('box')} vs {want}")
 
-        # 8) final: pen, bottom-left of the window, blue; remember it; Use
+        # 7) final: pen, blue; remember it; Use
         clear(page)
-        pen.sign(placed(shape, 20, vh - 140, 340), 0.7)
+        pen.sign(placed(shape, 20, vh - 260, vw * 0.45), 0.7)
         page.screenshot(path=os.path.join(d, "sig_3_final.png"))
         page.check("#an-sig-rem")
         page.click("#an-sig-ok")
