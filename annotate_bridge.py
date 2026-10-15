@@ -34,6 +34,13 @@ def _release_handles(path: str) -> None:
         pass
 
 
+def _signature_folder(near_path: str) -> str:
+    """'signature' folder at the root of the drive / network share *near_path* is on."""
+    near = os.path.abspath(near_path) if near_path else os.path.expanduser("~")
+    drive, _ = os.path.splitdrive(near)
+    return os.path.join((drive + os.sep) if drive else os.path.abspath(os.sep), "signature")
+
+
 class AnnotateBridgeMixin:
     """Annotation editor API."""
 
@@ -215,6 +222,31 @@ class AnnotateBridgeMixin:
             out = _write_new(os.path.join(folder, stem[:150] + ".png"), data)
             _log.info("signature saved as %s", out)
             return _ok(path=out, folder=folder, name=os.path.basename(out))
+        except Exception as exc:
+            return _err(f"Couldn't save the signature: {exc}")
+
+    def annot_signature_export(self, data_url: str, name: str, near_path: str = "") -> dict:
+        """Save a signature PNG as <root>\\signature\\<name>.png, where <root> is
+        the drive (or network share) of *near_path* (the file being signed).
+        An existing file is never replaced: 'name (2).png' is used instead."""
+        try:
+            import base64
+            import re
+            if not (isinstance(data_url, str) and data_url.startswith("data:image/png;base64,")):
+                return _err("Not a PNG signature")
+            stem = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", str(name or "")).strip().rstrip(". ")
+            if stem.lower().endswith(".png"):
+                stem = stem[:-4].rstrip(". ")
+            if not stem:
+                return _err("Please enter a name")
+            stem = stem[:120]
+            folder = _signature_folder(near_path)
+            os.makedirs(folder, exist_ok=True)
+            from pdf_tools import unique_path
+            out = unique_path(os.path.join(folder, stem + ".png"))
+            with open(out, "xb") as fh:
+                fh.write(base64.b64decode(data_url.split(",", 1)[1]))
+            return _ok(path=out, folder=folder)
         except Exception as exc:
             return _err(f"Couldn't save the signature: {exc}")
 
