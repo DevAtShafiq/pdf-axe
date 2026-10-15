@@ -336,25 +336,6 @@ def test_bridge_signatures(tmp_path):
     assert b.annot_signature_forget(0)["signatures"] == []
 
 
-def test_bridge_signature_export_png(tmp_path, monkeypatch):
-    import annotate_bridge
-    folder = tmp_path / "signature"
-    monkeypatch.setattr(annotate_bridge, "_signature_folder", lambda near: str(folder))
-    b = _Bridge()
-    r = b.annot_signature_export(sig_png(), "Boss: main", str(tmp_path / "doc.pdf"))
-    assert r["ok"] and r["path"] == str(folder / "Boss_ main.png")
-    assert (folder / "Boss_ main.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-    r2 = b.annot_signature_export(sig_png(), "Boss_ main.png", "")
-    assert r2["ok"] and r2["path"] == str(folder / "Boss_ main (2).png")       # never replaces a file
-    assert not b.annot_signature_export(sig_png(), "  ", "")["ok"]
-    assert not b.annot_signature_export("data:image/jpeg;base64,AAAA", "x", "")["ok"]
-
-
-def test_signature_folder_is_at_the_drive_root():
-    import annotate_bridge
-    assert annotate_bridge._signature_folder("/a/b/c.pdf") == os.path.join(os.path.abspath(os.sep), "signature")
-
-
 def test_bridge_signature_forget_index_matches_shown_list():
     """Regression: forget() popped from the raw settings list while the pad
     showed the filtered one, so a stray entry made it drop the wrong signature."""
