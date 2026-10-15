@@ -1559,15 +1559,16 @@ var Annotate = (() => {
   // =========================================================================
   // SIGNATURE PAD — draw or type; remembered signatures (settings)
   //
-  // Drawing works ANYWHERE on the window while the pad is open: a pen tablet
-  // in absolute mode maps its whole surface to the whole screen, so the ink
-  // can land far outside the little pad. Strokes are kept as raw vectors
-  // (window px + per-point width) and re-fitted on every change so the
-  // signature's ink box is always centred in the pad with even padding,
-  // the same size however big/small or wherever it was signed. Small marks far
-  // from the signature (a tap while reaching for the tablet) are left out.
-  // The saved PNG is cropped tight to the ink (small even margin), transparent
-  // and high resolution, so it sits centred in whatever box it is placed in.
+  // The ink stays exactly where it was written in the pad, so after each
+  // letter you can see where the next one starts (nothing moves or fades).
+  // A pen tablet in absolute mode maps its whole surface to the whole screen;
+  // in "Tablet" mode the whole window is mapped onto the pad (same shape as
+  // the window), so wherever the pen is on the tablet it writes in the pad,
+  // and a dot in the pad shows where the pen is while it hovers. Mouse and
+  // touch (and a pen in "Direct" mode) write where they touch the pad.
+  // Small marks far from the signature (a tap while reaching for the tablet)
+  // are shown faded and left out. The saved PNG is cropped tight to the ink
+  // (small even margin), centred, transparent and high resolution.
   // =========================================================================
   const SIG = {
     W: 560, H: 190,          // pad size (CSS px)
@@ -1666,7 +1667,9 @@ var Annotate = (() => {
 
   function signaturePad() {
     return new Promise(async resolve => {
-      const { W, H } = SIG;
+      // The pad has the window's shape (within limits) so a tablet mapped to
+      // the whole screen maps onto it without stretching.
+      const W = SIG.W, H = Math.round(clamp(W * window.innerHeight / Math.max(1, window.innerWidth), SIG.H, 340));
       const ov = document.createElement('div');
       ov.className = 'modal-overlay dlg-top an-sig-overlay is-draw';
       ov.style.zIndex = 10050;
@@ -1686,8 +1689,13 @@ var Annotate = (() => {
                 <button class="swatch" style="--swatch:#b91c1c" data-c="#b91c1c" title="Red" aria-label="Red"></button>
               </div>
             </div>
-            <div class="an-sig-hint" id="an-sig-hint">${ic('pen', 14)}<span><b>Sign anywhere</b> — on your pen tablet or here. It is centred in the box automatically.</span></div>
-            <div class="an-sig-pad"><canvas id="an-sig-canvas"></canvas><div class="an-sig-line"></div><div class="an-sig-ph" id="an-sig-ph">Sign here</div></div>
+            <div class="an-sig-hint" id="an-sig-hint">${ic('pen', 14)}<span id="an-sig-hint-t"></span>
+              <span class="an-spacer"></span>
+              <div class="segmented segmented-sm an-sig-penmode" role="radiogroup" aria-label="Pen tablet" title="How a pen tablet writes in the box">
+                <button class="seg-btn" data-pen="map" title="The whole tablet is mapped onto this box">Tablet</button>
+                <button class="seg-btn" data-pen="direct" title="The pen writes where it touches the screen">Direct</button>
+              </div></div>
+            <div class="an-sig-pad"><canvas id="an-sig-canvas"></canvas><div class="an-sig-line"></div><div class="an-sig-ph" id="an-sig-ph">Sign here</div><div class="an-sig-pen" id="an-sig-pen" aria-hidden="true"></div></div>
             <div class="an-sig-note hidden" id="an-sig-note"></div>
             <div class="field hidden" id="an-sig-typef"><input class="input-text" id="an-sig-type" placeholder="Type your name" autocomplete="off" spellcheck="false"></div>
             <div class="an-sig-saved hidden" id="an-sig-saved"></div>
@@ -1701,25 +1709,20 @@ var Annotate = (() => {
             <button class="btn" id="an-sig-cancel">Cancel</button>
             <button class="btn btn-primary" id="an-sig-ok">${ic('check')}Use signature</button>
           </div>
-        </div>
-        <canvas class="an-sig-trace" id="an-sig-trace" aria-hidden="true"></canvas>`;
+        </div>`;
       document.body.appendChild(ov);
       const $ = s => ov.querySelector(s);
       const cv = $('#an-sig-canvas'), ctx = cv.getContext('2d');
-      const tr = $('#an-sig-trace'), tctx = tr.getContext('2d');
+      const padEl = $('.an-sig-pad'), penDot = $('#an-sig-pen');
       let mode = 'draw', color = '#111111', strokes = [], active = null, done = false, raf = 0, swallowUntil = 0;
-      // "Writing": while the person signs, the ink shows ONCE, exactly where the
-      // pen is, and every stroke stays visible so the next letter can be placed
-      // next to the last one. The pad's centred version appears only after a
-      // short pause (no second, jumping copy while writing).
-      let writing = false, idleT = 0;
-      const IDLE_MS = 1100;
+      let penMode = 'map';
+      try { penMode = localStorage.getItem('annotate.sigPen') === 'direct' ? 'direct' : 'map'; } catch (_) {}
+      padEl.style.height = H + 'px';
       const D = Math.max(2, window.devicePixelRatio || 1);
       cv.width = W * D; cv.height = H * D; cv.style.width = W + 'px'; cv.style.height = H + 'px';
       const finish = v => {
         if (done) return; done = true;
         document.removeEventListener('keydown', onKey, true);
-        clearTimeout(idleT);
         cancelAnimationFrame(raf); ov.remove(); resolve(v);
       };
 
@@ -1744,11 +1747,10 @@ var Annotate = (() => {
         if (mode === 'draw') {
           const all = current();
           const { kept, dropped } = sigKeep(all);
-          const f = sigFit(kept, W, H, SIG.PADX, SIG.PADY);
-          if (f && !writing) sigDraw(ctx, kept, f, color);
-          $('#an-sig-ph').textContent = writing ? 'Writing… pause to see it centred here' : 'Sign here';
-          $('#an-sig-ph').classList.toggle('hidden', all.length > 0 && !writing);
-          $('.an-sig-line').classList.toggle('hidden', all.length > 0);
+          sigDraw(ctx, kept, PAD, color);              // exactly where it was written
+          if (dropped.length) { ctx.save(); ctx.globalAlpha = 0.25; sigDraw(ctx, dropped, PAD, color); ctx.restore(); }
+          $('#an-sig-ph').classList.toggle('hidden', all.length > 0);
+          $('.an-sig-line').classList.remove('hidden');   // a guide line to write on
           const n = active ? dropped.filter(s => s !== active.s).length : dropped.length;
           note.classList.toggle('hidden', !n);
           if (n) note.textContent = `${n === 1 ? 'A small mark' : n + ' small marks'} far from the signature ${n === 1 ? 'was' : 'were'} left out (Undo stroke removes the last one).`;
@@ -1764,70 +1766,55 @@ var Annotate = (() => {
       }
       const schedule = () => { if (!raf) raf = requestAnimationFrame(redraw); };
 
-      // ── ink capture: the whole window, not just the pad ───────────────────
+      // ── ink capture ───────────────────────────────────────────────────────
+      // Points are kept in pad px. A pen in Tablet mode can write from
+      // anywhere in the window (the window is mapped onto the pad); mouse,
+      // touch and a pen in Direct mode write where they touch the pad.
       // A press on a control (button, swatch, saved signature…) is still a
-      // click unless it moves a few px — then it becomes ink (a pen sweeping
-      // across the screen). Everywhere else a press starts ink at once.
+      // click unless a mapped pen moves a few px — then it becomes ink.
+      const PAD = { sc: 1, ox: 0, oy: 0 };
       const CONTROL = 'button, input, select, textarea, label, a, .segmented, .swatches, .an-sig-saved, .modal-footer';
-      function width(ev, prev) {
+      const mapped = ev => ev.pointerType === 'pen' && penMode === 'map';
+      function toPad(ev) {
+        if (mapped(ev)) {
+          const iw = window.innerWidth, ih = window.innerHeight, sc = Math.min(W / iw, H / ih);
+          return [ev.clientX * sc + (W - iw * sc) / 2, ev.clientY * sc + (H - ih * sc) / 2];
+        }
+        const r = cv.getBoundingClientRect(), k = W / Math.max(1, r.width);
+        return [(ev.clientX - r.left) * k, (ev.clientY - r.top) * k];
+      }
+      function width(ev, q, prev) {
         let w;
         if (ev.pointerType === 'pen') {
           const p = ev.pressure > 0 ? ev.pressure : 0.5;
           w = 0.8 + p * 3.2;                                     // ~1.2 … 4 px with pressure
         } else {
-          const v = prev ? Math.hypot(ev.clientX - prev[0], ev.clientY - prev[1]) / Math.max(1, ev.timeStamp - prev[3]) : 0;
+          const v = prev ? Math.hypot(q[0] - prev[0], q[1] - prev[1]) / Math.max(1, ev.timeStamp - prev[3]) : 0;
           w = clamp(3.2 - v * 0.9, 1.5, 3.2);                    // a touch thinner when fast
         }
         return Math.max(SIG.MINW, prev ? prev[2] * 0.6 + w * 0.4 : w);
       }
       function addPoint(ev) {
-        const pts = active.s.pts, prev = pts[pts.length - 1];
-        if (prev && Math.hypot(ev.clientX - prev[0], ev.clientY - prev[1]) < 0.75) {
-          if (ev.pointerType === 'pen' && ev.pressure > 0) prev[2] = Math.max(prev[2], width(ev, prev));
+        const pts = active.s.pts, prev = pts[pts.length - 1], q = toPad(ev);
+        if (prev && Math.hypot(q[0] - prev[0], q[1] - prev[1]) < 0.4) {
+          if (ev.pointerType === 'pen' && ev.pressure > 0) prev[2] = Math.max(prev[2], width(ev, q, prev));
           return false;
         }
-        pts.push([ev.clientX, ev.clientY, width(ev, prev), ev.timeStamp]);
+        pts.push([q[0], q[1], width(ev, q, prev), ev.timeStamp]);
         return true;
       }
-      const RAW = { sc: 1, ox: 0, oy: 0 };   // window px → window px
-      // Repaint the writing layer: every stroke so far, in ink colour, where it was written.
-      function paintTrace() {
-        const dpr = window.devicePixelRatio || 1;
-        tr.width = Math.round(window.innerWidth * dpr); tr.height = Math.round(window.innerHeight * dpr);
-        tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        tctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-        const all = active && !active.pending ? strokes.concat([active.s]) : strokes;
-        sigDraw(tctx, all, RAW, color);
-      }
-      function traceTo() {                    // add the newest segment of the live stroke
-        const pts = active.s.pts, n = pts.length;
-        if (n < 2) return;
-        const a = pts[n - 2], b = pts[n - 1];
-        tctx.strokeStyle = color; tctx.lineCap = 'round'; tctx.lineJoin = 'round';
-        tctx.lineWidth = Math.max(SIG.MINW, b[2]);
-        tctx.beginPath(); tctx.moveTo(a[0], a[1]); tctx.lineTo(b[0], b[1]); tctx.stroke();
-      }
-      function beginWriting() {
-        clearTimeout(idleT);
-        if (!writing) {
-          writing = true;
-          ov.classList.add('is-writing');
-          paintTrace();                        // earlier strokes reappear where they were written
-        }
-      }
-      function endWriting() {
-        clearTimeout(idleT);
-        if (!writing) return;
-        writing = false;
-        ov.classList.remove('is-writing');      // the writing layer fades out (CSS)
-        schedule();                             // …and the pad shows the centred signature
+      // The pen marker: where a mapped pen is in the pad (hovering or writing).
+      function showPen(ev) {
+        if (!mapped(ev) || mode !== 'draw') { penDot.classList.remove('on'); return; }
+        const q = toPad(ev), r = cv.getBoundingClientRect(), k = r.width / W;
+        penDot.style.transform = `translate(${q[0] * k}px, ${q[1] * k}px)`;
+        penDot.classList.add('on');
+        penDot.classList.toggle('down', !!active && !active.pending);
       }
       function startInk(e) {
         active.pending = false;
         try { ov.setPointerCapture(active.id); } catch (_) {}
         ov.classList.add('is-inking');
-        beginWriting();
-        paintTrace();
         if (e) e.preventDefault();
         schedule();
       }
@@ -1835,38 +1822,34 @@ var Annotate = (() => {
         if (mode !== 'draw' || active || done) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         const onCtl = !!(e.target.closest && e.target.closest(CONTROL));
+        // without the tablet mapping, ink starts only on the pad itself
+        if (!mapped(e) && !padEl.contains(e.target)) return;
         active = { id: e.pointerId, s: { pts: [], type: e.pointerType }, pending: true, sx: e.clientX, sy: e.clientY, fromCtl: onCtl };
         addPoint(e);
         if (!onCtl) startInk(e);
+        showPen(e);
       }, true);
       ov.addEventListener('pointermove', e => {
-        // A pen hovering over the writing area (coming back for the next
-        // word) brings the earlier strokes back where they were written.
-        if (!active && mode === 'draw' && e.pointerType === 'pen' && strokes.length &&
-            !(e.target.closest && e.target.closest(CONTROL))) {
-          beginWriting(); schedule();
-          idleT = setTimeout(endWriting, IDLE_MS);
-          return;
-        }
+        showPen(e);
         if (!active || e.pointerId !== active.id) return;
         const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
-        for (const ev of (evs.length ? evs : [e])) if (addPoint(ev) && !active.pending) traceTo(ev);
+        for (const ev of (evs.length ? evs : [e])) addPoint(ev);
         if (active.pending) {
-          if (Math.hypot(e.clientX - active.sx, e.clientY - active.sy) < SIG.START) return;
+          if (!mapped(e) || Math.hypot(e.clientX - active.sx, e.clientY - active.sy) < SIG.START) return;
           startInk(e);
         }
         e.preventDefault();
         schedule();
       }, true);
+      ov.addEventListener('pointerleave', e => { if (!active) penDot.classList.remove('on'); }, true);
       const endInk = e => {
         if (!active || e.pointerId !== active.id) return;
         const a = active; active = null;
         ov.classList.remove('is-inking');
+        penDot.classList.remove('down');
         if (a.pending) return;                                   // it was a plain click
         if (a.fromCtl) swallowUntil = performance.now() + 400;   // not a click on the button it started on
         strokes.push(a.s);
-        // keep the writing visible; show the centred result after a short pause
-        idleT = setTimeout(endWriting, IDLE_MS);
         schedule();
       };
       ov.addEventListener('pointerup', endInk, true);
@@ -1876,7 +1859,19 @@ var Annotate = (() => {
         if (performance.now() < swallowUntil) { e.preventDefault(); e.stopPropagation(); swallowUntil = 0; }
       }, true);
 
-      function undoStroke() { if (strokes.length) { strokes.pop(); if (writing) paintTrace(); schedule(); } }
+      function setPenMode(m) {
+        penMode = m;
+        try { localStorage.setItem('annotate.sigPen', m); } catch (_) {}
+        ov.querySelectorAll('[data-pen]').forEach(b => b.classList.toggle('active', b.dataset.pen === m));
+        $('#an-sig-hint-t').innerHTML = m === 'map'
+          ? '<b>Sign in the box.</b> With a pen tablet the whole tablet writes into this box, and the dot shows where your pen is.'
+          : '<b>Sign in the box</b> with your pen, mouse or finger.';
+        penDot.classList.remove('on');
+      }
+      ov.querySelectorAll('[data-pen]').forEach(b => b.addEventListener('click', () => setPenMode(b.dataset.pen)));
+      setPenMode(penMode);
+
+      function undoStroke() { if (strokes.length) { strokes.pop(); schedule(); } }
       ov.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
         mode = b.dataset.mode;
         ov.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('active', x === b));
@@ -1893,11 +1888,10 @@ var Annotate = (() => {
         const b = e.target.closest('[data-c]'); if (!b) return;
         color = b.dataset.c;
         $('#an-sig-cols').querySelectorAll('.swatch').forEach(s => s.classList.toggle('active', s === b));
-        if (writing) paintTrace();
         redraw();
       });
       $('#an-sig-undo').addEventListener('click', undoStroke);
-      $('#an-sig-clear').addEventListener('click', () => { if (mode === 'draw') { strokes = []; endWriting(); } else $('#an-sig-type').value = ''; redraw(); });
+      $('#an-sig-clear').addEventListener('click', () => { if (mode === 'draw') strokes = []; else $('#an-sig-type').value = ''; redraw(); });
       $('#an-sig-cancel').addEventListener('click', () => finish(null));
       ov.querySelector('.modal-close').addEventListener('click', () => finish(null));
       const onKey = e => {

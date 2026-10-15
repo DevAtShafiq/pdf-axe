@@ -214,8 +214,8 @@
   overflow: hidden;
 }
 .an-sig-pad canvas { position: relative; z-index: 1; display: block; touch-action: none; cursor: crosshair; max-width: 100%; }
-.an-sig-line { position: absolute; left: 32px; right: 32px; bottom: 48px; border-bottom: 1px dashed #c8ccd4; }
-.an-sig-ph { position: absolute; left: 32px; bottom: 54px; color: #9aa1ad; font-size: var(--fs-sm); pointer-events: none; }
+.an-sig-line { position: absolute; left: 32px; right: 32px; bottom: 30%; border-bottom: 1px dashed #c8ccd4; pointer-events: none; }
+.an-sig-ph { position: absolute; left: 32px; bottom: calc(30% + 6px); color: #9aa1ad; font-size: var(--fs-sm); pointer-events: none; }
 .an-sig-list { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-1); }
 .an-sig-item { position: relative; }
 .an-sig-use {
@@ -234,17 +234,23 @@
 .an-sig-hint b { color: var(--text-primary); font-weight: 600; }
 .an-sig-hint .icon, .an-sig-hint svg { color: var(--accent); flex: none; }
 .an-sig-note { margin-top: var(--space-2); color: var(--text-muted); font-size: var(--fs-xs, 12px); text-align: center; }
-/* Draw mode: the whole window is the writing surface (pen tablets in absolute
-   mode land anywhere on screen), so no scrolling/selection while inking. */
-.an-sig-overlay.is-draw { touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair; }
-.an-sig-overlay.is-draw .modal { cursor: default; }
-.an-sig-overlay.is-draw .an-sig-pad, .an-sig-overlay.is-draw .modal-body { cursor: crosshair; }
+/* keep its line reserved: text appearing must never shift the pad (and the ink) */
+.an-sig-note { min-height: 1.4em; }
+.an-sig-note.hidden { display: block !important; visibility: hidden; }
+/* Draw mode: with a pen tablet mapped to the whole screen the whole window
+   is the writing surface, so no scrolling/selection while inking. */
+.an-sig-overlay.is-draw { touch-action: none; user-select: none; -webkit-user-select: none; }
+.an-sig-overlay.is-draw .an-sig-pad { cursor: crosshair; }
 .an-sig-overlay.is-inking, .an-sig-overlay.is-inking * { cursor: crosshair !important; }
-.an-sig-trace { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2;
-  opacity: 0; transition: opacity .25s ease;
-  filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .95)); }   /* dark ink stays visible on dark themes */
-/* while writing: the ink shows once, where the pen is; earlier strokes stay visible */
-.an-sig-overlay.is-writing .an-sig-trace { opacity: 1; transition: none; }
+.an-sig-penmode { flex: none; }
+/* where a mapped pen is in the pad (hovering: ring, writing: dot) */
+.an-sig-pen {
+  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; z-index: 2; pointer-events: none;
+  border: 2px solid var(--accent); border-radius: 50%; background: rgba(37, 99, 235, .12);
+  display: none;
+}
+.an-sig-pen.on { display: block; }
+.an-sig-pen.down { width: 8px; height: 8px; left: -4px; top: -4px; background: var(--accent); }
 
 /* The live/ghost preview (shape being drawn, stamp or signature following the
    mouse) must never catch clicks — the click belongs to the page underneath. */
