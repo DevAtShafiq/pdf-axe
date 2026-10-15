@@ -5,9 +5,9 @@
  * Escape / close only pops the TOP modal.
  *
  * Dialogs: CombinePdf/ArrangePages/ExtractPages (→ pdf-tools.js), PdfFullView, Templates, Uppercase,
- *          CompressPdf, Settings, ExtractPages, MoreMenu, SmartSplitProgress,
- *          CopyTo, MoveTo, PdfToImages, SplitRenameOcrProgress, CropImage,
- *          CompressImages, OcrRenameProgress, QrOverlay
+ *          CompressPdf, Settings, ExtractPages, MoreMenu,
+ *          CopyTo / MoveTo / NewFoldersFromList (→ folder-tools.js),
+ *          PdfToImages, CropImage, CompressImages, QrOverlay
  */
 
 const Dialogs = (() => {
@@ -604,11 +604,6 @@ const Dialogs = (() => {
     const apiKey = '';
     const keyHint = rk && rk.ok && rk.has_key ? `Saved: ${rk.masked} — type a new key to replace it` : 'sk-…';
 
-    const OCR_LANGS = [
-      ['eng', 'English'], ['kor', 'Korean'], ['jpn', 'Japanese'], ['chi_sim', 'Chinese (Simplified)'],
-      ['chi_tra', 'Chinese (Traditional)'], ['ara', 'Arabic'], ['fra', 'French'], ['deu', 'German'],
-      ['spa', 'Spanish'], ['rus', 'Russian'],
-    ];
     const curTheme = s.theme || (document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
     const body = `
       <div class="settings-form">
@@ -622,17 +617,6 @@ const Dialogs = (() => {
                 <button class="btn" id="s-outfolder-browse">Browse&#x2026;</button>
               </div>
               <div class="field-hint">Where new PDFs and images are saved. Leave empty to save next to the original.</div>
-            </div>
-          </div>
-          <div class="settings-row">
-            <label class="field-label" for="s-ocrlang">OCR language</label>
-            <div>
-              <select id="s-ocrlang" class="input-text">
-                ${OCR_LANGS.map(([v, n]) =>
-                  `<option value="${v}" ${s.ocr_lang===v?'selected':''}>${n} (${v})</option>`
-                ).join('')}
-              </select>
-              <div class="field-hint">Used when reading text from scanned documents.</div>
             </div>
           </div>
         </section>
@@ -664,7 +648,7 @@ const Dialogs = (() => {
                 <input id="s-apikey" class="input-text mono" type="password" value="" placeholder="${_esc(keyHint)}" autocomplete="off" spellcheck="false">
                 <button type="button" class="icon-btn input-action" id="s-apikey-toggle" title="Show key" aria-label="Show key">${Icons.svg('eye', 16)}</button>
               </div>
-              <div class="field-hint">Needed for Smart Split and AI photo edits. Stored on this computer only.</div>
+              <div class="field-hint">Needed for AI photo edits. Stored on this computer only.</div>
             </div>
           </div>
         </section>
@@ -677,7 +661,6 @@ const Dialogs = (() => {
         if (newKey !== apiKey) await SFM.setApiKey(newKey);
         const ns = {
           output_folder:     document.getElementById('s-outfolder')?.value.trim() || '',
-          ocr_lang:          document.getElementById('s-ocrlang')?.value || 'eng',
           theme:             document.getElementById('s-theme')?.value || 'dark',
         };
         const r = await SFM.saveSettings(ns);
@@ -730,6 +713,7 @@ const Dialogs = (() => {
         <div class="section-title" style="padding:12px 8px 2px">Files</div>
         ${item('mm-copyto', 'copy', 'Copy selection to&#x2026;')}
         ${item('mm-moveto', 'folder-input', 'Move selection to&#x2026;')}
+        ${item('mm-newfolders', 'list-checks', 'New folders from a list&#x2026;', 'Ctrl+Shift+L')}
         <div class="section-title" style="padding:12px 8px 2px">Folder tree</div>
         ${item('mm-expand-all', 'chevrons-up-down', 'Expand all folders')}
         ${item('mm-collapse-all', 'chevrons-down-up', 'Collapse all folders')}
@@ -749,231 +733,20 @@ const Dialogs = (() => {
     wire('mm-uppercase', () => openUppercase());
     wire('mm-copyto',    () => openCopyTo(App.state.selectedPaths || []));
     wire('mm-moveto',    () => openMoveTo(App.state.selectedPaths || []));
+    wire('mm-newfolders', () => FolderTools.openFromList());
     wire('mm-expand-all',    () => FileTree.expandAll());
     wire('mm-collapse-all',  () => FileTree.collapseAll());
   }
 
-  // ── 17. Smart Split Progress ──────────────────────────────────────────────
-  function openSmartSplitProgress(path) {
-    const name = path.split(/[\\/]/).pop();
-    const body = _jobBody('ss', 'AI identifies each document in the PDF, splits it and merges related pages. Files are saved next to the original.', 'Starting…\n', 'Analysing pages…');
-
-    _openModal('smart-split', 'Smart Split & Merge', body, [
-      { label: 'Close', onClick: () => {
-          SFM.off('smart_rename_log', _onLog);
-          SFM.off('smart_rename_done', _onDone);
-          closeModal();
-        }
-      },
-    ], { icon: 'sparkles', subtitle: name });
-
-    const logEl    = document.getElementById('ss-log');
-    const statusEl = document.getElementById('ss-status');
-
-    function _onLog({ log }) {
-      if (!logEl) return;
-      logEl.textContent += log + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function _onDone(r) {
-      SFM.off('smart_rename_log', _onLog);
-      SFM.off('smart_rename_done', _onDone);
-      App.setStatus('Ready');
-      if (r.ok) {
-        _jobDone('ss', true, 'Smart Split complete', 'The new files are saved next to the original.');
-        App.toast('Smart Split complete', 'success');
-        FileTree.refresh();
-      } else {
-        _jobDone('ss', false, 'Smart Split failed', r.error || 'Failed');
-        App.toast('Smart Split failed: ' + r.error, 'error', 7000);
-      }
-    }
-
-    SFM.on('smart_rename_log', _onLog);
-    SFM.on('smart_rename_done', _onDone);
-
-    App.setStatus('Smart Split running…', true);
-    SFM.smartSplit(path);
-  }
-
-  // ── 18. Copy To ─────────────────────────────────────────────────────────
-  async function openCopyTo(paths) {
-    if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = _destBody('ct', 'Copies are added to the destination; the originals stay where they are.');
-
-    _openModal('copyto', 'Copy to folder', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Copy', primary: true, icon: 'copy', onClick: async () => {
-        const dest = document.getElementById('ct-dest')?.value.trim();
-        if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
-        closeModal();
-        App.setStatus('Copying…', true);
-        const r = await SFM.copyFiles(paths, dest);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Copied ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
-        else       { App.toast('Copy failed: ' + r.error, 'error'); }
-      }},
-    ], { icon: 'copy', subtitle: _countLabel(paths), size: 'sm' });
-
-    document.getElementById('ct-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('ct-dest').value = r.path;
-    });
-  }
-
-  // ── 19. Move To ───────────────────────────────────────────────────────────
-  async function openMoveTo(paths) {
-    if (!paths || paths.length === 0) { App.toast('Select files first', 'warning'); return; }
-    const body = _destBody('mv', 'The files are moved out of the current folder. An existing file is never replaced.');
-
-    _openModal('moveto', 'Move to folder', body, [
-      { label: 'Cancel', onClick: closeModal },
-      { label: 'Move', primary: true, icon: 'folder-input', onClick: async () => {
-        const dest = document.getElementById('mv-dest')?.value.trim();
-        if (!dest) { App.toast('Choose a destination folder', 'error'); return; }
-        closeModal();
-        App.setStatus('Moving…', true);
-        const r = await SFM.moveFiles(paths, dest);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Moved ' + paths.length + ' file(s)', 'success'); FileTree.refresh(); }
-        else       { App.toast('Move failed: ' + r.error, 'error'); }
-      }},
-    ], { icon: 'folder-input', subtitle: _countLabel(paths), size: 'sm' });
-
-    document.getElementById('mv-browse')?.addEventListener('click', async () => {
-      const r = await SFM.call('browse_for_folder');
-      if (r.ok && r.path) document.getElementById('mv-dest').value = r.path;
-    });
-  }
+  // ── 18 / 19. Copy To / Move To — folder tree picker in folder-tools.js ──
+  function openCopyTo(paths) { FolderTools.openPicker('copy', paths); }
+  function openMoveTo(paths) { FolderTools.openPicker('move', paths); }
 
   // ── 21. PDF to Images — implemented in convert-tools.js ──────────────────
   function openPdfToImages(path) { return ConvertTools.openPdfToImages(path); }
 
-  // ── 22. Split & Rename OCR Progress ──────────────────────────────────────
-  function openSplitRenameOcrProgress(path) {
-    const name = path.split(/[\\\/]/).pop();
-    const body = _jobBody('sor', 'Reads every page with OCR, splits the PDF into documents and names each one by its type.', 'Starting OCR split…\n', 'Reading pages…');
-
-    _openModal('split-ocr', 'Split & rename by OCR', body, [
-      { label: 'Close', onClick: () => {
-          SFM.off('ocr_rename_log', _onLog);
-          SFM.off('ocr_rename_done', _onDone);
-          closeModal();
-        }
-      },
-    ], { icon: 'scan-text', subtitle: name });
-
-    const logEl    = document.getElementById('sor-log');
-    const statusEl = document.getElementById('sor-status');
-
-    function _onLog(p) {
-      if (!logEl) return;
-      logEl.textContent += (p.log || String(p)) + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-    function _onDone(r) {
-      SFM.off('ocr_rename_log', _onLog);
-      SFM.off('ocr_rename_done', _onDone);
-      App.setStatus('Ready');
-      if (r.ok) {
-        _jobDone('sor', true, 'OCR split complete', (r.files?.length || '?') + ' file(s) created next to the original.');
-        App.toast('OCR Split complete', 'success');
-        FileTree.refresh();
-      } else {
-        _jobDone('sor', false, 'OCR split failed', r.error || 'Failed');
-        App.toast('OCR Split failed: ' + r.error, 'error', 7000);
-      }
-    }
-
-    SFM.on('ocr_rename_log', _onLog);
-    SFM.on('ocr_rename_done', _onDone);
-    App.setStatus('OCR Split running…', true);
-    SFM.splitAndRenameOcr(path);
-  }
-
   // ── 26b. Compress Image(s) — implemented in convert-tools.js ─────────────
   function openCompressImages(paths) { return ConvertTools.openCompressImages(paths); }
-
-  // ── 27. OCR Rename Progress ───────────────────────────────────────────────
-  function openOcrRenameProgress(paths) {
-    const body = _jobBody('ocr', 'Each PDF is renamed by the document type detected with OCR. This takes a few seconds per file.', '', 'Starting…');
-
-    _openModal('ocr-rename-prog', 'Rename by document type', body, [
-      { label: 'Close', onClick: closeModal },
-    ], { icon: 'scan-text', subtitle: _countLabel(paths, 'PDF') });
-
-    const logEl  = document.getElementById('ocr-log');
-    const statEl = document.getElementById('ocr-status');
-    const _appendLog = msg => {
-      if (!logEl) return;
-      logEl.textContent += msg + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    };
-
-    const _unsubLog  = SFM.on('ocr_rename_log',  e => _appendLog(e.log || e.message || JSON.stringify(e)));
-    const _unsubDone = SFM.on('ocr_rename_done', e => {
-      _unsubLog(); _unsubDone();
-      if (e.ok) {
-        _jobDone('ocr', true, 'Rename complete', 'All files were renamed.');
-        App.toast('OCR rename complete', 'success');
-      } else {
-        _jobDone('ocr', false, 'Rename failed', e.error || 'unknown error');
-        App.toast('OCR rename failed', 'error');
-      }
-      FileTree.refresh();
-    });
-
-    SFM.ocrRenameProgress(paths).catch(err => {
-      _appendLog('Error starting: ' + err);
-      if (statEl) _jobDone('ocr', false, 'Could not start', String(err));
-    });
-  }
-
-  // ── Shared bodies for the job / destination dialogs ──────────────────────
-  function _countLabel(paths, noun) {
-    const n = (paths || []).length;
-    if (n === 1) return String(paths[0]).split(/[\\/]/).pop();
-    return `${n} ${noun || 'file'}${n === 1 ? '' : 's'}`;
-  }
-  function _destBody(p, hint) {
-    return `
-      <div class="field">
-        <label class="field-label" for="${p}-dest">Destination folder</label>
-        <div class="field-row">
-          <div class="input-group flex-1">
-            <span class="input-icon">${Icons.svg('folder', 14)}</span>
-            <input id="${p}-dest" class="input-text" placeholder="Choose a folder…">
-          </div>
-          <button class="btn" id="${p}-browse">Browse&#x2026;</button>
-        </div>
-        <div class="field-hint">${hint}</div>
-      </div>
-      <div id="${p}-status" class="progress-label"></div>`;
-  }
-  // Progress body: intro, indeterminate bar + status line, activity log.
-  function _jobBody(p, intro, logInit, statusText) {
-    return `
-      <p class="text-sm text-muted">${_esc(intro)}</p>
-      <div class="progress-block" id="${p}-progress">
-        <div class="progress-wrap"><div class="progress-bar indeterminate"></div></div>
-        <div class="progress-label" id="${p}-status"><span class="spinner"></span><span>${_esc(statusText || 'Working…')}</span></div>
-      </div>
-      <div class="field">
-        <span class="field-label">Activity</span>
-        <div id="${p}-log" class="log-output log-tall">${_esc(logInit || '')}</div>
-      </div>`;
-  }
-  // Replace the progress bar + status with a success / error callout.
-  function _jobDone(p, ok, title, text) {
-    const prog = document.getElementById(p + '-progress');
-    const st = document.getElementById(p + '-status');
-    if (!prog || !st) return;
-    prog.querySelector('.progress-wrap')?.remove();
-    st.className = 'callout ' + (ok ? 'success' : 'error');
-    st.innerHTML = `${Icons.svg(ok ? 'check-circle' : 'alert-circle', 16)}
-      <div class="callout-body"><span class="callout-title">${_esc(title)}</span><span>${_esc(text || '')}</span></div>`;
-  }
 
   // ── Helper ────────────────────────────────────────────────────────────────
   function _esc(s) {
@@ -993,12 +766,10 @@ const Dialogs = (() => {
     openCombinePdf, openFullView, openArrangePages,
     openTemplates, openUppercase,
     openCompressPdf, openSettings, openExtractPages, openMoreMenu,
-    openSmartSplitProgress,
     openCopyTo, openMoveTo,
-    openPdfToImages, openSplitRenameOcrProgress,
+    openPdfToImages,
     openCropImage,
     openCompressImages,
-    openOcrRenameProgress,
     openQrOverlay,
     closeModal, closeAllModals,
     ask, confirm: confirmDialog,

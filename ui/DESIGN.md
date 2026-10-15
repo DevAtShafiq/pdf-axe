@@ -155,7 +155,7 @@ Used by every feature dialog (convert, compress, merge/split/extract, arrange, Q
 - **Swatches**: `.swatches > button.swatch(.active)` with `--swatch` set per option.
 - **Keyboard hints**: `.kbd-hints > span > .kbd…` (bottom row of command-palette lists);
   `mark.hl` highlights the matched text.
-- `.log-output.log-tall` — 220 px activity log for long jobs (Smart Split, OCR).
+- `.log-output.log-tall` — 220 px activity log for long jobs.
 - Hidden-select pattern: a visible `.segmented`/swatch group can mirror a hidden `<select id>` so existing
   code reading `.value` / listening for `change` keeps working (convert-tools `_segSelect`, AI section).
 

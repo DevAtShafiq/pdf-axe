@@ -350,6 +350,7 @@ const App = (() => {
       }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
       if (ctrl && shift && key === 'n')  { e.preventDefault(); FileTree.newFolder(); return; }
+      if (ctrl && shift && key === 'l')  { e.preventDefault(); FolderTools.openFromList(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
       if (key === 'F5')                  { e.preventDefault(); FileTree.refresh(); return; }
       if (key === 'F2')                  { e.preventDefault(); FileTree.startRename(); return; }
@@ -376,19 +377,6 @@ const App = (() => {
 
   // ── SFM Events from Python ────────────────────────────────────────────────
   function _initEventHandlers() {
-    // Long-op log lines
-    // Non-smart-split log events → console only (dialogs handle their own)
-    ['ocr_rename_log','split_ocr_log'].forEach(ev => {
-      SFM.on(ev, ({ log }) => console.log(`[${ev}]`, log));
-    });
-    // smart_rename_log is handled inside Dialogs.openSmartSplitProgress — no global handler needed
-
-    // Long-op completions (smart_rename_done handled inside the progress dialog)
-    SFM.on('ocr_rename_done', r => {
-      setStatus('Ready');
-      if (r.ok) { toast('OCR rename complete', 'success'); FileTree.refresh(); }
-      else       { toast('OCR rename failed: ' + r.error, 'error', 5000); }
-    });
     SFM.on('compress_done', r => {
       setStatus('Ready');
       if (r.ok) toast(`Compressed — saved ${r.saved_str}`, 'success');
@@ -444,11 +432,6 @@ const App = (() => {
     wire('btn-view-list',   () => FileTree.setViewMode('list'));
     wire('btn-view-thumb',  () => FileTree.setViewMode('thumb'));
     wire('btn-combine-pdf', () => FileTree.combineSelected());
-    wire('btn-smart-split', () => {
-      const pdfs = _fileSel().filter(_isPdfPath);
-      if (!pdfs.length) { toast('Select a PDF first', 'warning'); return; }
-      Dialogs.openSmartSplitProgress(pdfs[0]);
-    });
     wire('btn-compress-pdf', () => {
       const all = _fileSel().filter(p => _isPdfPath(p) || _isImagePath(p));
       if (!all.length) { toast('Select a PDF or image first', 'warning'); return; }
@@ -537,12 +520,10 @@ const App = (() => {
   function syncFileTools() {
     const sel = _fileSel();
     const media = sel.some(p => _isPdfPath(p) || _isImagePath(p));
-    const pdf = sel.some(_isPdfPath);
     _gateTool('btn-convert', media, 'Select image(s) or a PDF first');
     _gateTool('btn-compress-pdf', media, 'Select a PDF or image first');
     _gateTool('btn-zip', sel.length > 0, 'Select files or folders to zip');
     _gateTool('btn-combine-pdf', media, 'Select PDF or image files first');
-    _gateTool('btn-smart-split', pdf, 'Select a PDF first');
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────

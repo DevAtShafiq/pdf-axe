@@ -47,6 +47,7 @@
 <link rel="stylesheet" href="archive.css">
 <link rel="stylesheet" href="recorder.css">
 <link rel="stylesheet" href="preview-docs.css">
+<link rel="stylesheet" href="folder-tools.css">
 </head>
 <body>
 
@@ -101,7 +102,10 @@
         <i data-icon="folder-open"></i><span class="tb-label">Open</span>
       </button>
       <button class="toolbar-btn-icon" id="btn-refresh"    title="Refresh (F5)" aria-label="Refresh"><i data-icon="refresh"></i></button>
-      <button class="toolbar-btn-icon" id="btn-new-folder" title="New folder (Ctrl+Shift+N)" aria-label="New folder"><i data-icon="folder-plus"></i></button>
+      <div class="tb-split" role="group" aria-label="New folder">
+        <button class="toolbar-btn" id="btn-new-folder" title="New folder (Ctrl+Shift+N)" aria-label="New folder"><i data-icon="folder-plus"></i><span class="tb-label">New folder</span></button>
+        <button class="toolbar-btn-icon tb-split-caret" id="btn-new-folder-menu" title="New folders from a list (Ctrl+Shift+L)" aria-label="More ways to make folders" aria-haspopup="menu"><i data-icon="chevron-down" data-size="14"></i></button>
+      </div>
     </div>
 
     <div class="toolbar-sep"></div>
@@ -122,9 +126,6 @@
       </button>
       <button class="toolbar-btn" id="btn-combine-pdf" title="Merge selected PDFs and images (Ctrl+Enter)">
         <i data-icon="merge"></i><span class="tb-label">Merge</span>
-      </button>
-      <button class="toolbar-btn" id="btn-smart-split" title="Smart split &amp; rename a scanned PDF with AI">
-        <i data-icon="scissors"></i><span class="tb-label">Split</span>
       </button>
       <button class="toolbar-btn" id="btn-qr" title="Pick a QR code on screen — click it to open the link">
         <i data-icon="qr-code"></i><span class="tb-label">QR</span>
@@ -208,6 +209,7 @@
           <div id="breadcrumb">
             <span class="breadcrumb-seg last" id="bc-root">No folder open</span>
           </div>
+          <button class="icon-btn icon-btn-sm" id="fl-new-folder" title="New folder (Ctrl+Shift+N)" aria-label="New folder"><i data-icon="folder-plus" data-size="14"></i></button>
           <div class="segmented segmented-sm">
             <button class="seg-btn view-btn active" id="fl-view-list"  title="List" aria-label="List"><i data-icon="list" data-size="14"></i></button>
             <button class="seg-btn view-btn"        id="fl-view-thumb" title="Thumbnails" aria-label="Thumbnails"><i data-icon="grid" data-size="14"></i></button>
@@ -520,6 +522,7 @@
 <script src="js/details.js"></script>
 <script src="js/context-menu.js"></script>
 <script src="js/dialogs.js"></script>
+<script src="js/folder-tools.js"></script>
 <script src="js/convert-tools.js"></script>
 <script src="js/pdf-tools.js"></script>
 <script src="js/archive.js"></script>

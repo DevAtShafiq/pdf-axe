@@ -770,6 +770,9 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             return _err("A folder name can't end with a dot or a space.")
         if any(c in cleaned for c in '\\/:*?"<>|'):
             return _err("A folder name can't contain any of these characters: \\ / : * ? \" < > |")
+        problem = _fo.folder_name_problem(cleaned)   # reserved names (CON, LPT1 …), length
+        if problem:
+            return _err(problem + ".")
         if not parent or not os.path.isdir(str(parent)):
             return _err("That folder does not exist.")
         new_path = os.path.join(parent, cleaned)
@@ -781,10 +784,50 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         if os.path.exists(new_path) or cleaned.casefold() in taken:
             return _err("A file or folder with this name already exists here.")
         try:
-            os.makedirs(new_path)
+            os.mkdir(new_path)          # never merges into a folder that appeared meanwhile
             return _ok(path=new_path)
         except Exception as exc:
             return _err(str(exc))
+
+    @staticmethod
+    def _folder_list_opts(opts) -> dict:
+        o = opts if isinstance(opts, dict) else {}
+        return {"prefix": str(o.get("prefix") or ""), "suffix": str(o.get("suffix") or ""),
+                "numbering": str(o.get("numbering") or "none"),
+                "start": o.get("start", 1), "pad": o.get("pad", 0),
+                "sep": str(o.get("sep") if o.get("sep") is not None else " ")}
+
+    def plan_folders_from_list(self, parent: str, text: str, opts: dict = None) -> dict:
+        """Preview for "New folders from a list" (nothing is created):
+        rows with status ok / invalid / exists / duplicate + counts."""
+        try:
+            return _ok(**_fo.plan_folders_from_list(parent, text, **self._folder_list_opts(opts)))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def create_folders_from_list(self, parent: str, text: str, opts: dict = None) -> dict:
+        """Create all valid names in *parent* at once; problem rows are skipped,
+        existing folders are never overwritten or merged."""
+        try:
+            r = _fo.create_folders_from_list(parent, text, **self._folder_list_opts(opts))
+            return _ok(**r)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def list_subfolders(self, path: str) -> dict:
+        """Subfolders of *path* for the Copy / Move folder tree (lazy-loaded)."""
+        try:
+            return _ok(path=path, folders=_fo.list_subfolders(path))
+        except Exception as exc:
+            return _err(str(exc), path=path, folders=[])
+
+    def find_folders(self, root: str, query: str, limit: int = 200, prefer: str = "") -> dict:
+        """Folders under *root* whose name contains every word of *query*
+        (the *prefer* folder's subtree is searched first)."""
+        try:
+            return _ok(**_fo.find_folders(root, query, limit=int(limit or 200), prefer=str(prefer or "")))
+        except Exception as exc:
+            return _err(str(exc), results=[])
 
     def set_clipboard(self, text: str) -> dict:
         """Put Unicode text on the Windows clipboard (Korean etc. safe)."""
@@ -1302,92 +1345,7 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         except Exception as exc:
             return _err(str(exc), path=path)
 
-    def _ocr_template_stem_fn(self):
-        """Checklist-type → file-name stem in the chosen template language
-        (English-only in International mode, KR-EN in Korean mode)."""
-        try:
-            import rename_templates as rt
-            return rt.store().ocr_stem_fn(self._rename_lang())
-        except Exception:
-            return None
-
-    def ocr_rename_with_progress(self, paths: list, api_key: str = "") -> dict:
-        """Same as ocr_rename but emits ocr_rename_log + ocr_rename_done events."""
-        def _run():
-            try:
-                if api_key:
-                    os.environ.setdefault("OPENAI_API_KEY", api_key)
-                log_cb = self._log_cb("ocr_rename_log")
-                _fo.pdf_rename_files_by_ocr_smart(
-                    paths, log=log_cb,
-                    template_stem_for_type=self._ocr_template_stem_fn())
-                self._emit("ocr_rename_done", {"ok": True})
-            except Exception as exc:
-                self._emit("ocr_rename_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-
     # ── long ops (threaded, push events) ─────────────────────────────────────
-
-    def smart_split_rename(self, path: str, out_dir: str = "", api_key: str = "") -> dict:
-        """
-        Async: runs pdf_smart_split_merge_rename() in a thread.
-        Progress emitted as:  __sfm_event("smart_rename_log", {log: "..."})
-        Done emitted as:      __sfm_event("smart_rename_done", {ok, error?})
-        """
-        def _run():
-            try:
-                if api_key:
-                    os.environ.setdefault("OPENAI_API_KEY", api_key)
-                log_cb = self._log_cb("smart_rename_log")
-                import rename_templates as rt
-                lang = self._rename_lang()
-                # out_dir is required (old app: same folder as the source PDF);
-                # the old 'output_folder=' keyword raised TypeError every time.
-                res = _fo.pdf_smart_split_merge_rename(
-                    path,
-                    out_dir or os.path.dirname(os.path.abspath(path)),
-                    log_cb,
-                    fallback_prefix=os.path.splitext(os.path.basename(path))[0] or "page",
-                    template_pairs=rt.store().merged_pairs(lang),
-                )
-                ok, files = (res if isinstance(res, tuple) else (bool(res), []))
-                if not ok:
-                    raise RuntimeError("Smart split failed — see the log for details.")
-                self._emit("smart_rename_done", {"ok": True, "files": list(files or [])})
-            except Exception as exc:
-                self._emit("smart_rename_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-    def ocr_rename(self, paths: list, api_key: str = "") -> dict:
-        def _run():
-            try:
-                if api_key:
-                    os.environ.setdefault("OPENAI_API_KEY", api_key)
-                log_cb = self._log_cb("ocr_rename_log")
-                _fo.pdf_rename_files_by_ocr_smart(
-                    paths, log=log_cb,
-                    template_stem_for_type=self._ocr_template_stem_fn())
-                self._emit("ocr_rename_done", {"ok": True})
-            except Exception as exc:
-                self._emit("ocr_rename_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
-
-    def split_and_rename_ocr(self, path: str, api_key: str = "") -> dict:
-        def _run():
-            try:
-                if api_key:
-                    os.environ.setdefault("OPENAI_API_KEY", api_key)
-                log_cb = self._log_cb("split_ocr_log")
-                _fo.pdf_split_and_rename_by_ocr(path, log=log_cb)
-                self._emit("split_ocr_done", {"ok": True})
-            except Exception as exc:
-                self._emit("split_ocr_done", {"ok": False, "error": str(exc)})
-        self._thread(_run)
-        return _ok(started=True)
 
     def compress_pdf_async(self, path: str, out_path: str = "", preset: str = "ebook",
                            target_kb: float = 0, job: str = "",

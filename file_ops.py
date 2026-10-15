@@ -9467,3 +9467,265 @@ def doc_to_html_excel(path: str, sheet: str = "") -> tuple:
 
     parts.append('</table></body></html>')
     return True, "".join(parts)
+
+
+# =============================================================================
+# Folders: "New folders from a list" + the Copy / Move folder picker tree
+# =============================================================================
+
+_WIN_BAD_NAME_CHARS = '<>:"/\\|?*'
+_WIN_RESERVED_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{i}" for i in range(1, 10)]
+    + [f"LPT{i}" for i in range(1, 10)]
+)
+# CreateDirectory refuses paths of 248+ characters without long-path support.
+_WIN_MAX_DIR_PATH = 247
+_FILE_ATTRIBUTE_HIDDEN = 0x2
+_FILE_ATTRIBUTE_SYSTEM = 0x4
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+_INVISIBLE_EDGE_CHARS = "﻿​‌‍⁠"
+
+
+def split_pasted_names(text: str) -> list[str]:
+    """Names from text pasted from Excel / a list.
+
+    One name per line; a line with tabs (several Excel cells) gives one name
+    per non-empty cell. Cells are trimmed (also non-breaking spaces and
+    zero-width characters), blank cells/lines are skipped, and a cell wrapped
+    in double quotes (Excel's quoting) is unquoted.
+    """
+    out: list[str] = []
+    for line in re.split(r"\r\n|\r|\n", str(text or "")):
+        for cell in line.split("\t"):
+            c = cell.strip().strip(_INVISIBLE_EDGE_CHARS).strip()
+            if len(c) >= 2 and c[0] == '"' and c[-1] == '"':
+                c = c[1:-1].replace('""', '"').strip()
+            if c:
+                out.append(c)
+    return out
+
+
+def folder_name_problem(name: str) -> str:
+    """Why *name* can't be a Windows folder name, or '' when it is fine."""
+    if not name or not name.strip():
+        return "The name is empty"
+    if name in (".", ".."):
+        return "Not a valid folder name"
+    bad = []
+    for ch in name:
+        if ch in _WIN_BAD_NAME_CHARS and ch not in bad:
+            bad.append(ch)
+    has_ctrl = any(ord(ch) < 32 for ch in name)
+    if bad or has_ctrl:
+        what = " ".join(bad)
+        if has_ctrl:
+            what = (what + " or control characters") if what else "control characters"
+        return f"Can't contain {what}"
+    if name[-1] in ". ":
+        return "Can't end with a dot or a space"
+    stem = name.split(".", 1)[0].rstrip(" ").upper()
+    if stem in _WIN_RESERVED_NAMES:
+        return f"“{stem}” is a reserved Windows name"
+    if len(name) > 255:
+        return "Too long (255 characters at most)"
+    return ""
+
+
+def _number_width(start: int, count: int, pad: int) -> int:
+    if pad and pad > 0:
+        return int(pad)
+    return max(1, len(str(max(start, start + max(count, 1) - 1))))
+
+
+def plan_folders_from_list(parent: str, text: str = "", *, names: Sequence[str] | None = None,
+                           prefix: str = "", suffix: str = "", numbering: str = "none",
+                           start: int = 1, pad: int = 0, sep: str = " ") -> dict:
+    """Preview of "New folders from a list" — nothing is created.
+
+    Every pasted name becomes a row ``{index, source, name, path, status,
+    reason}``; *status* is ``ok``, ``invalid`` (not a valid Windows name or
+    the path is too long), ``exists`` (a file or folder with that name is
+    already in *parent*, case-insensitive) or ``duplicate`` (same name as an
+    earlier row, case-insensitive). The final name is
+    ``[number+sep] prefix + name + suffix [sep+number]`` with *numbering*
+    ``"before"`` / ``"after"`` / ``"none"``; numbers follow the list order.
+    """
+    parent = str(parent or "")
+    src = list(names) if names is not None else split_pasted_names(text)
+    try:
+        start = int(start)
+    except (TypeError, ValueError):
+        start = 1
+    try:
+        pad = int(pad or 0)
+    except (TypeError, ValueError):
+        pad = 0
+    numbering = (numbering or "none").lower()
+    width = _number_width(start, len(src), pad)
+    try:
+        taken = {n.casefold() for n in os.listdir(parent)} if parent and os.path.isdir(parent) else set()
+    except OSError:
+        taken = set()
+    seen: dict[str, int] = {}
+    rows = []
+    counts = {"total": len(src), "ok": 0, "invalid": 0, "exists": 0, "duplicate": 0}
+    for i, raw in enumerate(src):
+        num = str(start + i).zfill(width)
+        name = f"{prefix or ''}{raw}{suffix or ''}"
+        if numbering == "before":
+            name = f"{num}{sep}{name}"
+        elif numbering == "after":
+            name = f"{name}{sep}{num}"
+        path = os.path.join(parent, name) if parent else name
+        key = name.casefold()
+        reason = folder_name_problem(name)
+        status = "invalid" if reason else "ok"
+        if status == "ok" and parent and len(os.path.abspath(path)) > _WIN_MAX_DIR_PATH:
+            status, reason = "invalid", "The full path would be too long for Windows"
+        if status == "ok" and key in taken:
+            status, reason = "exists", "Already exists in this folder"
+        if status == "ok" and key in seen:
+            status, reason = "duplicate", f"Same as row {seen[key] + 1}"
+        if status == "ok":
+            seen[key] = i
+        counts[status] += 1
+        rows.append({"index": i, "source": raw, "name": name, "path": path,
+                     "status": status, "reason": reason})
+    return {"parent": parent, "rows": rows, "counts": counts}
+
+
+def create_folders_from_list(parent: str, text: str = "", **opts) -> dict:
+    """Create every ``ok`` row of :func:`plan_folders_from_list` in *parent*.
+
+    Rows with problems are skipped (listed in ``skipped``). Existing folders
+    are never overwritten or merged: ``os.mkdir`` fails for a name that
+    appeared after the preview and that row is skipped too.
+    Returns ``{created: [paths], skipped: [{name, reason}], counts}``.
+    """
+    parent = str(parent or "")
+    if not parent or not os.path.isdir(parent):
+        raise FileNotFoundError(f"Folder not found: {parent}")
+    plan = plan_folders_from_list(parent, text, **opts)
+    created: list[str] = []
+    skipped: list[dict] = []
+    for row in plan["rows"]:
+        if row["status"] != "ok":
+            skipped.append({"name": row["name"], "reason": row["reason"]})
+            continue
+        try:
+            os.mkdir(row["path"])
+            created.append(row["path"])
+        except FileExistsError:
+            skipped.append({"name": row["name"], "reason": "Already exists in this folder"})
+        except OSError as exc:
+            skipped.append({"name": row["name"], "reason": exc.strerror or str(exc)})
+    return {"parent": parent, "created": created, "skipped": skipped, "counts": plan["counts"]}
+
+
+def _skip_dir_entry(entry, show_hidden: bool = False) -> bool:
+    """Folders the picker leaves out: system/hidden ones, $Recycle.Bin and
+    junctions (they loop back, e.g. "Documents and Settings")."""
+    name = entry.name
+    if not show_hidden and (name.startswith("$") or name == "System Volume Information"):
+        return True
+    try:
+        st = entry.stat(follow_symlinks=False)
+        attrs = getattr(st, "st_file_attributes", 0) or 0
+    except OSError:
+        return True
+    if attrs & _FILE_ATTRIBUTE_REPARSE_POINT or entry.is_symlink():
+        return True
+    if not show_hidden and attrs & (_FILE_ATTRIBUTE_HIDDEN | _FILE_ATTRIBUTE_SYSTEM):
+        return True
+    return False
+
+
+def _has_subfolder(path: str, show_hidden: bool = False) -> bool:
+    try:
+        with os.scandir(path) as it:
+            for e in it:
+                try:
+                    if e.is_dir(follow_symlinks=False) and not _skip_dir_entry(e, show_hidden):
+                        return True
+                except OSError:
+                    continue
+    except OSError:
+        return False
+    return False
+
+
+def list_subfolders(path: str, show_hidden: bool = False, probe_limit: int = 400) -> list[dict]:
+    """Immediate subfolders of *path* (natural sort) for the folder picker:
+    ``[{path, name, has_children}]``. ``has_children`` is checked for the
+    first *probe_limit* folders and assumed True after that."""
+    if isinstance(path, str) and re.fullmatch(r"[A-Za-z]:", path.strip()):
+        path = path.strip() + "\\"
+    out = []
+    with os.scandir(path) as it:
+        for e in it:
+            try:
+                if not e.is_dir(follow_symlinks=False) or _skip_dir_entry(e, show_hidden):
+                    continue
+            except OSError:
+                continue
+            out.append({"path": e.path, "name": e.name})
+    out.sort(key=lambda d: filesystem_natural_sort_key(d["name"]))
+    for i, d in enumerate(out):
+        d["has_children"] = _has_subfolder(d["path"], show_hidden) if i < probe_limit else True
+    return out
+
+
+def find_folders(root: str, query: str, limit: int = 200, time_budget: float = 2.5,
+                 max_depth: int = 16, prefer: str = "") -> dict:
+    """Folders under *root* whose name contains every word of *query*
+    (case-insensitive), breadth-first so shallow matches come first.
+    With *prefer* (a folder under *root*, e.g. the one the user is in) that
+    folder's subtree is searched first, then the rest of *root* — a whole
+    drive can take longer than the time budget.
+    Stops after *limit* matches or *time_budget* seconds:
+    ``{results: [{path, name, parent}], truncated}``."""
+    import time as _time
+    words = [w.casefold() for w in str(query or "").split() if w]
+    if not words or not root or not os.path.isdir(root):
+        return {"results": [], "truncated": False}
+    deadline = _time.monotonic() + max(0.1, float(time_budget))
+    results: list[dict] = []
+
+    def norm(p: str) -> str:
+        return os.path.normcase(os.path.abspath(p)).rstrip("\\/")
+    phases = [(root, "")]
+    if prefer and os.path.isdir(prefer) and norm(prefer).startswith(norm(root) + os.sep):
+        phases = [(prefer, ""), (root, norm(prefer))]
+    for start, skip in phases:
+        queue: list[tuple[str, int]] = [(start, 0)]
+        qi = 0
+        while qi < len(queue):
+            if _time.monotonic() > deadline:
+                return {"results": results, "truncated": True}
+            folder, depth = queue[qi]
+            qi += 1
+            try:
+                with os.scandir(folder) as it:
+                    subs = []
+                    for e in it:
+                        try:
+                            if not e.is_dir(follow_symlinks=False) or _skip_dir_entry(e):
+                                continue
+                        except OSError:
+                            continue
+                        if skip and norm(e.path) == skip:
+                            continue        # already searched first
+                        subs.append(e)
+            except OSError:
+                continue
+            subs.sort(key=lambda e: filesystem_natural_sort_key(e.name))
+            for e in subs:
+                low = e.name.casefold()
+                if all(w in low for w in words):
+                    results.append({"path": e.path, "name": e.name, "parent": folder})
+                    if len(results) >= limit:
+                        return {"results": results, "truncated": True}
+                if depth + 1 < max_depth:
+                    queue.append((e.path, depth + 1))
+    return {"results": results, "truncated": False}

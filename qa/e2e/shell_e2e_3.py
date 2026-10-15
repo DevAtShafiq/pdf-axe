@@ -86,13 +86,12 @@ try:
     # Settings dialog persistence
     ev("() => Dialogs.openSettings()"); time.sleep(0.6)
     page.fill("#s-outfolder", d)
-    page.select_option("#s-ocrlang", "kor")
+    C.check("no OCR language setting (OCR rename features were removed)", ev("() => !document.getElementById('s-ocrlang')"))
     page.click(".modal-overlay [data-modal-btn='Save']"); time.sleep(0.6)
     s = ev("() => SFM.getSettings().then(r => r.settings)")
-    C.check("Settings save output folder + OCR language", s.get("output_folder") == d and s.get("ocr_lang") == "kor", str(s))
+    C.check("Settings save output folder", s.get("output_folder") == d, str(s))
     ev("() => Dialogs.openSettings()"); time.sleep(0.6)
-    C.check("Settings reopen shows saved values", ev("() => document.getElementById('s-outfolder').value") == d
-            and ev("() => document.getElementById('s-ocrlang').value") == "kor")
+    C.check("Settings reopen shows saved values", ev("() => document.getElementById('s-outfolder').value") == d)
     page.click(".modal-overlay [data-modal-btn='Save']"); time.sleep(0.6)
     C.check("saving without touching the key keeps has_api_key", ev("() => SFM.getSettings().then(r => r.settings.has_api_key)") == bool(orig.get("has_api_key")))
     C.check("no uncaught page errors", not errors, "; ".join(errors[:5]))

@@ -249,20 +249,23 @@ try:
 
     # ── new folder ────────────────────────────────────────────────────────
     focus_list()
-    page.keyboard.press("Control+Shift+N"); time.sleep(0.4)
-    C.check("Ctrl+Shift+N opens New folder dialog", modal_count(page) == 1)
-    C.check("suggested name", ev("() => document.querySelector('.modal-overlay input').value") == "New folder")
-    page.keyboard.type("Bad:name"); page.keyboard.press("Enter"); time.sleep(0.3)
-    C.check("invalid name is rejected", modal_count(page) == 1 and "can’t contain" in ev("() => document.querySelector('.modal-overlay .field-error').textContent"))
-    page.fill(".modal-overlay input", "Sub Folder"); page.keyboard.press("Enter"); time.sleep(0.3)
-    C.check("existing name is rejected", modal_count(page) == 1)
-    page.fill(".modal-overlay input", "Made By Test"); page.keyboard.press("Enter"); time.sleep(1.0)
-    C.check("folder created on disk", os.path.isdir(os.path.join(d, "Made By Test")))
+    # Explorer style: the folder is made at once and its name is edited in place.
+    page.keyboard.press("Control+Shift+N"); time.sleep(0.8)
+    C.check("Ctrl+Shift+N makes 'New folder' and edits its name inline",
+            os.path.isdir(os.path.join(d, "New folder")) and modal_count(page) == 0
+            and ev("() => (document.querySelector('#filelist-list input.inline-rename') || {}).value") == "New folder")
+    page.keyboard.type("Bad:name"); time.sleep(0.2)
+    C.check("invalid characters are blocked while typing",
+            ev("() => document.querySelector('#filelist-list input.inline-rename').value") == "Badname")
+    page.keyboard.press("Control+A"); page.keyboard.type("Made By Test"); page.keyboard.press("Enter"); time.sleep(1.0)
+    C.check("folder renamed on disk", os.path.isdir(os.path.join(d, "Made By Test")) and not os.path.exists(os.path.join(d, "New folder")))
     C.check("new folder selected", selected_names(page) == ["Made By Test"])
-    page.keyboard.press("Control+Shift+KeyN"); time.sleep(0.3)
-    C.check("next suggestion is New folder", ev("() => document.querySelector('.modal-overlay input').value") == "New folder")
-    press("Escape"); time.sleep(0.2)
-    C.check("Esc cancels New folder", modal_count(page) == 0 and not os.path.exists(os.path.join(d, "New folder")))
+    focus_list()
+    page.keyboard.press("Control+Shift+KeyN"); time.sleep(0.8)
+    C.check("next new folder is 'New folder' again", ev("() => (document.querySelector('#filelist-list input.inline-rename') || {}).value") == "New folder")
+    press("Escape", 2); time.sleep(0.4)
+    C.check("Esc keeps the name 'New folder'", modal_count(page) == 0 and os.path.isdir(os.path.join(d, "New folder"))
+            and not ev("() => !!document.querySelector('#filelist-list input.inline-rename')"))
 
     # keys are not hijacked behind a dialog
     click_row(page, "gamma.txt")
@@ -501,17 +504,23 @@ try:
     close_modals(page)
     # Copy to / Move to dialogs
     click_row(page, "file2.txt")
-    ev("() => Dialogs.openCopyTo(App.state.selectedPaths)"); time.sleep(0.3)
-    page.fill("#ct-dest", sub); page.click(".modal-overlay [data-modal-btn='Copy']"); time.sleep(0.9)
+    # The pickers are a folder tree now (folder-tools.js); pick `sub` in it.
+    def pick_folder(path):
+        page.wait_for_selector(".fp-modal")
+        page.wait_for_function("() => document.querySelector('#modal-folderpick').closest('.modal-overlay').dataset.ready === '1'")
+        ev("p => document.querySelector('#modal-folderpick').closest('.modal-overlay')._reveal(p)", path)
+        time.sleep(0.3)
+    ev("() => Dialogs.openCopyTo(App.state.selectedPaths)"); pick_folder(sub)
+    page.click(".modal-overlay [data-modal-btn='Copy']"); time.sleep(0.9)
     C.check("Copy to… copies", os.path.exists(os.path.join(sub, "file2.txt")) and os.path.exists(os.path.join(d, "file2.txt")))
     click_row(page, "file2.txt")
-    ev("() => Dialogs.openMoveTo(App.state.selectedPaths)"); time.sleep(0.3)
+    ev("() => Dialogs.openMoveTo(App.state.selectedPaths)"); pick_folder(sub)
     clear_toasts(page)
-    page.fill("#mv-dest", sub); page.click(".modal-overlay [data-modal-btn='Move']"); time.sleep(0.9)
+    page.click(".modal-overlay [data-modal-btn='Move']"); time.sleep(0.9)
     C.check("Move to… never replaces (gets (2))", os.path.exists(os.path.join(sub, "file2 (2).txt")) and not os.path.exists(os.path.join(d, "file2.txt")))
-    ev("() => Dialogs.openMoveTo(['" + os.path.join(d, "nope.txt").replace("\\", "\\\\") + "'])"); time.sleep(0.3)
+    ev("() => Dialogs.openMoveTo(['" + os.path.join(d, "nope.txt").replace("\\", "\\\\") + "'])"); pick_folder(sub)
     clear_toasts(page)
-    page.fill("#mv-dest", sub); page.click(".modal-overlay [data-modal-btn='Move']"); time.sleep(0.8)
+    page.click(".modal-overlay [data-modal-btn='Move']"); time.sleep(0.8)
     C.check("Move of a missing file reports failure", any("failed" in t.lower() for t in toasts(page)), str(toasts(page)))
 
     # theme toggle

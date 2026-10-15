@@ -32,8 +32,9 @@ const ContextMenu = (() => {
   function show(x, y, entries, selectedPaths) {
     const menu = _ensureMenu();
     menu.innerHTML = '';
+    menu.dataset.kind = 'items';
 
-    const single   = entries.length === 1;
+    const single  = entries.length === 1;
     const multi    = entries.length > 1;
     const entry    = single ? entries[0] : null;
     const isPdf    = single && (entry?.ext || '').toLowerCase() === '.pdf';
@@ -130,13 +131,8 @@ const ContextMenu = (() => {
             hide(); PdfTools.extractPage(mainPath, curPage);
           });
         }
-        _item(menu, 'sparkles', 'Smart Split & Rename…','', () => {
-          hide(); Dialogs.openSmartSplitProgress(mainPath);
-        });
-        _item(menu, 'scan-text', 'Rename by Doc Type (OCR)\u2026', '', () => { hide(); Dialogs.openOcrRenameProgress([mainPath]); });
         if (!multi) _item(menu, 'compress', 'Compress…', '', () => { hide(); ConvertTools.openCompress([mainPath]); });
         _item(menu, 'images', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
-        _item(menu, 'scan-text', 'Split & Rename by OCR…',   '', () => { hide(); Dialogs.openSplitRenameOcrProgress(mainPath); });
         _sep(menu);
       }
     }
@@ -212,14 +208,31 @@ const ContextMenu = (() => {
       SFM.copyText(names).then(ok => App.toast(ok ? 'Name copied' : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
 
-    // Position & show
+    _place(menu, x, y);
+  }
+
+  // Position & show
+  function _place(menu, x, y) {
     menu.classList.remove('hidden');
     const vw = window.innerWidth, vh = window.innerHeight;
-    const mw = 220, mh = menu.scrollHeight || 400;
+    const mw = Math.max(220, menu.offsetWidth || 0), mh = menu.scrollHeight || 400;
     const left = x + mw > vw ? vw - mw - 4 : x;
     const top  = y + mh > vh ? vh - mh - 4 : y;
     menu.style.left = left + 'px';
     menu.style.top  = top  + 'px';
+  }
+
+  // A plain menu of actions (empty-space menu of the file list, toolbar
+  // drop-downs): items = [{ icon, label, shortcut?, run, disabled? } | 'sep']
+  function showItems(x, y, items, opts) {
+    const menu = _ensureMenu();
+    menu.innerHTML = '';
+    menu.dataset.kind = (opts && opts.kind) || '';
+    (items || []).forEach(it => {
+      if (it === 'sep') { _sep(menu); return; }
+      _item(menu, it.icon, it.label, it.shortcut || '', () => { hide(); it.run && it.run(); }, !!it.disabled);
+    });
+    _place(menu, x, y);
   }
 
   function hide() {
@@ -250,5 +263,5 @@ const ContextMenu = (() => {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  return { show, hide };
+  return { show, showItems, hide };
 })();
