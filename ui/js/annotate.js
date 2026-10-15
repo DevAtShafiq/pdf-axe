@@ -1740,6 +1740,7 @@ var Annotate = (() => {
             <div class="footer-left an-sig-edit">
               <button class="btn" id="an-sig-undo" title="Undo the last stroke (Ctrl+Z)">${ic('undo')}Undo stroke</button>
               <button class="btn" id="an-sig-clear">${ic('eraser')}Clear</button>
+              <button class="btn" id="an-sig-png" title="Save this signature as a PNG picture in the Signature folder">${ic('download')}Save as PNG…</button>
             </div>
             <label class="check an-sig-remember"><input type="checkbox" id="an-sig-rem" checked> Remember for next time</label>
             <button class="btn" id="an-sig-cancel">Cancel</button>
@@ -1953,6 +1954,8 @@ var Annotate = (() => {
       $('#an-sig-cancel').addEventListener('click', () => finish(null));
       ov.querySelector('.modal-close').addEventListener('click', () => finish(null));
       const onKey = e => {
+        // a small dialog on top of the pad (e.g. "Save as PNG" name) handles its own keys
+        if (e.target && !ov.contains(e.target) && e.target.closest && e.target.closest('.modal-overlay')) return;
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
         else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); e.stopPropagation(); $('#an-sig-ok').click(); }
         else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z') && mode === 'draw') { e.preventDefault(); e.stopPropagation(); undoStroke(); }
@@ -1983,6 +1986,27 @@ var Annotate = (() => {
         if (!url) { App.toast(mode === 'draw' ? 'Draw your signature first' : 'Type your name first', 'warning'); return; }
         if ($('#an-sig-rem').checked) SFM.annotSignatureSave(url).catch(() => {});
         finish(url);
+      });
+
+      // Save as PNG → "<root of the folder you are in>\Signature\<name>.png"
+      $('#an-sig-png').addEventListener('click', async () => {
+        const url = mode === 'draw' ? sigExport(strokes, color) : typedPng();
+        if (!url) { App.toast(mode === 'draw' ? 'Draw your signature first' : 'Type your name first', 'warning'); return; }
+        let hint = '';
+        try { hint = (FileTree.getCurrentFolder && FileTree.getCurrentFolder()) || ''; } catch (_) {}
+        const f = await SFM.annotSignatureFolder(hint).catch(() => null);
+        const folder = (f && f.ok && f.folder) || 'Signature';
+        const typed = mode === 'type' ? $('#an-sig-type').value.trim() : '';
+        const name = await Dialogs.ask({
+          title: 'Save signature as PNG', icon: 'signature', okLabel: 'Save', okIcon: 'download',
+          label: 'Name', value: typed || 'My signature', placeholder: 'e.g. Shafiq signature',
+          hint: `Saved in ${folder}${f && f.ok && !f.exists ? ' (the folder is created)' : ''}`,
+          validate: v => !v ? 'Enter a name' : (/[<>:"/\\|?*]/.test(v) ? 'A name cannot contain < > : " / \\ | ? *' : ''),
+        });
+        if (!name) return;
+        const r = await SFM.annotSignatureSavePng(url, name, hint).catch(e => ({ ok: false, error: String(e) }));
+        if (!r || !r.ok) { App.toast(esc((r && r.error) || 'Could not save the signature'), 'error', 6000); return; }
+        App.toast(`Saved <b>${esc(r.name)}</b> in ${esc(r.folder)}`, 'success', 5000);
       });
 
       // remembered signatures

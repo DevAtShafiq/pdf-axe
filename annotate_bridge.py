@@ -168,6 +168,56 @@ class AnnotateBridgeMixin:
         except Exception as exc:
             return _err(str(exc))
 
+    # ── signature → PNG file in "<root>\Signature" ───────────────────────────
+    @staticmethod
+    def _signature_dir(hint: str) -> str:
+        """'Signature' folder at the root of *hint*'s drive / share
+        (E:\\Docs\\x → E:\\Signature); the user's Documents when there is no hint."""
+        override = os.environ.get("SFM_SIGNATURE_DIR")      # tests only
+        if override:
+            return os.path.abspath(override)
+        hint = str(hint or "").strip()
+        if hint:
+            drive, _ = os.path.splitdrive(os.path.abspath(hint))
+            if drive:
+                return os.path.join(drive + os.sep, "Signature")
+        return os.path.join(os.path.expanduser("~"), "Documents", "Signature")
+
+    def annot_signature_folder(self, hint: str = "") -> dict:
+        try:
+            d = self._signature_dir(hint)
+            return _ok(folder=d, exists=os.path.isdir(d))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def annot_signature_save_png(self, data_url: str, name: str, hint: str = "") -> dict:
+        """Write the signature as '<root>\\Signature\\<name>.png' (folder created
+        if needed; an existing file is never overwritten — 'name (2).png')."""
+        import base64
+        import re
+        try:
+            if not (isinstance(data_url, str) and data_url.startswith("data:image/png;base64,")):
+                return _err("Not a PNG signature")
+            stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(name or "")).strip().rstrip(". ")
+            if stem.lower().endswith(".png"):
+                stem = stem[:-4].rstrip(". ")
+            if not stem:
+                return _err("Enter a name for the signature")
+            if stem.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                                              *(f"LPT{i}" for i in range(1, 10))}:
+                return _err(f"'{stem}' is a reserved Windows name")
+            data = base64.b64decode(data_url.split(",", 1)[1], validate=True)
+            if not data.startswith(b"\x89PNG"):
+                return _err("Not a PNG signature")
+            folder = self._signature_dir(hint)
+            os.makedirs(folder, exist_ok=True)
+            from pdf_tools import _write_new
+            out = _write_new(os.path.join(folder, stem[:150] + ".png"), data)
+            _log.info("signature saved as %s", out)
+            return _ok(path=out, folder=folder, name=os.path.basename(out))
+        except Exception as exc:
+            return _err(f"Couldn't save the signature: {exc}")
+
     def annot_signature_forget(self, index: int) -> dict:
         """Drop a remembered signature from the settings list (no file is touched)."""
         try:
