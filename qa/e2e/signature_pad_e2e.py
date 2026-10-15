@@ -206,6 +206,14 @@ def run(d):
         ok, info = centred_and_fitted(pad_ink(page))
         R.check("after a pause: centred copy appears in the pad", ok, info)
 
+        # 1c) pen comes back (hovering, not touching): the earlier strokes reappear in place
+        pen.cdp.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": vw * 0.5, "y": vh * 0.25, "buttons": 0, "pointerType": "pen"})
+        time.sleep(0.15)
+        back = page.evaluate("document.querySelector('.an-sig-overlay').classList.contains('is-writing')")
+        R.check("pen hovering again shows the earlier strokes where they were written", back and page.evaluate(TRACE_N) >= n2 * 0.9, page.evaluate(TRACE_N))
+        time.sleep(1.35)
+        R.check("…and after the pen rests, the centred copy is back", not page.evaluate("document.querySelector('.an-sig-overlay').classList.contains('is-writing')"))
+
         # 2) far right / bottom, huge: same shape → same pad result
         clear(page)
         w_big = vw * 0.62

@@ -1768,7 +1768,7 @@ var Annotate = (() => {
       // A press on a control (button, swatch, saved signature…) is still a
       // click unless it moves a few px — then it becomes ink (a pen sweeping
       // across the screen). Everywhere else a press starts ink at once.
-      const CONTROL = 'button, input, select, textarea, label, a, .segmented, .swatches, .an-sig-saved, .modal-header, .modal-footer';
+      const CONTROL = 'button, input, select, textarea, label, a, .segmented, .swatches, .an-sig-saved, .modal-footer';
       function width(ev, prev) {
         let w;
         if (ev.pointerType === 'pen') {
@@ -1840,6 +1840,14 @@ var Annotate = (() => {
         if (!onCtl) startInk(e);
       }, true);
       ov.addEventListener('pointermove', e => {
+        // A pen hovering over the writing area (coming back for the next
+        // word) brings the earlier strokes back where they were written.
+        if (!active && mode === 'draw' && e.pointerType === 'pen' && strokes.length &&
+            !(e.target.closest && e.target.closest(CONTROL))) {
+          beginWriting(); schedule();
+          idleT = setTimeout(endWriting, IDLE_MS);
+          return;
+        }
         if (!active || e.pointerId !== active.id) return;
         const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
         for (const ev of (evs.length ? evs : [e])) if (addPoint(ev) && !active.pending) traceTo(ev);
