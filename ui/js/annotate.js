@@ -615,6 +615,30 @@ var Annotate = (() => {
       renderPage(a.page); renderProps(); renderComments(); status();
       return a;
     }
+    // Paste the copied annotation: on the same page a little down-right of the
+    // original (further each time), on another page at the same spot. Kept on
+    // the page; one Undo step; the copy is selected so it can be dragged.
+    function pasteAnn() {
+      if (!_annClip || !doc) return;
+      const src = _annClip.ann, p = Math.min(curPage, pages().length - 1);
+      const pg = pages()[p] || { w: 600, h: 800 };
+      const sameDoc = _annClip.doc === doc;
+      _annClip.doc = doc;
+      const n = (sameDoc && src.page === p) ? ++_annClip.pastes : (_annClip.pastes = 0);
+      const step = 14 * unit(p) * n;
+      let a = translate(src, step, step);
+      a.page = p;
+      const b = bbox(a);
+      // keep it fully on the page
+      const dx = b[2] > pg.w ? pg.w - b[2] : (b[0] < 0 ? -b[0] : 0);
+      const dy = b[3] > pg.h ? pg.h - b[3] : (b[1] < 0 ? -b[1] : 0);
+      if (dx || dy) a = translate(a, Math.max(-b[0], dx), Math.max(-b[1], dy));
+      a.id = newId();
+      a.created = a.modified = nowIso();
+      add(a);
+      setTool('select');
+      select(a.id);
+    }
     function removeIds(ids) {
       if (!ids.length) return;
       snapshot();
@@ -1380,6 +1404,23 @@ var Annotate = (() => {
       if (ctrl && (k === '=' || k === '+')) { handled(); zoomStep(1); return; }
       if (ctrl && k === '-') { handled(); zoomStep(-1); return; }
       if (ctrl && k === '0') { handled(); fitWidth(); return; }
+      // Copy / cut / paste / duplicate the selected annotation (signature, photo,
+      // stamp, shape, note…). Letters compared lower-case (Caps Lock).
+      const lk = (k && k.length === 1) ? k.toLowerCase() : k;
+      if (ctrl && !e.shiftKey && !e.altKey && (lk === 'c' || lk === 'x') && sel && byId(sel) && byId(sel).type !== 'other') {
+        handled();
+        _annClip = { ann: JSON.parse(JSON.stringify(byId(sel))), pastes: 0, doc };
+        if (lk === 'x') { removeIds([sel]); App.toast('Cut — Ctrl+V pastes it', 'info', 1800); }
+        else App.toast('Copied — Ctrl+V pastes it', 'info', 1500);
+        return;
+      }
+      if (ctrl && !e.shiftKey && !e.altKey && lk === 'v' && _annClip) { handled(); pasteAnn(); return; }
+      if (ctrl && !e.shiftKey && !e.altKey && lk === 'd' && sel && byId(sel) && byId(sel).type !== 'other') {
+        handled();
+        _annClip = { ann: JSON.parse(JSON.stringify(byId(sel))), pastes: 0, doc };
+        pasteAnn();
+        return;
+      }
       if (ctrl) return;
       if ((k === 'Delete' || k === 'Backspace') && sel) { handled(); removeIds([sel]); return; }
       if (k === 'Enter' && sel) { const a = byId(sel); if (a && (a.type === 'text' || a.type === 'stamp')) { handled(); editText(a); } return; }
@@ -1569,6 +1610,9 @@ var Annotate = (() => {
   // The saved PNG is cropped tight to the ink (small even margin), transparent
   // and high resolution, so it sits centred in whatever box it is placed in.
   // =========================================================================
+  // Annotation clipboard (Ctrl+C / Ctrl+X → Ctrl+V), shared between editors
+  // so a signature copied in one PDF can be pasted into another.
+  let _annClip = null;
   const SIG = {
     W: 560, H: 190,          // pad size (CSS px)
     PADX: 30, PADY: 26,      // even padding around the fitted ink in the pad
