@@ -78,10 +78,11 @@ class Pen:
         c.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1, **base})
         time.sleep(0.05)
 
-    def sign(self, strokes, pressure=0.6, kind="pen"):
+    def sign(self, strokes, pressure=0.6, kind="pen", pause=True):
         for s in strokes:
             self.stroke(s, pressure, kind)
-        time.sleep(0.12)
+        # the pad shows the centred signature after a short writing pause
+        time.sleep(1.35 if pause else 0.12)
 
 
 # ── measurements in the page ──────────────────────────────────────────────────
@@ -182,8 +183,28 @@ def run(d):
         ok, info = centred_and_fitted(ink_tl)
         R.check("top-left signature centred + fitted in pad", ok, info)
         page.screenshot(path=os.path.join(d, "sig_1_topleft.png"))
-        R.check("trace layer cleared after stroke", page.evaluate(
-            "(() => { const t = document.querySelector('#an-sig-trace'); return !t.width || !t.getContext('2d').getImageData(0,0,t.width,t.height).data.some(v => v) })()"))
+        R.check("after the pause the writing layer is hidden (only the centred copy shows)", page.evaluate(
+            "(() => { const o = document.querySelector('.an-sig-overlay'); return !o.classList.contains('is-writing') && getComputedStyle(document.querySelector('#an-sig-trace')).opacity === '0' })()"))
+
+        # 1b) while writing: ONE copy (where the pen is), earlier strokes stay visible
+        clear(page)
+        strokes = placed(shape, 14, 75, 220)
+        TRACE_N = """(() => { const t = document.querySelector('#an-sig-trace'); const d = t.getContext('2d').getImageData(0, 0, t.width, t.height).data;
+                       let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) n++; return n; })()"""
+        pen.stroke(strokes[0], 0.6); time.sleep(0.15)
+        n1 = page.evaluate(TRACE_N)
+        writing = page.evaluate("document.querySelector('.an-sig-overlay').classList.contains('is-writing')")
+        R.check("while writing: ink shown where the pen is", writing and n1 > 50, n1)
+        R.check("while writing: pad shows no second copy", (pad_ink(page) or {}).get("n", 0) == 0)
+        for s in strokes[1:]:
+            pen.stroke(s, 0.6)
+        time.sleep(0.15)
+        n2 = page.evaluate(TRACE_N)
+        R.check("earlier strokes stay visible for the next letter", n2 > n1 and page.evaluate("document.querySelector('.an-sig-overlay').classList.contains('is-writing')"), f"{n1} -> {n2}")
+        page.screenshot(path=os.path.join(d, "sig_1b_writing.png"))
+        time.sleep(1.35)
+        ok, info = centred_and_fitted(pad_ink(page))
+        R.check("after a pause: centred copy appears in the pad", ok, info)
 
         # 2) far right / bottom, huge: same shape → same pad result
         clear(page)
@@ -206,6 +227,7 @@ def run(d):
         pen.stroke([(vw - 12, vh - 12), (vw - 11, vh - 12)], 0.4)            # tap in the far corner first
         pen.sign(placed(shape, vw * 0.3, vh * 0.35, 300), 0.6)
         pen.stroke([(8, vh - 10), (10, vh - 9)], 0.4)                        # and another one at the end
+        time.sleep(1.35)
         ink_stray = pad_ink(page)
         ok, info = centred_and_fitted(ink_stray)
         R.check("stray far marks ignored (still centred)", ok and all(abs(a - b) <= 3 for a, b in zip(ink_stray["box"], ink_tl["box"])), info)
@@ -230,7 +252,7 @@ def run(d):
         bb = page.query_selector("#an-sig-cancel").bounding_box()
         sx, sy = bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2
         pen.stroke([(sx - i * 6, sy - 40 * math.sin(i / 6)) for i in range(60)], 0.6)
-        time.sleep(0.2)
+        time.sleep(1.35)
         R.check("stroke from Cancel button = ink, dialog stays open",
                 page.evaluate("!!document.querySelector('.an-sig-overlay')") and (pad_ink(page) or {}).get("n", 0) > 50)
         # a plain click on a swatch still works (blue)
@@ -260,6 +282,7 @@ def run(d):
             for p in s[1:]:
                 page.mouse.move(*p)
             page.mouse.up()
+        time.sleep(1.35)
         ok, info = centred_and_fitted(pad_ink(page))
         R.check("mouse signature (in a pad corner) centred", ok, info)
 

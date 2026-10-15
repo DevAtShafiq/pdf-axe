@@ -240,7 +240,11 @@
 .an-sig-overlay.is-draw .modal { cursor: default; }
 .an-sig-overlay.is-draw .an-sig-pad, .an-sig-overlay.is-draw .modal-body { cursor: crosshair; }
 .an-sig-overlay.is-inking, .an-sig-overlay.is-inking * { cursor: crosshair !important; }
-.an-sig-trace { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2; }
+.an-sig-trace { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2;
+  opacity: 0; transition: opacity .25s ease;
+  filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .95)); }   /* dark ink stays visible on dark themes */
+/* while writing: the ink shows once, where the pen is; earlier strokes stay visible */
+.an-sig-overlay.is-writing .an-sig-trace { opacity: 1; transition: none; }
 
 /* The live/ghost preview (shape being drawn, stamp or signature following the
    mouse) must never catch clicks — the click belongs to the page underneath. */

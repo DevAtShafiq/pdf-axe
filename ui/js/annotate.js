@@ -1708,11 +1708,18 @@ var Annotate = (() => {
       const cv = $('#an-sig-canvas'), ctx = cv.getContext('2d');
       const tr = $('#an-sig-trace'), tctx = tr.getContext('2d');
       let mode = 'draw', color = '#111111', strokes = [], active = null, done = false, raf = 0, swallowUntil = 0;
+      // "Writing": while the person signs, the ink shows ONCE, exactly where the
+      // pen is, and every stroke stays visible so the next letter can be placed
+      // next to the last one. The pad's centred version appears only after a
+      // short pause (no second, jumping copy while writing).
+      let writing = false, idleT = 0;
+      const IDLE_MS = 1100;
       const D = Math.max(2, window.devicePixelRatio || 1);
       cv.width = W * D; cv.height = H * D; cv.style.width = W + 'px'; cv.style.height = H + 'px';
       const finish = v => {
         if (done) return; done = true;
         document.removeEventListener('keydown', onKey, true);
+        clearTimeout(idleT);
         cancelAnimationFrame(raf); ov.remove(); resolve(v);
       };
 
@@ -1738,8 +1745,9 @@ var Annotate = (() => {
           const all = current();
           const { kept, dropped } = sigKeep(all);
           const f = sigFit(kept, W, H, SIG.PADX, SIG.PADY);
-          if (f) sigDraw(ctx, kept, f, color);
-          $('#an-sig-ph').classList.toggle('hidden', all.length > 0);
+          if (f && !writing) sigDraw(ctx, kept, f, color);
+          $('#an-sig-ph').textContent = writing ? 'Writing… pause to see it centred here' : 'Sign here';
+          $('#an-sig-ph').classList.toggle('hidden', all.length > 0 && !writing);
           $('.an-sig-line').classList.toggle('hidden', all.length > 0);
           const n = active ? dropped.filter(s => s !== active.s).length : dropped.length;
           note.classList.toggle('hidden', !n);
@@ -1781,22 +1789,45 @@ var Annotate = (() => {
         pts.push([ev.clientX, ev.clientY, width(ev, prev), ev.timeStamp]);
         return true;
       }
-      function traceTo(ev) {
+      const RAW = { sc: 1, ox: 0, oy: 0 };   // window px → window px
+      // Repaint the writing layer: every stroke so far, in ink colour, where it was written.
+      function paintTrace() {
+        const dpr = window.devicePixelRatio || 1;
+        tr.width = Math.round(window.innerWidth * dpr); tr.height = Math.round(window.innerHeight * dpr);
+        tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        tctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        const all = active && !active.pending ? strokes.concat([active.s]) : strokes;
+        sigDraw(tctx, all, RAW, color);
+      }
+      function traceTo() {                    // add the newest segment of the live stroke
         const pts = active.s.pts, n = pts.length;
         if (n < 2) return;
         const a = pts[n - 2], b = pts[n - 1];
+        tctx.strokeStyle = color; tctx.lineCap = 'round'; tctx.lineJoin = 'round';
+        tctx.lineWidth = Math.max(SIG.MINW, b[2]);
         tctx.beginPath(); tctx.moveTo(a[0], a[1]); tctx.lineTo(b[0], b[1]); tctx.stroke();
+      }
+      function beginWriting() {
+        clearTimeout(idleT);
+        if (!writing) {
+          writing = true;
+          ov.classList.add('is-writing');
+          paintTrace();                        // earlier strokes reappear where they were written
+        }
+      }
+      function endWriting() {
+        clearTimeout(idleT);
+        if (!writing) return;
+        writing = false;
+        ov.classList.remove('is-writing');      // the writing layer fades out (CSS)
+        schedule();                             // …and the pad shows the centred signature
       }
       function startInk(e) {
         active.pending = false;
         try { ov.setPointerCapture(active.id); } catch (_) {}
         ov.classList.add('is-inking');
-        const dpr = window.devicePixelRatio || 1;
-        tr.width = Math.round(window.innerWidth * dpr); tr.height = Math.round(window.innerHeight * dpr);
-        tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        tctx.strokeStyle = 'rgba(37, 99, 235, .55)'; tctx.lineWidth = 2; tctx.lineCap = 'round'; tctx.lineJoin = 'round';
-        const pts = active.s.pts;
-        for (let i = 1; i < pts.length; i++) { tctx.beginPath(); tctx.moveTo(pts[i - 1][0], pts[i - 1][1]); tctx.lineTo(pts[i][0], pts[i][1]); tctx.stroke(); }
+        beginWriting();
+        paintTrace();
         if (e) e.preventDefault();
         schedule();
       }
@@ -1823,10 +1854,11 @@ var Annotate = (() => {
         if (!active || e.pointerId !== active.id) return;
         const a = active; active = null;
         ov.classList.remove('is-inking');
-        tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, tr.width, tr.height);
         if (a.pending) return;                                   // it was a plain click
         if (a.fromCtl) swallowUntil = performance.now() + 400;   // not a click on the button it started on
         strokes.push(a.s);
+        // keep the writing visible; show the centred result after a short pause
+        idleT = setTimeout(endWriting, IDLE_MS);
         schedule();
       };
       ov.addEventListener('pointerup', endInk, true);
@@ -1836,7 +1868,7 @@ var Annotate = (() => {
         if (performance.now() < swallowUntil) { e.preventDefault(); e.stopPropagation(); swallowUntil = 0; }
       }, true);
 
-      function undoStroke() { if (strokes.length) { strokes.pop(); schedule(); } }
+      function undoStroke() { if (strokes.length) { strokes.pop(); if (writing) paintTrace(); schedule(); } }
       ov.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
         mode = b.dataset.mode;
         ov.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('active', x === b));
@@ -1853,10 +1885,11 @@ var Annotate = (() => {
         const b = e.target.closest('[data-c]'); if (!b) return;
         color = b.dataset.c;
         $('#an-sig-cols').querySelectorAll('.swatch').forEach(s => s.classList.toggle('active', s === b));
+        if (writing) paintTrace();
         redraw();
       });
       $('#an-sig-undo').addEventListener('click', undoStroke);
-      $('#an-sig-clear').addEventListener('click', () => { if (mode === 'draw') strokes = []; else $('#an-sig-type').value = ''; redraw(); });
+      $('#an-sig-clear').addEventListener('click', () => { if (mode === 'draw') { strokes = []; endWriting(); } else $('#an-sig-type').value = ''; redraw(); });
       $('#an-sig-cancel').addEventListener('click', () => finish(null));
       ov.querySelector('.modal-close').addEventListener('click', () => finish(null));
       const onKey = e => {
