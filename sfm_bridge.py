@@ -1293,6 +1293,45 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         except Exception as exc:
             return _err(str(exc))
 
+    # ── Crop to photo size (passport / visa / ID presets) ──────────────────
+
+    def get_photo_presets(self) -> dict:
+        """Official photo sizes (built-in + the office's photo_presets.json)."""
+        try:
+            import photo_size
+            return _ok(**photo_size.presets(), face=photo_size.face_detector())
+        except Exception as exc:
+            return _err(str(exc))
+
+    def photo_size_save(self, path: str, params: dict) -> dict:
+        """Crop/straighten/resize to the preset → NEW <stem>_<tag>.jpg (+ 4×6 sheet)."""
+        try:
+            import photo_size
+            return _ok(**photo_size.render_photo(path, dict(params or {})))
+        except Exception as exc:
+            _log.error("photo_size_save failed: %s", exc)
+            return _err(str(exc))
+
+    def photo_face_box(self, path: str, rotate: int = 0) -> dict:
+        """Face rectangle (only when a detector is already installed)."""
+        try:
+            import photo_size
+            box = photo_size.face_box(path, int(rotate or 0))
+            return _ok(box=box) if box else _err("No face found" if photo_size.face_detector() else "No face detector installed")
+        except Exception as exc:
+            return _err(str(exc))
+
+    def open_photo_presets_file(self) -> dict:
+        """Create photo_presets.json from a template if missing and open it."""
+        try:
+            import photo_size
+            p = photo_size.write_presets_template()
+            if sys.platform == "win32":
+                os.startfile(p)  # type: ignore[attr-defined]
+            return _ok(path=p)
+        except Exception as exc:
+            return _err(str(exc))
+
     # ── Image compression / format conversion ─────────────────────────────
 
     def compress_image(self, path: str, quality: int = 70, max_edge: int = 0,

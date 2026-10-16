@@ -146,6 +146,7 @@ const ContextMenu = (() => {
       if (window.Annotate && Annotate.canAnnotate(mainPath)) _item(menu, 'annotate', 'Annotate…', 'Ctrl+Shift+A', () => { hide(); Annotate.open(mainPath); });
       if (window.Annotate && Annotate.canAnnotate(mainPath) && !multi) _item(menu, 'signature', 'Sign…', 'Ctrl+Shift+S', () => { hide(); Details.sign(mainPath); });
       _item(menu, 'crop', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
+      if (typeof PhotoSize !== 'undefined') _item(menu, 'user', 'Crop to photo size…', '', () => { hide(); PhotoSize.open(mainPath); });
       _item(menu, 'shirt', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
     }
 

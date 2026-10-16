@@ -211,6 +211,10 @@ const SFM = (() => {
     // Image
     cropImage:          (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),
+    getPhotoPresets:     ()                                => call('get_photo_presets'),
+    photoSizeSave:       (path, params)                    => call('photo_size_save', path, params),
+    photoFaceBox:        (path, rotate=0)                  => call('photo_face_box', path, rotate),
+    openPhotoPresetsFile: ()                               => call('open_photo_presets_file'),
     compressImage:       (path, quality=70, maxEdge=0, fmt='', out='', targetKb=0, saveSmallest=true) => call('compress_image', path, quality, maxEdge, fmt, out, targetKb, saveSmallest),
     compressImages:      (paths, quality=70, maxEdge=0, fmt='', targetKb=0)        => call('compress_images', paths, quality, maxEdge, fmt, targetKb),
     convertImage:        (path, fmt, out='', quality=92)               => call('convert_image', path, fmt, out, quality),

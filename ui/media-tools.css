@@ -148,3 +148,27 @@
 .cmp-tag-r { right: var(--space-2); }
 .cmp-controls { display: flex; align-items: center; gap: var(--space-3); }
 .cmp-range { flex: 1; accent-color: var(--accent); }
+
+/* ── Crop to photo size (photo-size.js) ─────────────────────── */
+.ps-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ps-stage { min-height: 0; }
+.ps-side {
+  width: 300px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid var(--border);
+  background: var(--bg-panel); display: flex; flex-direction: column;
+}
+.ps-sec { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+.ps-lbl { font-size: var(--fs-sm); color: var(--text-muted); font-weight: var(--fw-medium); }
+.ps-val { color: var(--text-primary); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.ps-spec { font-size: var(--fs-sm); color: var(--text-primary); line-height: 1.45; }
+.ps-note { color: var(--text-muted); font-size: var(--fs-xs); margin-top: 2px; }
+.ps-custom { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ps-custom .input-text { width: 58px; height: var(--control-h-sm); }
+.ps-row { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.ps-range { flex: 1; min-width: 0; accent-color: var(--accent); }
+.ps-check { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-primary); cursor: pointer; }
+.ps-inline { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-primary); }
+.ps-inline .input-text { width: 84px; height: var(--control-h-sm); }
+.ps-muted { color: var(--text-muted); font-size: var(--fs-xs); }
+.ps-edit { align-self: flex-start; font-size: var(--fs-xs); }
+.ps-out { font-size: var(--fs-xs); color: var(--text-muted); }
+.crop-ro.ps-warn { color: var(--yellow); font-family: var(--font); }
