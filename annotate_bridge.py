@@ -168,11 +168,13 @@ class AnnotateBridgeMixin:
         except Exception as exc:
             return _err(str(exc))
 
-    # ── signature → PNG file in "<root>\Signature" ───────────────────────────
+    # ── signature → PNG file in "<folder of the PDF>\signature" ──────────────
     @staticmethod
     def _signature_dir(hint: str) -> str:
-        """'Signature' folder at the root of *hint*'s drive / share
-        (E:\\Docs\\x → E:\\Signature); the user's Documents when there is no hint."""
+        """'signature' folder next to the document being signed:
+        *hint* is that PDF / image (E:\\Docs\\form.pdf → E:\\Docs\\signature)
+        or a folder (E:\\Docs → E:\\Docs\\signature); the user's Documents
+        when there is no hint."""
         override = os.environ.get("SFM_SIGNATURE_DIR")      # tests only
         if override:
             return os.path.abspath(override)
@@ -180,14 +182,35 @@ class AnnotateBridgeMixin:
         if hint:
             import ntpath
             import re
-            if re.match(r"^([A-Za-z]:|\\\\)", hint):      # Windows path (also parsed right off Windows)
-                drive, _ = ntpath.splitdrive(hint)
-                if drive:
-                    return ntpath.join(drive + "\\", "Signature")
-            drive, _ = os.path.splitdrive(os.path.abspath(hint))
-            if drive:
-                return os.path.join(drive + os.sep, "Signature")
-        return os.path.join(os.path.expanduser("~"), "Documents", "Signature")
+            # a Windows path is parsed as one also off Windows (CI)
+            pm = ntpath if (os.name == "nt" or re.match(r"^([A-Za-z]:|\\\\)", hint)) else os.path
+            if len(hint) > 3:
+                hint = hint.rstrip("\\/") if pm is ntpath else hint.rstrip("/")
+            if os.path.isdir(hint):
+                folder = hint
+            elif os.path.isfile(hint) or pm.splitext(pm.basename(hint))[1]:
+                folder = pm.dirname(hint)            # a file → its folder
+            else:
+                folder = hint
+            if re.fullmatch(r"[A-Za-z]:", folder or ""):
+                folder += "\\"
+            if folder:
+                return pm.join(folder, "signature")
+        return os.path.join(os.path.expanduser("~"), "Documents", "signature")
+
+    @staticmethod
+    def _signature_stem(name: str) -> str:
+        """Cleaned '<name>_signature' (the suffix is never doubled); '' if empty."""
+        import re
+        stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(name or "")).strip().rstrip(". ")
+        if stem.lower().endswith(".png"):
+            stem = stem[:-4].rstrip(". ")
+        if not stem:
+            return ""
+        stem = stem[:140].rstrip(". ")
+        if not stem.lower().endswith("_signature"):
+            stem += "_signature"
+        return stem
 
     def annot_signature_folder(self, hint: str = "") -> dict:
         try:
@@ -197,28 +220,30 @@ class AnnotateBridgeMixin:
             return _err(str(exc))
 
     def annot_signature_save_png(self, data_url: str, name: str, hint: str = "") -> dict:
-        """Write the signature as '<root>\\Signature\\<name>.png' (folder created
-        if needed; an existing file is never overwritten — 'name (2).png')."""
+        """Write the signature as '<folder of the PDF>\\signature\\<name>_signature.png'
+        (*hint* = the PDF / image being signed, or a folder; the folder is
+        created if needed; an existing file is never overwritten —
+        'name_signature (2).png')."""
         import base64
-        import re
         try:
             if not (isinstance(data_url, str) and data_url.startswith("data:image/png;base64,")):
                 return _err("Not a PNG signature")
-            stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(name or "")).strip().rstrip(". ")
-            if stem.lower().endswith(".png"):
-                stem = stem[:-4].rstrip(". ")
+            raw = str(name or "").strip().rstrip(". ")
+            if raw.lower().endswith(".png"):
+                raw = raw[:-4].rstrip(". ")
+            if raw.split(".")[0].strip().upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                                                    *(f"LPT{i}" for i in range(1, 10))}:
+                return _err(f"'{raw}' is a reserved Windows name")
+            stem = self._signature_stem(raw)
             if not stem:
                 return _err("Enter a name for the signature")
-            if stem.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
-                                              *(f"LPT{i}" for i in range(1, 10))}:
-                return _err(f"'{stem}' is a reserved Windows name")
             data = base64.b64decode(data_url.split(",", 1)[1], validate=True)
             if not data.startswith(b"\x89PNG"):
                 return _err("Not a PNG signature")
             folder = self._signature_dir(hint)
             os.makedirs(folder, exist_ok=True)
             from pdf_tools import _write_new
-            out = _write_new(os.path.join(folder, stem[:150] + ".png"), data)
+            out = _write_new(os.path.join(folder, stem + ".png"), data)
             _log.info("signature saved as %s", out)
             return _ok(path=out, folder=folder, name=os.path.basename(out))
         except Exception as exc:

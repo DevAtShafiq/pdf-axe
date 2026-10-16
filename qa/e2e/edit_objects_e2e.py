@@ -151,7 +151,7 @@ def run(d):
         shot(page, "01_open")
         n = page.evaluate("document.querySelectorAll('.pe-obj').length")
         R.check("objects shown on the page", n == 5, n)
-        R.check("rail item renamed", "Edit text & objects" in page.text_content(".st-tool[data-id=edit]"))
+        R.check("rail item renamed", page.text_content(".st-tool[data-id=edit]").strip() == "Edit")
 
         # ── hover + click selects a picture ───────────────────────────────
         x, y = pt(page, 120, 100)

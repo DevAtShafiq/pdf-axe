@@ -163,6 +163,27 @@ def test_finish_custom_path_and_bad_folder(tmp_path):
     assert e.value.code == "bad_folder"
 
 
+def test_finish_signed_into_new_signature_folder(tmp_path):
+    """Signed PDFs: '<folder of the PDF>\\signature\\<stem>_signature.pdf',
+    the folder created on demand (one level only), never overwritten."""
+    src = _pdf(tmp_path / "form.pdf")
+    r = ps.begin(src)
+    target = tmp_path / "signature" / "form_signature.pdf"
+    out = ps.finish(r["work"], src, out_path=str(target), make_dir=True)
+    assert out["out_path"] == str(target) and os.path.isfile(target)
+    assert "Hello Studio" in _text(out["out_path"])
+    out2 = ps.finish(r["work"], src, out_path=str(target), make_dir=True)
+    assert out2["out_path"] == str(tmp_path / "signature" / "form_signature (2).pdf")
+    # only one missing level is created
+    with pytest.raises(ps.StudioError) as e:
+        ps.finish(r["work"], src, out_path=str(tmp_path / "a" / "b" / "x.pdf"), make_dir=True)
+    assert e.value.code == "bad_folder" and not (tmp_path / "a").exists()
+    # without make_dir a missing folder is still an error
+    with pytest.raises(ps.StudioError):
+        ps.finish(r["work"], src, out_path=str(tmp_path / "other" / "x.pdf"))
+    assert not (tmp_path / "other").exists()
+
+
 def test_finish_over_original_backs_up(tmp_path):
     src = _pdf(tmp_path / "doc.pdf")
     before = open(src, "rb").read()

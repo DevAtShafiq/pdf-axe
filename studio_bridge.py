@@ -57,7 +57,7 @@ class StudioBridgeMixin:
         return self._studio_run("Read step", _ps.step_info, work)
 
     def studio_finish(self, work: str, original: str, opts: dict | None = None) -> dict:
-        """opts: {mode:'new'|'over', out_path, target_kb, password}
+        """opts: {mode:'new'|'over', out_path, target_kb, password, make_dir}
         → {out_path, backup, replaced, size, compress, protected}. Never
         overwrites except mode 'over', which first copies the original into
         _to_review/."""
@@ -69,4 +69,5 @@ class StudioBridgeMixin:
                                 out_path=str(opts.get("out_path") or ""), replace=replace,
                                 target_kb=float(opts.get("target_kb") or 0),
                                 password=str(opts.get("password") or ""),
+                                make_dir=bool(opts.get("make_dir")),
                                 release_handles=_release_handles)

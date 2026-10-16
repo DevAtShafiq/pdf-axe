@@ -89,6 +89,7 @@
 .st-fields.is-dim { opacity: .5; }
 .st-over-note { display: flex; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-secondary); }
 .st-over-note svg { flex-shrink: 0; margin-top: 2px; }
+.st-sign-note b { word-break: break-all; color: var(--text-primary); }
 .st-opt { display: flex; flex-direction: column; gap: var(--space-2); }
 .st-sub { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; padding-left: var(--space-1); }
 #st-pw-rows { flex-direction: column; align-items: stretch; }
