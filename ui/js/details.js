@@ -203,6 +203,8 @@ const Details = (() => {
     });
     const crop = $('ai-crop');
     if (crop) crop.addEventListener('click', () => { if (_path) Cropper.open(_path); });
+    const psz = $('ai-photo-size');
+    if (psz) psz.addEventListener('click', () => { if (_path && window.PhotoSize) PhotoSize.open(_path); });
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
