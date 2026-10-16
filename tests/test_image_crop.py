@@ -116,3 +116,23 @@ def test_bridge_crop(tmp_path):
     r = b.crop_image(str(src), 200, 0, 200, 150, "", 0)
     assert r["ok"] and r["out"].endswith("p_cropped.jpg")
     assert b.crop_image(str(tmp_path / "x.jpg"), 0, 0, 1, 1)["ok"] is False
+
+
+def test_official_photo_size_exact_pixels_dpi_and_size_limit(tmp_path):
+    import random
+    src = tmp_path / "face.png"
+    im = Image.new("RGB", (1600, 1200))
+    rnd = random.Random(1)
+    im.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256)) for _ in range(1600 * 1200)])
+    im.save(src)
+    out = tmp_path / "face_passport_35x45.jpg"
+    ok, p = image_crop.crop_image(str(src), 380, 60, 840, 1080, 0, str(out), 413, 531, 300)
+    assert ok and p == str(out)
+    with Image.open(p) as o:
+        assert o.size == (413, 531) and o.format == "JPEG" and round(o.info["dpi"][0]) == 300
+    ok, p = image_crop.crop_image(str(src), 200, 0, 1200, 1200, 0, str(tmp_path / "us.jpg"), 600, 600, 300, 240)
+    assert ok and os.path.getsize(p) <= 240 * 1024
+    with Image.open(p) as o:
+        assert o.size == (600, 600)
+    ok, msg = image_crop.crop_image(str(src), 0, 0, 100, 100, 0, str(tmp_path / "x.jpg"), 20000, 20000)
+    assert not ok

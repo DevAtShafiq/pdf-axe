@@ -48,6 +48,20 @@ const Cropper = (() => {
     { key: '16:9',  label: '16:9',     r: 16 / 9 },
     { key: 'custom', label: 'Custom',  r: 'custom' },
   ];
+  // Official photo sizes: the crop is resized to exactly these pixels (300 dpi)
+  // and saved as a new JPG named <photo>_<slug>.jpg.
+  const MM = mm => Math.round(mm / 25.4 * 300);
+  const PROFILES = [
+    { key: 'p3545',  slug: 'passport_35x45', label: 'Passport / visa / ID 35×45 mm (most countries)', mm: [35, 45] },
+    { key: 'us2x2',  slug: 'US_2x2in',       label: 'US passport / visa 2×2 in (≤ 240 KB)', mm: [50.8, 50.8], px: [600, 600], maxKb: 240 },
+    { key: 'k3040',  slug: 'resume_3x4cm',   label: 'Resume / application 3×4 cm', mm: [30, 40] },
+    { key: 'c3348',  slug: 'china_visa_33x48', label: 'China visa 33×48 mm', mm: [33, 48] },
+    { key: 'ca5070', slug: 'canada_50x70',   label: 'Canada passport / visa 50×70 mm', mm: [50, 70] },
+    { key: 'i2x2',   slug: 'india_visa_2x2in', label: 'India visa 2×2 in', mm: [50.8, 50.8] },
+    { key: 's2025',  slug: 'stamp_20x25',    label: 'Stamp size 20×25 mm', mm: [20, 25] },
+    { key: 'p4555',  slug: '45x55',          label: '45×55 mm', mm: [45, 55] },
+    { key: 'p4050',  slug: '40x50',          label: '40×50 mm', mm: [40, 50] },
+  ].map(p => ({ ...p, px: p.px || [MM(p.mm[0]), MM(p.mm[1])] }));
   const MIN = 8;          // minimum crop size in full-resolution px
   const HANDLE = 9;       // handle hit radius in screen px
 
@@ -75,6 +89,14 @@ const Cropper = (() => {
     const body = root.querySelector('.modal-body');
     body.style.cssText = 'padding:0;display:flex;flex-direction:column;flex:1;min-height:0;gap:0;';
     body.innerHTML = `
+      <div class="crop-bar crop-bar-size">
+        <span class="crop-lbl">Photo size</span>
+        <select class="input-text crop-profile" id="cr-prof-${id}" aria-label="Official photo size">
+          <option value="">Any size (keep the crop as it is)</option>
+          ${PROFILES.map(p => `<option value="${p.key}">${p.label}</option>`).join('')}
+        </select>
+        <span class="crop-prof-out" id="cr-pout-${id}"></span>
+      </div>
       <div class="crop-bar">
         <span class="crop-lbl">Aspect</span>
         <div class="segmented crop-presets" role="radiogroup" aria-label="Aspect ratio">
@@ -107,6 +129,7 @@ const Cropper = (() => {
     let rect = { x: 0, y: 0, w: W, h: H };
     let ratio = null;                    // w/h or null
     let presetKey = 'free';
+    let profile = null;                  // an official size from PROFILES, or null
     let view = { s: 1, dw: 0, dh: 0 };   // display scale (screen px per full px)
     let drag = null;
     let rotated = null;                  // preview canvas rotated by `rot`
@@ -159,7 +182,9 @@ const Cropper = (() => {
       readout.innerHTML = seg('Selection', `${Math.round(rect.w)} × ${Math.round(rect.h)} px`) +
         seg('Position', `${Math.round(rect.x)}, ${Math.round(rect.y)}`) +
         seg('Image', `${W} × ${H}${rot ? ` · rotated ${rot}°` : ''}`) +
-        (ratio ? seg('Ratio', (rect.w / rect.h).toFixed(3)) : '');
+        (ratio ? seg('Ratio', (rect.w / rect.h).toFixed(3)) : '') +
+        (profile ? seg('Saved as', `${profile.px[0]} × ${profile.px[1]} px · 300 dpi` +
+          (rect.w < profile.px[0] * 0.8 ? ' · <span class="crop-warn">low resolution: select a bigger area</span>' : '')) : '');
       saveBtn.disabled = rect.w < 1 || rect.h < 1;
     }
 
@@ -291,7 +316,23 @@ const Cropper = (() => {
       const a = parseFloat($('cr-cw').value), b = parseFloat($('cr-ch').value);
       return (a > 0 && b > 0) ? a / b : null;
     }
+    function setProfile(key) {
+      profile = PROFILES.find(p => p.key === key) || null;
+      $('cr-prof').value = profile ? profile.key : '';
+      $('cr-pout').textContent = profile ? `→ ${profile.px[0]} × ${profile.px[1]} px JPG` : '';
+      saveBtn.lastChild.textContent = profile ? 'Save photo' : 'Save as new file';
+      if (!profile) { setPreset('free'); return; }
+      presetKey = 'profile';
+      ratio = profile.px[0] / profile.px[1];
+      root.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
+      $('cr-flip').disabled = true;
+      $('cr-custom').style.display = 'none';
+      rect = fitRect(ratio, 0.9);
+      draw();
+    }
+    $('cr-prof').addEventListener('change', e => setProfile(e.target.value));
     function setPreset(key, keepRect) {
+      if (profile && key !== 'profile') { profile = null; $('cr-prof').value = ''; $('cr-pout').textContent = ''; saveBtn.lastChild.textContent = 'Save as new file'; }
       presetKey = key;
       const p = PRESETS.find(x => x.key === key);
       ratio = p.r === 'orig' ? W / H : p.r === 'custom' ? customRatio() : p.r;
@@ -320,7 +361,8 @@ const Cropper = (() => {
       W = oH; H = oW;
       rect = dir > 0 ? { x: oH - (r.y + r.h), y: r.x, w: r.h, h: r.w }
                      : { x: r.y, y: oW - (r.x + r.w), w: r.h, h: r.w };
-      if (ratio) ratio = (presetKey === 'orig') ? W / H : 1 / ratio;
+      if (ratio && presetKey !== 'profile') ratio = (presetKey === 'orig') ? W / H : 1 / ratio;
+      if (presetKey === 'profile') rect = fitRect(ratio, 0.9);
       buildRotated(); layout();
     }
     $('cr-rl').addEventListener('click', () => rotate(-90));
@@ -377,7 +419,15 @@ const Cropper = (() => {
       saveBtn.disabled = true; saveBtn.classList.add('is-loading');
       const x = Math.round(rect.x), y = Math.round(rect.y);
       const w = Math.round(rect.x + rect.w) - x, h = Math.round(rect.y + rect.h) - y;
-      const r = await SFM.cropImage(path, x, y, w, h, '', rot).catch(e => ({ ok: false, error: String(e) }));
+      let out = '', size = null;
+      if (profile) {
+        const p = String(path);
+        const cut = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'));
+        const stem = p.slice(cut + 1).replace(/\.[^.]+$/, '');
+        out = p.slice(0, cut + 1) + `${stem}_${profile.slug}.jpg`;
+        size = { w: profile.px[0], h: profile.px[1], dpi: 300, maxKb: profile.maxKb || 0 };
+      }
+      const r = await SFM.cropImage(path, x, y, w, h, out, rot, size).catch(e => ({ ok: false, error: String(e) }));
       saving = false;
       if (r && r.ok) {
         App.toast('Cropped → ' + PhotoTools.esc(PhotoTools.base(r.out)), 'success', 4000);

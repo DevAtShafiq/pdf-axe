@@ -1274,13 +1274,16 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             return _err(str(exc))
 
     def crop_image(self, path: str, x: int, y: int, w: int, h: int, out_path: str = "",
-                   rotate: int = 0) -> dict:
+                   rotate: int = 0, out_w: int = 0, out_h: int = 0, dpi: int = 0,
+                   max_kb: int = 0) -> dict:
         """Crop at full resolution (EXIF-upright, then *rotate*° clockwise) into a
         NEW file <name>_cropped<ext>; (x, y, w, h) are full-size pixels."""
         try:
             import image_crop
             ok, result = image_crop.crop_image(path, int(x), int(y), int(w), int(h),
-                                               int(rotate or 0), out_path or "")
+                                               int(rotate or 0), out_path or "",
+                                               int(out_w or 0), int(out_h or 0),
+                                               int(dpi or 0), int(max_kb or 0))
             return _ok(out=result) if ok else _err(result)
         except Exception as exc:
             return _err(str(exc))
