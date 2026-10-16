@@ -5,7 +5,7 @@
  *                                     | any Annotate tool id | 'pages')
  *   Studio.isOpen()
  *
- * Left: the tool rail (Read & copy · Edit text · Comment · Fill & sign · Pages).
+ * Left: the tool rail (Read & copy · Edit · Comment · Fill & sign · Pages).
  * Middle: the active tool. The existing editors (annotate.js, pdf-edit.js and
  * the page arranger in pdf-tools.js) run "embedded" here without their own
  * title and save bars.
@@ -36,7 +36,7 @@ var Studio = (() => {
       { id: 'read', mode: 'read', icon: 'text-select', label: 'Read & copy', hint: 'Select text and copy it · Ctrl+A selects a page' },
     ]],
     ['Edit', [
-      { id: 'edit', mode: 'edit', tool: 'select', icon: 'file-pen', label: 'Edit text & objects', hint: 'Click text to change it, or a picture, shape or line to move, resize, recolour or delete it' },
+      { id: 'edit', mode: 'edit', tool: 'select', icon: 'file-pen', label: 'Edit', hint: 'Click text to change it, or a picture, shape or line to move, resize, recolour or delete it' },
       { id: 'add-text', mode: 'edit', tool: 'add', icon: 'type', label: 'Add text', hint: 'Click on the page to add a new line of text' },
       { id: 'add-image', mode: 'edit', tool: 'image', icon: 'image', label: 'Add image', hint: 'Place a picture on the page, then move or resize it' },
     ]],

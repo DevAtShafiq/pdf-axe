@@ -8,6 +8,9 @@
  *                                and open() resolves to a controller (see the end
  *                                of open()). Save, close and "nothing left to
  *                                undo" go to embed.onKey('save'|'close'|'undo'|'redo').
+ *                                embed.docPath = the real PDF (the Studio edits
+ *                                a working copy): "Save as PNG…" in the
+ *                                signature pad saves next to it.
  *
  * Tools: select (V), highlight (H), underline (U), strikeout (S), squiggly,
  * pen (P), rectangle (R), ellipse (O), arrow (A), line (L), text box (T),
@@ -229,6 +232,10 @@ var Annotate = (() => {
     let doc = null;                 // annot_load result
     let anns = [];
     let initialSig = '[]';
+    let initialIds = new Set();     // annotations the file already had
+    // The document being signed: the real PDF in the Studio (path is a
+    // working copy there), else the image's original (sidecar layer) or path.
+    const docPath = () => (embed && embed.docPath) || (doc && doc.source) || path;
     let tool = 'select', sel = null, editing = null;
     let zoom = 1, curPage = 0;
     let undoStack = [], redoStack = [];
@@ -1094,7 +1101,7 @@ var Annotate = (() => {
       setTool('select');
     }
     async function openSignaturePad() {
-      const url = await signaturePad();
+      const url = await signaturePad({ docPath: docPath() });
       if (!url) return;
       const img = new Image();
       img.onload = () => { pendingSig = { url, ratio: img.width / Math.max(1, img.height) }; setTool('signature', true); };
@@ -1562,6 +1569,8 @@ var Annotate = (() => {
       page: () => curPage, goPage: p => goPage(p),
       tool: t => { const b = ov.querySelector(`.an-tool[data-tool="${t}"]`); if (b) b.click(); },
       busy: () => busy,
+      // true when a signature was placed in this editor (not one the file already had)
+      signed: () => anns.some(a => a.type === 'signature' && !initialIds.has(a.id)),
     };
 
     // ── load ───────────────────────────────────────────────────────────────
@@ -1573,6 +1582,7 @@ var Annotate = (() => {
     doc = r;
     anns = (r.annotations || []).map((a, i) => ({ ...a, id: a.id || ('l' + i) }));
     initialSig = sig();
+    initialIds = new Set(anns.map(a => a.id));
     const ext = r.kind === 'pdf' ? '.pdf' : extOf(path);
     $('#an-name').value = stemOf(r.source || path).replace(/_annotated( \(\d+\))?$/, '') + '_annotated';
     $('#an-ext').textContent = ext + ' in';
@@ -1708,7 +1718,10 @@ var Annotate = (() => {
     return out.toDataURL('image/png');
   }
 
-  function signaturePad() {
+  // opts.docPath: the PDF (or image) being signed — "Save as PNG…" saves into
+  // '<its folder>\signature\<name>_signature.png'.
+  function signaturePad(opts = {}) {
+    const sigDoc = String((opts && opts.docPath) || '');
     return new Promise(async resolve => {
       const { W, H } = SIG;
       const ov = document.createElement('div');
@@ -1988,19 +2001,20 @@ var Annotate = (() => {
         finish(url);
       });
 
-      // Save as PNG → "<root of the folder you are in>\Signature\<name>.png"
+      // Save as PNG → "<folder of the PDF being signed>\signature\<name>_signature.png"
+      // (no document: the folder you are in)
       $('#an-sig-png').addEventListener('click', async () => {
         const url = mode === 'draw' ? sigExport(strokes, color) : typedPng();
         if (!url) { App.toast(mode === 'draw' ? 'Draw your signature first' : 'Type your name first', 'warning'); return; }
-        let hint = '';
-        try { hint = (FileTree.getCurrentFolder && FileTree.getCurrentFolder()) || ''; } catch (_) {}
+        let hint = sigDoc;
+        if (!hint) { try { hint = (FileTree.getCurrentFolder && FileTree.getCurrentFolder()) || ''; } catch (_) {} }
         const f = await SFM.annotSignatureFolder(hint).catch(() => null);
-        const folder = (f && f.ok && f.folder) || 'Signature';
+        const folder = (f && f.ok && f.folder) || 'signature';
         const typed = mode === 'type' ? $('#an-sig-type').value.trim() : '';
         const name = await Dialogs.ask({
           title: 'Save signature as PNG', icon: 'signature', okLabel: 'Save', okIcon: 'download',
-          label: 'Name', value: typed || 'My signature', placeholder: 'e.g. Shafiq signature',
-          hint: `Saved in ${folder}${f && f.ok && !f.exists ? ' (the folder is created)' : ''}`,
+          label: 'Name', value: (sigDoc && stemOf(sigDoc)) || typed || 'My', placeholder: 'e.g. Shafiq',
+          hint: `Saved as “name_signature.png” in ${folder}${f && f.ok && !f.exists ? ' (the folder is created)' : ''}`,
           validate: v => !v ? 'Enter a name' : (/[<>:"/\\|?*]/.test(v) ? 'A name cannot contain < > : " / \\ | ? *' : ''),
         });
         if (!name) return;
