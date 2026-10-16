@@ -209,7 +209,8 @@ const SFM = (() => {
     studioStepInfo:      (work)                    => call('studio_step_info', work),
     studioFinish:        (work, original, opts={}) => call('studio_finish', work, original, opts),
     // Image
-    cropImage:          (path, x, y, w, h, out='', rotate=0) => call('crop_image', path, x, y, w, h, out, rotate),
+    cropImage:          (path, x, y, w, h, out='', rotate=0, size=null) => call('crop_image', path, x, y, w, h, out, rotate,
+                          size ? size.w : 0, size ? size.h : 0, size ? size.dpi : 0, size ? (size.maxKb || 0) : 0),
     getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),
     compressImage:       (path, quality=70, maxEdge=0, fmt='', out='', targetKb=0, saveSmallest=true) => call('compress_image', path, quality, maxEdge, fmt, out, targetKb, saveSmallest),
     compressImages:      (paths, quality=70, maxEdge=0, fmt='', targetKb=0)        => call('compress_images', paths, quality, maxEdge, fmt, targetKb),

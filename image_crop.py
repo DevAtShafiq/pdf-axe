@@ -98,11 +98,15 @@ def crop_source(path: str, max_dim: int = PREVIEW_MAX) -> dict:
 
 
 def crop_image(path: str, x: int, y: int, w: int, h: int,
-               rotate: int = 0, out_path: str = "") -> tuple:
+               rotate: int = 0, out_path: str = "",
+               out_w: int = 0, out_h: int = 0, dpi: int = 0, max_kb: int = 0) -> tuple:
     """Crop (after EXIF orientation and *rotate* degrees clockwise) and save a new file.
 
     (x, y, w, h) are full-resolution pixels of the oriented+rotated image and
-    are clamped to its bounds. Returns (True, saved_path) or (False, message).
+    are clamped to its bounds. With *out_w*/*out_h* (an official photo size)
+    the crop is resized to exactly that many pixels and tagged with *dpi*;
+    *max_kb* lowers JPEG quality until the file fits (upload limits).
+    Returns (True, saved_path) or (False, message).
     """
     try:
         if not path or not os.path.isfile(path):
@@ -123,6 +127,11 @@ def crop_image(path: str, x: int, y: int, w: int, h: int,
             return False, "Crop area is empty"
 
         out = img.crop((x0, y0, x1, y1))
+        out_w, out_h, dpi, max_kb = int(out_w or 0), int(out_h or 0), int(dpi or 0), int(max_kb or 0)
+        if out_w > 0 and out_h > 0:
+            if out_w > 10000 or out_h > 10000:
+                return False, "Output size is too large"
+            out = out.resize((out_w, out_h), Image.LANCZOS)
 
         # Output path — never the original, never an existing file.
         if out_path and out_path.strip():
@@ -141,9 +150,9 @@ def crop_image(path: str, x: int, y: int, w: int, h: int,
         icc = img.info.get("icc_profile")
         if icc and fmt in ("JPEG", "PNG", "WEBP", "TIFF"):
             kw["icc_profile"] = icc
-        dpi = img.info.get("dpi")
-        if dpi and fmt in ("JPEG", "PNG", "TIFF"):
-            kw["dpi"] = dpi
+        src_dpi = (dpi, dpi) if dpi > 0 else img.info.get("dpi")
+        if src_dpi and fmt in ("JPEG", "PNG", "TIFF"):
+            kw["dpi"] = src_dpi
         if fmt == "JPEG":
             if out.mode in ("RGBA", "LA", "P"):
                 rgba = out.convert("RGBA")
@@ -165,6 +174,15 @@ def crop_image(path: str, x: int, y: int, w: int, h: int,
             out = out.convert("RGB")
         buf = io.BytesIO()
         out.save(buf, format=fmt, **kw)
+        if max_kb > 0 and fmt == "JPEG":
+            q = kw.get("quality", 95)
+            while buf.tell() > max_kb * 1024 and q > 30:
+                q -= 5
+                kw.update(quality=q, subsampling=2)
+                buf = io.BytesIO()
+                out.save(buf, format=fmt, **kw)
+            if buf.tell() > max_kb * 1024:
+                return False, f"Could not get the photo under {max_kb} KB"
         for _ in range(1000):                   # exclusive create: never clobbers
             try:
                 with open(save_path, "xb") as f:

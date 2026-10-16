@@ -68,6 +68,10 @@
 }
 .crop-lbl { font-size: var(--fs-sm); color: var(--text-muted); }
 .crop-presets .seg-btn { white-space: nowrap; }
+.crop-bar-size { border-bottom: 0; padding-bottom: 0; }
+.crop-profile { width: auto; max-width: 440px; height: var(--control-h-sm); }
+.crop-prof-out { color: var(--text-muted); font-size: var(--fs-sm); white-space: nowrap; }
+.crop-warn { color: var(--warning, #d97706); }
 .crop-custom { display: inline-flex; align-items: center; gap: var(--space-1); }
 .crop-custom .input-text { width: 52px; height: var(--control-h-sm); text-align: center; }
 .crop-stage {
