@@ -141,7 +141,7 @@ const ContextMenu = (() => {
     if (isImg) {
       if (window.Annotate && Annotate.canAnnotate(mainPath)) _item(menu, 'annotate', 'Annotate…', 'Ctrl+Shift+A', () => { hide(); Annotate.open(mainPath); });
       _item(menu, 'crop', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
-      if (window.PhotoSize) _item(menu, 'user', 'Crop to photo size…', '', () => { hide(); PhotoSize.open(mainPath); });
+      if (typeof PhotoSize !== 'undefined') _item(menu, 'user', 'Crop to photo size…', '', () => { hide(); PhotoSize.open(mainPath); });
       _item(menu, 'shirt', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
     }
 

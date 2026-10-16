@@ -557,6 +557,8 @@ const PhotoSize = (() => {
     const first = prefs.preset && (prefs.preset === 'custom' || prefs.preset === 'free' || PRESETS.some(p => p.key === prefs.preset))
       ? prefs.preset : (PRESETS[0] ? PRESETS[0].key : 'free');
 
+    // read-only state for the E2E test (qa/e2e/photo_crop_e2e.py)
+    root._psState = () => ({ rect: { ...rect }, Wf, Hf, W, H, rot, angle, key, ratio, scale: view.s, ready: !!rotated });
     img.onload = () => { buildRotated(); setPreset(first, false); layout(); canvas.focus(); };
     img.onerror = () => App.toast('Could not display the image preview', 'error');
     img.src = src.data_url;
