@@ -63,6 +63,7 @@ datas = [
     ("qr_scan.py",           "."),
     ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
     ("image_crop.py",        "."),
+    ("photo_size.py",        "."),   # Crop to photo size (passport / visa presets)
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
     ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
@@ -102,6 +103,7 @@ hiddenimports = [
     "qr_scan",
     "qr_pick",
     "image_crop",
+    "photo_size",
     "archive_tools",
     "archive_bridge",
     "recorder_bridge",
