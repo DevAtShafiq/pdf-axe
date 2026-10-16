@@ -157,7 +157,8 @@ def step_info(work: str) -> dict:
 
 
 def finish(work: str, original: str, *, out_path: str = "", replace: bool = False,
-           target_kb: float = 0, password: str = "", release_handles=None) -> dict:
+           target_kb: float = 0, password: str = "", release_handles=None,
+           make_dir: bool = False) -> dict:
     """Write the Studio result.
 
     replace=False → a NEW file at *out_path* (a free name is chosen if taken).
@@ -165,6 +166,9 @@ def finish(work: str, original: str, *, out_path: str = "", replace: bool = Fals
     target_kb > 0 → compress to at most that size first (kept as is when it
                     can't get smaller; 'compress' in the result says what happened).
     password      → protect the result (AES-256).
+    make_dir      → create the output folder when it is missing (one level,
+                    e.g. the "signature" folder next to the PDF; its parent
+                    must exist).
     → {out_path, backup, replaced, size, compress, protected}
     """
     w = _check_work(work)
@@ -197,7 +201,10 @@ def finish(work: str, original: str, *, out_path: str = "", replace: bool = Fals
         target = os.path.abspath(target)
         if not target.lower().endswith(".pdf"):
             target += ".pdf"
-        if not os.path.isdir(os.path.dirname(target)):
+        out_dir = os.path.dirname(target)
+        if make_dir and not os.path.isdir(out_dir) and os.path.isdir(os.path.dirname(out_dir)):
+            os.makedirs(out_dir, exist_ok=True)
+        if not os.path.isdir(out_dir):
             raise StudioError("Choose an existing output folder", "bad_folder")
         final = _pt.unique_path(target)
         shutil.copy2(src, final)

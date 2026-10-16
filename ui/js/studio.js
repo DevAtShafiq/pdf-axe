@@ -115,7 +115,7 @@ var Studio = (() => {
     // ── state ──────────────────────────────────────────────────────────────
     let sess = null;                 // studio_begin result
     let password = '';               // what unlocked the original (kept for Save)
-    let steps = [];                  // [{path, label}] — step 0 is the original
+    let steps = [];                  // [{path, label, signed}] — step 0 is the original
     let at = 0, savedAt = 0;         // current step, step last saved
     let mode = null, itemId = null, ctl = null, reader = null;
     let busy = false, closed = false, lastPage = 0;
@@ -123,6 +123,10 @@ var Studio = (() => {
     const cur = () => steps[at].path;
     const editorDirty = () => !!(ctl && ctl.dirty());
     const unsaved = () => at !== savedAt || editorDirty();
+    // A signature was placed in this session (in a committed step, or in the
+    // open Fill & sign editor) → Save defaults to "<folder>\signature\<stem>_signature.pdf".
+    const editorSigned = () => !!(ctl && ctl.signed && ctl.signed());
+    const signed = () => !!(steps[at] && steps[at].signed) || editorSigned();
 
     function setBusy(on, label = 'Working…') {
       busy = on;
@@ -150,6 +154,7 @@ var Studio = (() => {
       if (!ctl || !ctl.dirty()) return true;
       const n = await SFM.studioNextStep(sess.session).catch(e => ({ ok: false, error: String(e) }));
       if (!n || !n.ok) { App.toast(esc((n && n.error) || 'Could not prepare the next version'), 'error', 7000); return false; }
+      const nowSigned = !!(steps[at] && steps[at].signed) || editorSigned();
       setBusy(true, 'Applying changes…');
       const r = await ctl.commit(n.path).catch(e => ({ ok: false, error: String(e) }));
       App.setStatus('Ready');
@@ -160,7 +165,7 @@ var Studio = (() => {
       }
       if (r.unchanged) return true;
       steps = steps.slice(0, at + 1);
-      steps.push({ path: r.out_path || n.path, label: MODE_LABEL[mode] || 'Changes' });
+      steps.push({ path: r.out_path || n.path, label: MODE_LABEL[mode] || 'Changes', signed: nowSigned });
       at = steps.length - 1;
       const subs = (r.substituted || []).filter(x => String(x.wanted).toLowerCase() !== String(x.used).toLowerCase());
       if (subs.length) {
@@ -192,7 +197,7 @@ var Studio = (() => {
       unmount();
       mode = it.mode; itemId = it.id;
       sync();
-      const embed = { host, page: lastPage, onChange: sync, onKey: editorKey };
+      const embed = { host, page: lastPage, onChange: sync, onKey: editorKey, docPath: sess.source };
       setBusy(true, 'Opening…');
       try {
         if (mode === 'edit') ctl = await PdfEdit.open(cur(), { embed });
@@ -244,7 +249,15 @@ var Studio = (() => {
       if (busy || !sess) return;
       const sh = $('#st-sheet');
       if (!sh.classList.contains('hidden')) { const b = sh.querySelector('#st-go'); if (b) b.focus(); return; }
-      const defName = stemOf(sess.source).replace(/_edited( \(\d+\))?$/, '') + '_edited';
+      // Signed in this session → "<folder of the PDF>\signature\<stem>_signature.pdf"
+      // (created on Save); otherwise "<stem>_edited.pdf" next to the PDF.
+      const isSigned = signed();
+      const srcDir = dirOf(sess.source);
+      const sigDir = /^signature$/i.test(baseOf(srcDir)) ? srcDir : joinP(srcDir, 'signature');
+      const defName = isSigned
+        ? stemOf(sess.source).replace(/_(edited|signature)( \(\d+\))?$/i, '') + '_signature'
+        : stemOf(sess.source).replace(/_edited( \(\d+\))?$/, '') + '_edited';
+      const defDir = isSigned ? sigDir : srcDir;
       sh.innerHTML = `
         <div class="st-sheet-head">
           <span class="st-sheet-title">${ic('save', 16)}Save</span>
@@ -259,8 +272,9 @@ var Studio = (() => {
             <label class="field-label" for="st-name">File name</label>
             <div class="field-row"><input class="input-text" id="st-name" value="${esc(defName)}"><span class="field-suffix">.pdf</span></div>
             <label class="field-label" for="st-dir">Folder</label>
-            <div class="field-row"><input class="input-text" id="st-dir" value="${esc(dirOf(sess.source))}"><button class="btn btn-sm" id="st-browse">Browse…</button></div>
+            <div class="field-row"><input class="input-text" id="st-dir" value="${esc(defDir)}"><button class="btn btn-sm" id="st-browse">Browse…</button></div>
           </div>
+          ${isSigned ? `<div class="st-over-note st-sign-note" id="st-sign-note">${ic('signature', 14)}<span>Signed — saved in <b>${esc(sigDir)}</b><span id="st-sign-new"></span></span></div>` : ''}
           <div class="st-over-note hidden" id="st-over-note">${ic('info', 14)}<span>The current “${esc(sess.name)}” is copied to the <b>_to_review</b> folder first, so nothing is lost.</span></div>
           <div class="st-opt">
             <label class="switch"><input type="checkbox" id="st-kb-on"><span class="switch-track"></span>Make it smaller</label>
@@ -288,6 +302,7 @@ var Studio = (() => {
         q('#st-fields').classList.toggle('is-dim', over());
         ['#st-name', '#st-dir', '#st-browse'].forEach(s => { q(s).disabled = over(); });
         q('#st-over-note').classList.toggle('hidden', !over());
+        if (q('#st-sign-note')) q('#st-sign-note').classList.toggle('hidden', over());
         Dialogs.setBtn(q('#st-go'), over() ? 'Replace original' : 'Save', over() ? 'refresh' : 'save');
       }));
       q('#st-kb-on').addEventListener('change', () => ['#st-kb-row', '#st-kb-hint'].forEach(s => q(s).classList.toggle('hidden', !q('#st-kb-on').checked)));
@@ -299,6 +314,10 @@ var Studio = (() => {
       q('#st-sheet-x').addEventListener('click', closeSheet);
       q('#st-cancel').addEventListener('click', closeSheet);
       const err = m => { q('#st-err').textContent = m; q('#st-err').classList.toggle('hidden', !m); };
+      if (isSigned) SFM.pathExists(sigDir).then(x => {
+        const el = sh.querySelector('#st-sign-new');
+        if (el && !(x && x.ok && x.is_dir)) el.textContent = ' (the folder is created)';
+      }).catch(() => {});
       q('#st-go').addEventListener('click', async () => {
         err('');
         const opts = { mode: over() ? 'over' : 'new', out_path: '', target_kb: 0, password: '' };
@@ -307,7 +326,10 @@ var Studio = (() => {
           const dir = q('#st-dir').value.trim();
           if (!nm || !dir) { err('Enter a file name and folder'); return; }
           const de = await SFM.pathExists(dir).catch(() => null);
-          if (!de || !de.ok || !de.is_dir) { err('Choose an existing folder'); return; }
+          // the "signature" folder next to the PDF is created when missing
+          const mkSig = isSigned && dir.replace(/[\\/]+$/, '').toLowerCase() === sigDir.toLowerCase();
+          if ((!de || !de.ok || !de.is_dir) && !mkSig) { err('Choose an existing folder'); return; }
+          if (mkSig) opts.make_dir = true;
           opts.out_path = joinP(dir, nm + '.pdf');
         }
         if (q('#st-kb-on').checked) {
