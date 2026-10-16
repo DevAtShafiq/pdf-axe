@@ -159,6 +159,8 @@ const Details = (() => {
     wire('qa-convert-pdf', () => { if (_path) ConvertTools.quickImageToPdf(_path); });
     wire('qa-convert-img', () => { if (_path) ConvertTools.openConvertImage([_path]); });
     wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
+    wire('qa-sign',        () => { if (_path) sign(_path); });
+    wire('qa-add-photo',   () => { if (_path) addPhoto(_path); });
     wire('qa-studio',      () => { if (_path && window.Studio) Studio.open(_path); });
     wire('qa-annotate',    () => { if (_path && window.Annotate) Annotate.open(_path); });
     wire('qa-compress',    () => {
@@ -178,9 +180,49 @@ const Details = (() => {
     show('qa-pdf-images',  isPdf);
     show('qa-compress',    isImg || isPdf);
     show('qa-studio',      isPdf && !!window.Studio);
+    show('qa-sign',        canSign(entry));
+    show('qa-add-photo',   isPdf && !!window.Studio);
     // PDFs: one "Edit" (PDF Studio) button covers text, comments and signing; Annotate is for images.
     show('qa-annotate',    file && !isPdf && !!window.Annotate && Annotate.canAnnotate(entry.path));
   }
+
+  // ── Sign / Add photo (also used by the context menu and Ctrl+Shift+S) ──
+  // PDFs open in Edit straight on Fill & sign → Signature / Photo, which opens
+  // the signature pad / photo picker as soon as the editor has loaded; images
+  // open in Annotate with its Signature tool.
+  function canSign(entry) {
+    if (!entry || entry.is_dir) return false;
+    const p = entry.path || '';
+    if (/\.pdf$/i.test(p)) return !!window.Studio;
+    return !!window.Annotate && Annotate.canAnnotate(p);
+  }
+  async function _openOn(path, tool) {
+    if (!path) return;
+    if (/\.pdf$/i.test(path)) {
+      if (!window.Studio) return;
+      if (Studio.isOpen()) { App.toast('Close the open Edit window first', 'info'); return; }
+      return Studio.open(path, { tool });
+    }
+    if (!window.Annotate || !Annotate.canAnnotate(path)) {
+      App.toast(tool === 'photo' ? 'Add photo works with PDF files' : 'Sign works with PDFs and images', 'info'); return;
+    }
+    const ctl = await Annotate.open(path, { standalone: true });
+    if (ctl && ctl.tool) ctl.tool(tool);
+  }
+  // Ctrl+Shift+S: sign the one selected file (or the file in the preview).
+  function signSelected() {
+    let cand = null;
+    try {
+      const sel = FileTree.getSelected ? FileTree.getSelected() : [];
+      if (sel && sel.length > 1) { App.toast('Select one PDF or image to sign', 'info'); return; }
+      if (sel && sel.length === 1) cand = sel[0];
+    } catch (_) {}
+    if (!cand) { try { cand = Preview.getCurrentPath && Preview.getCurrentPath(); } catch (_) {} }
+    if (cand && canSign({ path: cand, is_dir: false })) sign(cand);
+    else App.toast('Select one PDF or image to sign', 'info');
+  }
+  const sign     = path => _openOn(path, 'signature');
+  const addPhoto = path => _openOn(path, 'photo');
 
   // ── AI Photo section ──────────────────────────────────────────────────────
   function _showAiSection(entry) {
@@ -352,5 +394,5 @@ const Details = (() => {
     return FileTree.startRename(_path || undefined, text);
   }
 
-  return { showFile, showMultiple, clear, beginRename, runAiPhoto };
+  return { showFile, showMultiple, clear, beginRename, runAiPhoto, sign, addPhoto, canSign, signSelected };
 })();

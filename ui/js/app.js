@@ -351,6 +351,7 @@ const App = (() => {
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
       if (ctrl && shift && key === 'n')  { e.preventDefault(); FileTree.newFolder(); return; }
       if (ctrl && shift && key === 'l')  { e.preventDefault(); FolderTools.openFromList(); return; }
+      if (ctrl && shift && key === 's')  { e.preventDefault(); Details.signSelected(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
       if (key === 'F5')                  { e.preventDefault(); FileTree.refresh(); return; }
       if (key === 'F2')                  { e.preventDefault(); FileTree.startRename(); return; }

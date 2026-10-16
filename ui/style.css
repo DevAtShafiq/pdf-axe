@@ -1928,6 +1928,11 @@ mark.hl { background: transparent; color: var(--accent-text); font-weight: var(-
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .qa-grid .qa-btn.hidden, #archive-section .qa-btn.hidden { display: none; }
+/* Sign / Add photo: the everyday form-filling jobs, one click from the file */
+.qa-btn.qa-feature { background: var(--accent-subtle); color: var(--accent-text); font-weight: 500; }
+.qa-btn.qa-feature .icon { color: var(--accent-text); }
+.qa-btn.qa-feature:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-text); }
+.qa-btn.qa-feature:hover .icon { color: var(--accent-text); }
 /* a section whose tools are all hidden for this file type shows no empty title */
 #quick-actions:not(:has(.qa-grid .qa-btn:not(.hidden))) .qa-tools-title,
 #quick-actions:not(:has(.qa-grid .qa-btn:not(.hidden))) .qa-grid { display: none; }

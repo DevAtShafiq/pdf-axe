@@ -121,6 +121,10 @@ const ContextMenu = (() => {
       }
       if (isPdf) {
         if (window.Studio) _item(menu, 'file-pen', 'Edit…', 'Ctrl+Shift+P', () => { hide(); Studio.open(mainPath); });
+        if (window.Studio && !multi) {
+          _item(menu, 'signature', 'Sign…', 'Ctrl+Shift+S', () => { hide(); Details.sign(mainPath); });
+          _item(menu, 'image', 'Add Photo…', '', () => { hide(); Details.addPhoto(mainPath); });
+        }
         _item(menu, 'layers', 'Arrange Pages…', '', () => { hide(); PdfTools.openArrange([mainPath]); });
         _item(menu, 'scissors', 'Split PDF…', '', () => { hide(); PdfTools.openSplit(mainPath); });
         _item(menu, 'extract', 'Extract Pages…', '', () => { hide(); PdfTools.openExtract(mainPath); });
@@ -140,6 +144,7 @@ const ContextMenu = (() => {
     // Section: image ops
     if (isImg) {
       if (window.Annotate && Annotate.canAnnotate(mainPath)) _item(menu, 'annotate', 'Annotate…', 'Ctrl+Shift+A', () => { hide(); Annotate.open(mainPath); });
+      if (window.Annotate && Annotate.canAnnotate(mainPath) && !multi) _item(menu, 'signature', 'Sign…', 'Ctrl+Shift+S', () => { hide(); Details.sign(mainPath); });
       _item(menu, 'crop', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
       _item(menu, 'shirt', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
     }
