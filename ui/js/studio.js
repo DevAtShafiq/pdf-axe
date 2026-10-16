@@ -62,6 +62,7 @@ var Studio = (() => {
   ];
   const ITEMS = RAIL.flatMap(([, items]) => items);
   const ITEM = Object.fromEntries(ITEMS.map(i => [i.id, i]));
+  const PICKER_TOOLS = new Set(['signature', 'photo', 'stamp']);   // these open a picker
   const MODE_LABEL = { read: 'Read', edit: 'Text & object edits', annotate: 'Comments & signatures', pages: 'Page changes' };
 
   let _cur = null;
@@ -213,7 +214,9 @@ var Studio = (() => {
         mode = 'read'; itemId = 'read'; host.innerHTML = '';
         reader = buildReader(host, cur(), lastPage);
       }
-      if (ctl && it.tool) ctl.tool(it.tool);
+      // re-opening on another version (Undo/Redo, after Save) must not pop the
+      // signature pad / photo / stamp picker up again
+      if (ctl && it.tool) ctl.tool(keep && PICKER_TOOLS.has(it.tool) ? 'select' : it.tool);
       sync();
       if (ctl) ctl.focus();
     }
@@ -346,7 +349,12 @@ var Studio = (() => {
         if (over() && !(await Dialogs.confirm({ title: 'Replace original', icon: 'alert-triangle', tone: 'warning',
               okLabel: 'Replace original', okIcon: 'refresh', message: `Save your changes into “${sess.name}”?`,
               detail: 'The current version is first copied to the “_to_review” folder next to it, so nothing is lost.' }))) return;
+        const atBefore = at;
         if (!(await settle())) return;
+        // The tool's changes are now a version: reopen the tool on it, so it is
+        // not still "dirty" (which made the next tool switch add a duplicate
+        // version and Close ask about unsaved changes right after saving).
+        if (at !== atBefore && ctl) await show(itemId, { keep: true });
         setBusy(true, opts.target_kb ? 'Saving and compressing…' : 'Saving…');
         const r = await SFM.studioFinish(cur(), sess.source, opts).catch(e => ({ ok: false, error: String(e) }));
         setBusy(false);

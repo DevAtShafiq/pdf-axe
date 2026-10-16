@@ -2013,7 +2013,7 @@ var Annotate = (() => {
         const typed = mode === 'type' ? $('#an-sig-type').value.trim() : '';
         const name = await Dialogs.ask({
           title: 'Save signature as PNG', icon: 'signature', okLabel: 'Save', okIcon: 'download',
-          label: 'Name', value: (sigDoc && stemOf(sigDoc)) || typed || 'My', placeholder: 'e.g. Shafiq',
+          label: 'Name', value: typed || (sigDoc && stemOf(sigDoc)) || 'My', placeholder: 'e.g. Shafiq',
           hint: `Saved as “name_signature.png” in ${folder}${f && f.ok && !f.exists ? ' (the folder is created)' : ''}`,
           validate: v => !v ? 'Enter a name' : (/[<>:"/\\|?*]/.test(v) ? 'A name cannot contain < > : " / \\ | ? *' : ''),
         });

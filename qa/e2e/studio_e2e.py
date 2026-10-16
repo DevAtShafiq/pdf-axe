@@ -131,6 +131,8 @@ def run(d):
         # ── Read & copy ───────────────────────────────────────────────────
         page.evaluate("p => Studio.open(p, {tool: 'read'})", src)
         R.check("open in Read mode", studio_open(page) and state(page)["mode"] == "read")
+        lbl = page.text_content(".st-tool[data-id=edit]").strip()
+        R.check("rail: 'Edit text & objects' is now just 'Edit'", lbl == "Edit", lbl)
         wait(page, "document.querySelector('.st-read-page')", timeout=15)
         R.check("pill says Original", pill(page).startswith("Original"), pill(page))
         page.focus(".st-read-view")
