@@ -5,9 +5,8 @@
   never overwritten, the suffix is never doubled);
 * opened from an image (no PDF) → the image's folder;
 * Edit window (PDF Studio): after placing a signature, Save defaults to
-  '<folder of the PDF>\\signature\\<stem>_signature.pdf', creates the folder
-  and writes there — the stamp is in the PDF (PyMuPDF) and the text is still
-  real, selectable text.
+  '<folder of the PDF>\\<stem>_edited.pdf' like any other edit — the stamp is
+  in the PDF (PyMuPDF) and the text is still real, selectable text.
 
 Every test file is made inside <scratch dir>; nothing is written elsewhere
 (do NOT set SFM_SIGNATURE_DIR for this script — it overrides the folder).
@@ -120,7 +119,7 @@ def run(d):
         R.check("nothing written next to the scratch dir's parent / drive root",
                 not os.path.exists(os.path.join(os.path.splitdrive(d)[0] + os.sep, "Signature", "Test Sign_signature.png")))
 
-        # ── place the signature, then Save → <PDF folder>\signature\multi_signature.pdf
+        # ── place the signature, then Save → <PDF folder>\multi_edited.pdf
         page.click(".an-sig-overlay [data-mode=draw]"); time.sleep(0.2)
         page.click("#an-sig-ok")
         wait(page, "!document.querySelector('.an-sig-overlay')")
@@ -134,18 +133,16 @@ def run(d):
         time.sleep(0.4)
         name = page.input_value("#st-sheet #st-name")
         folder = page.input_value("#st-sheet #st-dir")
-        R.check("Save defaults to name 'multi_signature'", name == "multi_signature", name)
-        R.check("Save defaults to '<PDF folder>\\signature'", os.path.normcase(folder) == os.path.normcase(sigdir), folder)
-        note = page.evaluate("(document.querySelector('#st-sign-note') || {}).textContent || ''")
-        R.check("sheet shows the target folder", os.path.normcase(sigdir) in os.path.normcase(note), note)
+        R.check("Save defaults to name 'multi_edited'", name == "multi_edited", name)
+        R.check("Save defaults to the PDF's own folder", os.path.normcase(folder) == os.path.normcase(work), folder)
         page.click("#st-go")
-        out = os.path.join(sigdir, "multi_signature.pdf")
+        out = os.path.join(work, "multi_edited.pdf")
         try:
             wait(page, f"(() => {{ const s = document.querySelector('#st-sheet'); return s && s.classList.contains('hidden'); }})()", timeout=20)
         except TimeoutError:
             pass
         time.sleep(0.5)
-        R.check("saved to <PDF folder>\\signature\\multi_signature.pdf", os.path.isfile(out), listing(sigdir))
+        R.check("saved to <PDF folder>\\multi_edited.pdf", os.path.isfile(out), listing(work))
         st = page.evaluate("Studio._state()")
         pill = page.text_content("#st-ver")
         R.check("after Save nothing is left unsaved (and no pad popped up)",
@@ -163,16 +160,16 @@ def run(d):
         wait(page, "document.querySelector('#st-sheet #st-name')")
         time.sleep(0.3)
         page.click("#st-go"); time.sleep(1.5)
-        R.check("saving again → 'multi_signature (2).pdf'", os.path.isfile(os.path.join(sigdir, "multi_signature (2).pdf")), listing(sigdir))
+        R.check("saving again → 'multi_edited (2).pdf'", os.path.isfile(os.path.join(work, "multi_edited (2).pdf")), listing(work))
         # the signature now lives in a committed version: still a signed save
         page.click(".st-tool[data-id=read]")
         wait(page, "Studio._state().itemId === 'read' && document.querySelector('#st-busy').classList.contains('hidden')", timeout=20)
         page.click("#st-save")
         wait(page, "document.querySelector('#st-sheet #st-name')")
         time.sleep(0.3)
-        R.check("after switching tool: default still 'multi_signature' in signature folder",
-                page.input_value("#st-sheet #st-name") == "multi_signature"
-                and os.path.normcase(page.input_value("#st-sheet #st-dir")) == os.path.normcase(sigdir),
+        R.check("after switching tool: default still 'multi_edited' in the PDF's folder",
+                page.input_value("#st-sheet #st-name") == "multi_edited"
+                and os.path.normcase(page.input_value("#st-sheet #st-dir")) == os.path.normcase(work),
                 page.input_value("#st-sheet #st-name"))
         page.click("#st-cancel"); time.sleep(0.2)
         with fitz.open(pdf) as doc:
