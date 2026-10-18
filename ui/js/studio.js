@@ -198,7 +198,7 @@ var Studio = (() => {
       unmount();
       mode = it.mode; itemId = it.id;
       sync();
-      const embed = { host, page: lastPage, onChange: sync, onKey: editorKey, docPath: sess.source };
+      const embed = { host, page: lastPage, onChange: sync, onKey: editorKey, docPath: sess.source, onAnnot: pickAnnot };
       setBusy(true, 'Opening…');
       try {
         if (mode === 'edit') ctl = await PdfEdit.open(cur(), { embed });
@@ -219,6 +219,14 @@ var Studio = (() => {
       if (ctl && it.tool) ctl.tool(keep && PICKER_TOOLS.has(it.tool) ? 'select' : it.tool);
       sync();
       if (ctl) ctl.focus();
+    }
+
+    // Edit tool → a signature / photo / stamp was clicked: switch to the
+    // object selector with that one selected (move, copy, paste, delete).
+    async function pickAnnot(a) {
+      if (busy || closed) return;
+      await show('select');
+      if (ctl && ctl.selectAt) ctl.selectAt(a.page, a.x, a.y);
     }
 
     // Keys an embedded editor hands back to the Studio.

@@ -1568,6 +1568,14 @@ var Annotate = (() => {
       undo, redo, commit, close: forceClose, focus: () => view.focus({ preventScroll: true }),
       page: () => curPage, goPage: p => goPage(p),
       tool: t => { const b = ov.querySelector(`.an-tool[data-tool="${t}"]`); if (b) b.click(); },
+      // select the top-most annotation at (x, y) on page p (page units)
+      selectAt: (p, x, y) => {
+        const hit = anns.filter(a => a.page === p && a.type !== 'other' && (() => { const b = bbox(a); return b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; })());
+        if (!hit.length) return false;
+        setTool('select');
+        select(hit[hit.length - 1].id);
+        return true;
+      },
       busy: () => busy,
       // true when a signature was placed in this editor (not one the file already had)
       signed: () => anns.some(a => a.type === 'signature' && !initialIds.has(a.id)),

@@ -1116,6 +1116,13 @@ var PdfEdit = (() => {
         return;
       }
       if (cropping) endCrop(true);
+      // A signature / photo / stamp placed earlier is an annotation on top of
+      // the page: clicking it hands it to the object selector (move, copy,
+      // paste, delete) instead of editing what lies underneath.
+      if (embed && embed.onAnnot && !drag) {
+        const an = annotAt(p, pt);
+        if (an) { e.preventDefault(); embed.onAnnot({ page: p, x: pt[0], y: pt[1], type: an.type }); return; }
+      }
       if (objEl) {
         e.preventDefault();
         const s = { kind: objEl.dataset.kind, key: objEl.dataset.k };
@@ -1136,6 +1143,21 @@ var PdfEdit = (() => {
                at: [e.clientX, e.clientY] };
       capture(e);
     });
+    // Signatures / photos / stamps already in the file (loaded once per file).
+    let annList = null, annFor = null;
+    async function loadAnnots() {
+      if (!embed || !embed.onAnnot || annFor === src) return;
+      annFor = src; annList = [];
+      const r = await SFM.annotLoad(src).catch(() => null);
+      if (annFor !== src) return;
+      annList = ((r && r.ok && r.annotations) || []).filter(a => ['signature', 'photo', 'stamp'].includes(a.type) && a.rect);
+    }
+    function annotAt(p, pt) {
+      if (annFor !== src) loadAnnots();
+      const hit = (annList || []).filter(a => a.page === p && pt[0] >= a.rect[0] && pt[0] <= a.rect[2] && pt[1] >= a.rect[1] && pt[1] <= a.rect[3]);
+      return hit.length ? hit[hit.length - 1] : null;    // the top-most one
+    }
+    if (embed && embed.onAnnot) setTimeout(loadAnnots, 0);
     // the box a move / width drag starts from: the block's (possibly moved) bbox
     const textBoxRect = e => e.bbox.slice();
     function capture(e) { try { pagesEl.setPointerCapture(e.pointerId); } catch (_) {} }
