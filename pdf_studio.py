@@ -77,6 +77,23 @@ def _fitz():
     return fitz
 
 
+def _fillable(doc) -> bool:
+    """True when the PDF has a field someone can type into or tick (a form
+    with only signature fields or buttons is not one)."""
+    try:
+        if not doc.is_form_pdf:
+            return False
+        fitz = _fitz()
+        skip = (fitz.PDF_WIDGET_TYPE_SIGNATURE, fitz.PDF_WIDGET_TYPE_BUTTON)
+        for page in doc:
+            for w in page.widgets() or []:
+                if w.field_type not in skip and not (int(w.field_flags or 0) & 1):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def _page_info(path: str) -> dict:
     fitz = _fitz()
     doc = fitz.open(path)
@@ -89,7 +106,7 @@ def _page_info(path: str) -> dict:
                 has_text = True
                 break
         return {"page_count": doc.page_count, "has_text": has_text,
-                "has_form": bool(doc.is_form_pdf)}
+                "has_form": _fillable(doc)}
     finally:
         doc.close()
 

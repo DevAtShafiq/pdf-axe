@@ -60,6 +60,7 @@ datas = [
     ("pdf_objects.py",       "."),   # Edit: images / vector objects engine
     ("pdf_studio.py",        "."),
     ("studio_bridge.py",     "."),
+    ("pdf_form.py",          "."),   # Fill form (AcroForm fields)
     ("qr_scan.py",           "."),
     ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
     ("image_crop.py",        "."),
@@ -100,6 +101,7 @@ hiddenimports = [
     "pdf_objects",
     "pdf_studio",
     "studio_bridge",
+    "pdf_form",
     "qr_scan",
     "qr_pick",
     "image_crop",

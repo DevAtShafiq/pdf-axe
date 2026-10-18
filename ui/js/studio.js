@@ -50,6 +50,7 @@ var Studio = (() => {
       { id: 'select', mode: 'annotate', tool: 'select', icon: 'mouse-pointer', label: 'More markup' },
     ]],
     ['Fill & sign', [
+      { id: 'form', mode: 'form', icon: 'list-checks', label: 'Fill form', hint: 'Type into the form\'s own fields · Tab moves to the next field' },
       { id: 'signature', mode: 'annotate', tool: 'signature', icon: 'signature', label: 'Signature' },
       { id: 'photo', mode: 'annotate', tool: 'photo', icon: 'image', label: 'Photo' },
       { id: 'stamp', mode: 'annotate', tool: 'stamp', icon: 'stamp', label: 'Stamp' },
@@ -63,7 +64,7 @@ var Studio = (() => {
   const ITEMS = RAIL.flatMap(([, items]) => items);
   const ITEM = Object.fromEntries(ITEMS.map(i => [i.id, i]));
   const PICKER_TOOLS = new Set(['signature', 'photo', 'stamp']);   // these open a picker
-  const MODE_LABEL = { read: 'Read', edit: 'Text & object edits', annotate: 'Comments & signatures', pages: 'Page changes' };
+  const MODE_LABEL = { read: 'Read', form: 'Form filled', edit: 'Text & object edits', annotate: 'Comments & signatures', pages: 'Page changes' };
 
   let _cur = null;
 
@@ -203,6 +204,7 @@ var Studio = (() => {
       try {
         if (mode === 'edit') ctl = await PdfEdit.open(cur(), { embed });
         else if (mode === 'annotate') ctl = await Annotate.open(cur(), { embed });
+        else if (mode === 'form') ctl = await PdfForm.open(cur(), { embed });
         else if (mode === 'pages') ctl = await PdfTools.openArrange([cur()], { embed, mode: 'arrange', name: stemOf(sess.name) + '_pages', folder: dirOf(sess.source), stem: stemOf(sess.name) });
         else reader = buildReader(host, cur(), lastPage);
       } finally {
@@ -460,7 +462,7 @@ var Studio = (() => {
     sess = r;
     steps = [{ path: r.work, label: 'Original' }];
     lastPage = Number.isInteger(opts.page) ? opts.page : 0;
-    let start = opts.tool && ITEM[opts.tool] ? opts.tool : (r.has_text ? 'read' : 'select');
+    let start = opts.tool && ITEM[opts.tool] ? opts.tool : (r.has_form ? 'form' : r.has_text ? 'read' : 'select');
     if (opts.tool && !ITEM[opts.tool]) {                    // an Annotate tool id with no rail item
       const t = opts.tool;
       await show('select');

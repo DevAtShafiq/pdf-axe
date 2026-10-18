@@ -71,3 +71,19 @@ class StudioBridgeMixin:
                                 password=str(opts.get("password") or ""),
                                 make_dir=bool(opts.get("make_dir")),
                                 release_handles=_release_handles)
+
+    def form_fields(self, path: str) -> dict:
+        """{xfa, pages, fields}: the PDF's fillable fields (pdf_form.fields)."""
+        import pdf_form as _pf
+        return self._studio_run("Read form", _pf.fields, path)
+
+    def form_page_png(self, path: str, page: int = 0, dpi: int = 150) -> dict:
+        """{data_url, width, height}: the page drawn without its fields."""
+        import pdf_form as _pf
+        return self._studio_run("Render page", _pf.page_png, path, int(page or 0), int(dpi or 150))
+
+    def form_fill(self, path: str, values: dict, out_path: str, lock: bool = False) -> dict:
+        """Write field values into a new file → {out_path, filled, locked}."""
+        import pdf_form as _pf
+        _log.info("form_fill: %s -> %s (%d values, lock=%s)", path, out_path, len(values or {}), bool(lock))
+        return self._studio_run("Fill form", _pf.fill, path, values or {}, out_path, bool(lock))

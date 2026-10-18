@@ -174,6 +174,7 @@ const Icons = (() => {
     'info':          '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
     'loader':        '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
     'clock':         '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    'calendar':      '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
 
     // ── annotation editor (annotate.js) ─────────────────────────────────
     'annotate':      '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>',

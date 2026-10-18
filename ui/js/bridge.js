@@ -208,6 +208,9 @@ const SFM = (() => {
     studioNextStep:      (session)                 => call('studio_next_step', session),
     studioStepInfo:      (work)                    => call('studio_step_info', work),
     studioFinish:        (work, original, opts={}) => call('studio_finish', work, original, opts),
+    formFields:          (path)                    => call('form_fields', path),
+    formPagePng:         (path, page=0, dpi=150)   => call('form_page_png', path, page, dpi),
+    formFill:            (path, values, out, lock=false) => call('form_fill', path, values, out, lock),
     // Image
     cropImage:          (path, x, y, w, h, out='', rotate=0, size=null) => call('crop_image', path, x, y, w, h, out, rotate,
                           size ? size.w : 0, size ? size.h : 0, size ? size.dpi : 0, size ? (size.maxKb || 0) : 0),

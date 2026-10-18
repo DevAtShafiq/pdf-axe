@@ -108,3 +108,39 @@
 .st-unlock-icon { color: var(--text-muted); }
 .st-unlock-title { font-weight: 600; }
 .st-unlock-btns { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+/* ── Fill form (pdf-form.js) ─────────────────────────────────────────── */
+.pf-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pf-bar .pf-count { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-secondary); margin-right: 8px; }
+.pf-bar .pf-sw { font-size: var(--fs-sm); margin: 0 6px; }
+.pf-banner { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: var(--fs-sm); color: var(--text-primary); background: var(--accent-subtle); border-bottom: 1px solid var(--border); }
+.pf-banner.pf-warn { background: rgba(245, 158, 11, .16); }
+.pf-page { position: relative; background: #fff; }
+.pf-img { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; }
+/* every field sits on the page at its own spot; --s = CSS px per PDF point */
+.pf-f { position: absolute; box-sizing: border-box; --s: inherit; }
+.pf-f input, .pf-f textarea, .pf-f select {
+  color-scheme: light;
+  position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; margin: 0;
+  padding: 0 calc(2px * var(--s)); border: 0; outline: none; background: transparent; color: #000;
+  font-family: Helvetica, Arial, 'Malgun Gothic', 'Batang', sans-serif; font-size: calc(var(--pt) * 1px * var(--s));
+}
+.pf-f textarea { resize: none; line-height: 1.15; padding-top: calc(1px * var(--s)); }
+.pf-f input[type=checkbox], .pf-f input[type=radio] {
+  appearance: none; -webkit-appearance: none; padding: 0; cursor: pointer; display: grid; place-items: center;
+  background: transparent; border: 1px solid #555; color-scheme: light;
+}
+.pf-f input[type=radio] { border-radius: 50%; }
+.pf-f input[type=checkbox]:checked::before { content: '✓'; color: #000; font: bold calc(var(--pt, 10) * 1.1px * var(--s)) / 1 sans-serif; }
+.pf-f input[type=radio]:checked::before { content: ''; width: 50%; height: 50%; border-radius: 50%; background: #000; }
+.pf-f input[type=checkbox]:disabled, .pf-f input[type=radio]:disabled { cursor: not-allowed; }
+/* light-blue fill like Acrobat (the page image is drawn without the fields) */
+.pf-hl .pf-f:not(.pf-ro), .pf-f:focus-within { background: #dde7ff; }
+.pf-hl .pf-f { outline: 1px solid rgba(60, 100, 200, .35); }
+.pf-f:focus-within { box-shadow: 0 0 0 2px var(--accent); z-index: 2; }
+.pf-hl .pf-f.pf-req.pf-empty { box-shadow: inset 0 0 0 1.5px #e5484d; }
+.pf-hl .pf-f.pf-req::after { content: '*'; position: absolute; right: -9px; top: -4px; color: #e5484d; font: bold 13px/1 sans-serif; pointer-events: none; }
+.pf-f.pf-ro input, .pf-f.pf-ro textarea, .pf-f.pf-ro select { color: #333; cursor: not-allowed; }
+.pf-cal { position: absolute; right: 1px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; padding: 1px; cursor: pointer; color: #345; opacity: .7; z-index: 1; }
+.pf-cal:hover { opacity: 1; }
+.pf-date { position: absolute; width: 1px !important; height: 1px !important; opacity: 0; pointer-events: none; right: 0; bottom: 0; }
