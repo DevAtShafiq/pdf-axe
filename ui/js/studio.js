@@ -185,7 +185,7 @@ var Studio = (() => {
 
     // Show *id* (a rail item). keep=true: re-open the current tool on a new
     // step without committing (Undo/Redo across versions).
-    async function show(id, { keep = false } = {}) {
+    async function show(id, { keep = false, noPicker = false } = {}) {
       const it = ITEM[id] || ITEM.read;
       if (busy || closed) return;
       if (!keep && it.id === itemId && !(ctl && ctl.tool)) return;   // already showing it
@@ -216,17 +216,26 @@ var Studio = (() => {
       }
       // re-opening on another version (Undo/Redo, after Save) must not pop the
       // signature pad / photo / stamp picker up again
-      if (ctl && it.tool) ctl.tool(keep && PICKER_TOOLS.has(it.tool) ? 'select' : it.tool);
+      if (ctl && it.tool) ctl.tool((keep || noPicker) && PICKER_TOOLS.has(it.tool) ? 'select' : it.tool);
       sync();
       if (ctl) ctl.focus();
     }
 
     // Keys an embedded editor hands back to the Studio.
-    function editorKey(action) {
-      if (action === 'save') openSave();
+    function editorKey(action, arg) {
+      if (action === 'annot') openPlaced(arg);
+      else if (action === 'save') openSave();
       else if (action === 'close') tryClose();
       else if (action === 'undo') undo();
       else if (action === 'redo') redo();
+    }
+
+    // A signature / photo / stamp clicked in Edit: show it selected in Fill & sign.
+    async function openPlaced(want) {
+      if (busy || !want) return;
+      await show(ITEM[want.type] && PICKER_TOOLS.has(want.type) ? want.type : 'signature', { noPicker: true });
+      if (!ctl || !ctl.selectAnn) return;
+      ctl.selectAnn(want);
     }
 
     async function undo() {

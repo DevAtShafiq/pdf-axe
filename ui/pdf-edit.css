@@ -49,6 +49,11 @@
 /* ── page layer ─────────────────────────────────────────────── */
 .pe-layer { position: absolute; inset: 0; }
 .pe-item { position: absolute; box-sizing: border-box; }
+.pe-annot { cursor: pointer; border: 1px dashed transparent; border-radius: 3px; }
+.pe-annot:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.pe-annot-tag { position: absolute; left: 0; top: -18px; display: none; padding: 1px 6px; border-radius: 4px;
+  background: var(--accent); color: #fff; font-size: 11px; line-height: 16px; white-space: nowrap; pointer-events: none; }
+.pe-annot:hover .pe-annot-tag { display: block; }
 .pe-block { cursor: text; border-radius: 1px; }
 .pe-editor[data-mode="select"] .pe-block:hover { outline: 1px dashed var(--accent); outline-offset: 1px; }
 .pe-block.pe-locked { cursor: default; }

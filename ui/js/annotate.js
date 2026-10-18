@@ -1568,6 +1568,20 @@ var Annotate = (() => {
       undo, redo, commit, close: forceClose, focus: () => view.focus({ preventScroll: true }),
       page: () => curPage, goPage: p => goPage(p),
       tool: t => { const b = ov.querySelector(`.an-tool[data-tool="${t}"]`); if (b) b.click(); },
+      // *want* {id, type, page, rect}: the same item, or (ids change when the
+      // file is rewritten) the same kind of item nearest to where it was
+      selectAnn: want => {
+        let a = byId(want.id);
+        if (!a && want.rect) {
+          const c = r => [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2], w = c(want.rect);
+          a = anns.filter(x => x.type === want.type && x.page === want.page && x.rect)
+                  .map(x => ({ x, d: Math.hypot(c(x.rect)[0] - w[0], c(x.rect)[1] - w[1]) }))
+                  .sort((m, n) => m.d - n.d).map(m => m.x)[0];
+        }
+        if (!a) return false;
+        setTool('select'); select(a.id, { scroll: true });
+        return true;
+      },
       busy: () => busy,
       // true when a signature was placed in this editor (not one the file already had)
       signed: () => anns.some(a => a.type === 'signature' && !initialIds.has(a.id)),

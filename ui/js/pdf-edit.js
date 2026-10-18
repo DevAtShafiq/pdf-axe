@@ -446,6 +446,8 @@ var PdfEdit = (() => {
       return pr;
     }
     const px = v => (v * zoom) + 'px';
+    const PLACED = { signature: 'Signature', photo: 'Photo', stamp: 'Stamp' };
+    let placed = [];                 // [{id, type, page, rect}] signatures / photos / stamps in the file
 
     function renderPage(p) {
       const el = pageEls[p]; if (!el) return;
@@ -482,6 +484,14 @@ var PdfEdit = (() => {
         const isSel = sel && sel.kind === 'add' && sel.key === a.id, isEd = editing && editing.key === a.id;
         h += `<div class="pe-item pe-block pe-added${isSel ? ' is-sel' : ''}${isEd ? ' is-editing' : ''}" data-kind="add" data-k="${esc(a.id)}"
                style="left:${px(tb.x)};top:${px(tb.y)};width:${px(tb.w)};height:${px(tb.h)}">${isEd ? '' : textHtml(e, tb)}${isSel && !isEd ? '<span class="pe-handle" data-h="e"></span>' : ''}</div>`;
+      });
+      // signatures / photos / stamps placed earlier (annotations, not page content):
+      // clicking one opens it in Fill & sign, where it can be moved, copied or removed
+      placed.filter(a => a.page === p && a.rect).forEach(a => {
+        const [x0, y0, x1, y1] = a.rect, what = PLACED[a.type];
+        h += `<div class="pe-item pe-annot" data-kind="annot" data-id="${esc(a.id)}" data-type="${esc(a.type)}"
+               title="${what} · click to move, copy or remove it"
+               style="left:${px(x0)};top:${px(y0)};width:${px(x1 - x0)};height:${px(y1 - y0)}"><span class="pe-annot-tag">${what}</span></div>`;
       });
       if (isObjSel(sel)) { const se = effObj(sel); if (se && se.page === p && !se.deleted) h += selHtml(se); }
       layer.innerHTML = h;
@@ -1088,6 +1098,14 @@ var PdfEdit = (() => {
       if (editing && e.target.closest('.pe-editbox')) return;
       const p = +pageEl.dataset.p;
       const pt = toUnits(e, p);
+      const annEl = mode !== 'add' && e.target.closest('.pe-annot');
+      if (annEl) {
+        e.preventDefault(); e.stopPropagation();
+        commitEdit();
+        if (embed) embed.onKey('annot', placed.find(a => a.id === annEl.dataset.id));
+        else App.toast(`To move or remove this ${PLACED[annEl.dataset.type].toLowerCase()}, open the file in Fill & sign`, 'info', 4000);
+        return;
+      }
       const item = e.target.closest('.pe-item');
       const oh = e.target.closest('.pe-oh');
       const objEl = !item && e.target.closest('.pe-hit') ? e.target.closest('.pe-obj') : null;
@@ -1401,6 +1419,12 @@ var PdfEdit = (() => {
       $('#pe-sub').textContent = baseOf(file); $('#pe-sub').title = file;
       $('#pe-name').value = stemOf(file).replace(/_edited( \(\d+\))?$/, '') + '_edited';
       $('#pe-dir').value = dirOf(file);
+      placed = [];
+      SFM.annotLoad(file).then(ra => {
+        if (closed || file !== src || !ra || !ra.ok) return;
+        placed = (ra.annotations || []).filter(a => PLACED[a.type]);
+        if (placed.length) renderAll();
+      }).catch(() => {});
       buildPages();
       if (first) {
         await new Promise(res => requestAnimationFrame(res));
