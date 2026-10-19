@@ -1,0 +1,42 @@
+# Office Axe account server on one cloud machine, with automatic HTTPS.
+#
+#   cd deploy && cp .env.example .env   # then fill in OFFICE_AXE_DOMAIN etc.
+#   docker compose up -d --build
+#
+# Caddy gets a free Let's Encrypt certificate for OFFICE_AXE_DOMAIN and passes
+# traffic to the server. Only Caddy is reachable from outside (ports 80/443).
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SFM_PUBLIC_URL: https://${OFFICE_AXE_DOMAIN}
+      SFM_DB_PATH: /data/pdfaxe.sqlite3
+      SFM_STORAGE_DIR: /data/storage
+    volumes:
+      - officeaxe-data:/data
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      OFFICE_AXE_DOMAIN: ${OFFICE_AXE_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  officeaxe-data:   # accounts database + every uploaded file: back this up
+  caddy-data:       # HTTPS certificates
+  caddy-config:

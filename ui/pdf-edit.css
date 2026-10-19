@@ -1,0 +1,131 @@
+/* ============================================================
+   pdf-edit.css — full-window PDF text editor (ui/js/pdf-edit.js).
+   Reuses the annotation editor shell (.an-editor/.an-bar/… in
+   annotate.css); tokens only. The page is paper-white in both themes.
+   ============================================================ */
+
+.pe-bar .pe-add-btn { gap: 6px; }
+.pe-bar .pe-add-btn.active { background: var(--accent-subtle); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
+.pe-bar .icon-btn.pe-tool.active { background: var(--accent-subtle); color: var(--accent-text); }
+.pe-style { gap: var(--space-1); }
+.pe-style.is-off { opacity: .55; }
+.pe-font { width: 150px; height: var(--control-h-sm); padding: 0 var(--space-2); font-size: var(--fs-sm); }
+.pe-size { width: 58px; height: var(--control-h-sm); padding: 0 var(--space-1) 0 var(--space-2); font-size: var(--fs-sm); }
+.pe-color {
+  position: relative; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius); cursor: pointer;
+}
+.pe-color:hover { background: var(--bg-hover); }
+.pe-color input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; border: none; padding: 0; }
+.pe-color-sw { width: 16px; height: 16px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--border-strong); pointer-events: none; }
+.pe-align .seg-btn { padding: 0 6px; height: var(--control-h-sm); }
+.pe-align .seg-btn.active { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.pe-objtools { gap: var(--space-1); }
+.pe-objtools .btn { gap: 6px; }
+.pe-objtools .icon-btn.active { background: var(--accent-subtle); color: var(--accent-text); }
+.pe-objkind { font-size: var(--fs-sm); color: var(--text-secondary); padding: 0 var(--space-2) 0 var(--space-1); white-space: nowrap; }
+.pe-objstyle { display: inline-flex; align-items: center; gap: var(--space-1); }
+.pe-objstyle.hidden { display: none; }
+.pe-swlabel { font-size: var(--fs-xs, 11px); color: var(--text-muted); margin-left: var(--space-1); }
+.pe-owidth { width: 54px; }
+.pe-none-sw, .pe-color-sw.is-none {
+  width: 16px; height: 16px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--border-strong);
+  background: linear-gradient(to top right, transparent calc(50% - 1px), var(--red, #dc2626) calc(50% - 1px),
+              var(--red, #dc2626) calc(50% + 1px), transparent calc(50% + 1px)), #fff;                   /* paper */
+}
+.pe-none-sw { display: inline-block; }
+.pe-tool.pe-none.active { background: var(--accent-subtle); box-shadow: inset 0 0 0 1px var(--accent); }
+.an-hintbar.pe-hint-warn { color: var(--text-primary); background: var(--yellow-subtle); }
+.an-hintbar.pe-hint-warn svg { color: var(--yellow); }
+
+.pe-notice {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  margin: var(--space-2) var(--space-4) 0; border-radius: var(--radius-lg);
+}
+.pe-notice.hidden { display: none; }
+.pe-notice .callout-body { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.pe-notice-x { margin: -2px -4px 0 0; }
+
+/* ── page layer ─────────────────────────────────────────────── */
+.pe-layer { position: absolute; inset: 0; }
+.pe-item { position: absolute; box-sizing: border-box; }
+.pe-block { cursor: text; border-radius: 1px; }
+.pe-editor[data-mode="select"] .pe-block:hover { outline: 1px dashed var(--accent); outline-offset: 1px; }
+.pe-block.pe-locked { cursor: default; }
+.pe-editor[data-mode="select"] .pe-block.pe-locked:hover { outline-color: var(--text-muted); }
+.pe-block.is-sel { outline: 1.5px solid var(--accent) !important; outline-offset: 1px; cursor: move; }
+.pe-block.is-deleted { outline: none !important; pointer-events: none; }
+.pe-block.is-editing { outline: none !important; }
+.pe-editor[data-mode="add"] .pe-page, .pe-editor[data-mode="add"] .pe-item,
+.pe-editor[data-mode="add"] .pe-hit { cursor: crosshair; }
+
+/* ── page objects (pictures, shapes, lines, graphics) ─────── */
+/* The container is only a frame; its .pe-hit children (where something is
+   drawn) catch the pointer, so empty table cells and frame insides don't. */
+.pe-obj { position: absolute; box-sizing: border-box; pointer-events: none; }
+.pe-objclip { position: absolute; inset: 0; overflow: hidden; }
+.pe-objvis { position: absolute; max-width: none; max-height: none; pointer-events: none; user-select: none; transform-origin: 50% 50%; }
+.pe-hit { position: absolute; pointer-events: auto; cursor: move; }
+.pe-editor[data-mode="select"] .pe-obj:hover:not(.is-sel) {
+  outline: 1px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 1px;
+}
+.pe-obj.is-drag .pe-objvis { opacity: .92; }
+.pe-obj-added .pe-objvis { box-shadow: none; }
+
+/* selection frame + handles */
+.pe-selbox {
+  position: absolute; box-sizing: border-box; pointer-events: none; z-index: 4;
+  outline: 1px solid var(--accent); outline-offset: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .85);                      /* contrast on dark artwork */
+}
+.pe-selbox.is-crop { outline: 1.5px dashed var(--accent); }
+.pe-oh {
+  position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px; box-sizing: border-box;
+  background: #fff; border: 1.5px solid var(--accent); border-radius: 2px;                  /* paper */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25); pointer-events: auto;
+}
+.pe-selbox.is-crop .pe-oh { background: var(--accent); border-color: #fff; }
+.pe-oh-nw { left: 0; top: 0; cursor: nwse-resize; }
+.pe-oh-n { left: 50%; top: 0; cursor: ns-resize; }
+.pe-oh-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.pe-oh-e { left: 100%; top: 50%; cursor: ew-resize; }
+.pe-oh-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.pe-oh-s { left: 50%; top: 100%; cursor: ns-resize; }
+.pe-oh-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.pe-oh-w { left: 0; top: 50%; cursor: ew-resize; }
+.pe-cropghost { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: visible; opacity: .35; pointer-events: none; z-index: 3; }
+.pe-badge {
+  position: absolute; z-index: 5; pointer-events: none; white-space: nowrap;
+  padding: 2px 6px; border-radius: var(--radius-sm); font-size: 11px; font-variant-numeric: tabular-nums;
+  background: rgba(17, 24, 39, .88); color: #fff;                                          /* fixed: over paper */
+}
+
+/* live edits: paper patch over the original + the new text */
+.pe-patch { position: absolute; inset: 0; background: #fff; }                    /* paper */
+.pe-patch-abs { inset: auto; pointer-events: none; }
+.pe-newimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pe-text { position: absolute; left: 0; top: 0; right: 0; overflow: visible; pointer-events: none; }
+.pe-added { outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+
+.pe-handle {
+  position: absolute; right: -6px; top: 50%; width: 8px; height: 16px; margin-top: -8px;
+  background: #fff; border: 1.5px solid var(--accent); border-radius: 2px; cursor: ew-resize;
+}
+
+/* inline editor, placed exactly over the block */
+.pe-editbox {
+  position: absolute; z-index: 3; margin: 0; box-sizing: border-box; resize: none; overflow: hidden;
+  background: #fff; border: 1px dashed var(--accent); border-radius: 0; outline: none;      /* paper */
+  box-shadow: 0 0 0 3px var(--accent-ring, transparent);
+}
+
+/* scanned page banner */
+.pe-scan {
+  position: absolute; left: 12px; right: 12px; top: 12px; z-index: 2;
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-lg);
+  background: var(--bg-surface); color: var(--text-primary); font-size: var(--fs-sm);
+  border: 1px solid var(--yellow); box-shadow: var(--shadow-popup);
+}
+.pe-scan svg { color: var(--yellow); flex-shrink: 0; }
+.pe-scan.hidden { display: none; }

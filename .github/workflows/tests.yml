@@ -1,0 +1,34 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - name: Install dependencies
+        # server/requirements.txt: the account server (FastAPI, uvicorn, Stripe).
+        # httpx: FastAPI's TestClient. Pillow + pymupdf: PDF/image code exercised
+        # by the desktop tests. file_ops / sfm_bridge only import the standard
+        # library at module level, so no Windows-only packages (pywin32) are needed.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements.txt pytest httpx Pillow pymupdf
+
+      - name: Run tests
+        # tests/ (desktop app tests) is optional so the job works before it exists.
+        run: python -m pytest -q server/tests $( [ -d tests ] && echo tests )

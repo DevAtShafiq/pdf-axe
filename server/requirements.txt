@@ -1,0 +1,6 @@
+# PDF Axe account server — runtime dependencies
+# Install from the repo root:  pip install -r server/requirements.txt
+fastapi>=0.110          # web framework (pulls in pydantic + starlette)
+uvicorn[standard]>=0.29 # ASGI server (uvloop/httptools/websockets extras)
+python-multipart>=0.0.9 # form + file upload parsing for POST /files
+stripe>=8.0             # monthly subscription billing (only used when STRIPE_* are set)

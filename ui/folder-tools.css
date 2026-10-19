@@ -1,0 +1,155 @@
+/* ============================================================
+   folder-tools.css — Copy / Move folder picker, New folders from a list,
+   toolbar New folder split button (js/folder-tools.js)
+   Uses the tokens from style.css only.
+   ============================================================ */
+
+/* ── Toolbar: "New folder" + drop-down caret ───────────────────── */
+.tb-split { display: inline-flex; align-items: center; gap: 0; }
+.tb-split > .toolbar-btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.tb-split > .tb-split-caret {
+  width: 20px; min-width: 20px;
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+  color: var(--text-muted);
+}
+/* Keep the "New folder" label longer than the other toolbar labels. */
+@media (max-width: 1320px) and (min-width: 1100px) {
+  #toolbar #btn-new-folder .tb-label { display: inline; }
+  #toolbar #btn-new-folder.toolbar-btn { width: auto; padding: 0 var(--space-2); }
+}
+
+/* ── Folder picker ─────────────────────────────────────────────── */
+.fp-modal { width: min(720px, 96vw); min-width: min(620px, 96vw); }
+.fp-modal .modal-body { gap: var(--space-3); overflow: hidden; }
+.fp-top { display: flex; gap: var(--space-2); align-items: center; }
+.fp-search { flex: 1; }
+.fp-tree {
+  height: min(420px, 52vh);
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  padding: var(--space-1);
+  outline: none;
+}
+.fp-tree:focus-visible { box-shadow: var(--focus-ring); border-color: var(--border-focus); }
+.fp-tree [hidden], .fp-dest [hidden], .nfl-modal [hidden] { display: none !important; }
+.fp-section + .fp-section { margin-top: var(--space-1); }
+.fp-section-hdr {
+  display: flex; align-items: center; gap: 6px;
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.fp-row {
+  display: flex; align-items: center; gap: 6px;
+  height: 28px; padding-right: var(--space-2);
+  border-radius: var(--radius);
+  font-size: var(--fs-base); color: var(--text-secondary);
+  cursor: pointer; white-space: nowrap;
+}
+.fp-recent-row, .fp-result-row { padding-left: var(--space-2); }
+.fp-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.fp-row.selected { background: var(--bg-selected); color: var(--text-primary); }
+.fp-tree:focus .fp-row.selected { box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.fp-row.is-current .fp-label { font-weight: var(--fw-semibold); color: var(--text-primary); }
+.fp-row.is-drive .fp-label { font-weight: var(--fw-medium); }
+.fp-twist {
+  width: 16px; height: 28px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-muted); border-radius: var(--radius-sm);
+}
+.fp-twist svg { transition: transform var(--transition); }
+.fp-twist:hover { color: var(--text-primary); }
+.fp-twist.leaf { visibility: hidden; }
+.fp-node.expanded > .fp-row > .fp-twist svg { transform: rotate(90deg); }
+.fp-children { display: none; }
+.fp-node.expanded > .fp-children { display: block; }
+.fp-icon { display: inline-flex; flex-shrink: 0; color: var(--ft-folder); }
+.fp-row.is-drive .fp-icon { color: var(--text-muted); }
+.fp-row.selected .fp-icon { color: var(--accent-text); }
+.fp-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fp-label mark { background: var(--accent-subtle); color: var(--accent-text); border-radius: 2px; padding: 0 1px; }
+.fp-sub {
+  flex: 1; min-width: 0; margin-left: var(--space-2);
+  overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left;
+  font-size: var(--fs-xs); color: var(--text-muted);
+}
+.fp-cur-badge { height: 18px; padding: 0 6px; margin-left: var(--space-1); }
+.fp-msg {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 28px; padding: 0 var(--space-3);
+  font-size: var(--fs-sm); color: var(--text-muted);
+}
+.fp-msg .spinner { width: 12px; height: 12px; }
+.fp-msg-err { color: var(--red); }
+.fp-new-row { cursor: default; background: var(--bg-selected-2); }
+.fp-new-row:hover { background: var(--bg-selected-2); }
+.fp-new-input.fp-new-input {
+  flex: 1; min-width: 0; height: 24px; padding: 0 6px;
+  font-size: var(--fs-base);
+}
+.fp-new-err { font-size: var(--fs-xs); color: var(--red); padding-bottom: var(--space-1); }
+.fp-dest {
+  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  min-height: 34px; padding: 6px var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg-surface-2);
+  font-size: var(--fs-sm); color: var(--text-secondary);
+}
+.fp-dest-label { color: var(--text-muted); font-weight: var(--fw-medium); flex-shrink: 0; }
+.fp-dest-path { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; color: var(--text-primary); }
+.fp-dest-path svg { color: var(--ft-folder); flex-shrink: 0; }
+.fp-dest-why { display: inline-flex; align-items: center; gap: 5px; color: var(--yellow); flex-basis: 100%; }
+.fp-dest.has-problem { background: var(--yellow-subtle); }
+
+/* ── New folders from a list ───────────────────────────────────── */
+.nfl-modal .modal-body { overflow: hidden; }
+.nfl-grid {
+  display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.15fr);
+  gap: var(--space-4); min-height: 0; flex: 1;
+}
+.nfl-left, .nfl-right { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; min-height: 0; }
+.nfl-modal textarea.nfl-text {
+  height: 220px; min-height: 120px; resize: vertical; white-space: pre; overflow: auto;
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: var(--fs-sm);
+  line-height: 1.5; padding: var(--space-2);
+}
+.nfl-prev-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.nfl-total { font-size: var(--fs-xs); color: var(--text-muted); }
+.nfl-summary { display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px; }
+.nfl-badge svg { flex-shrink: 0; }
+.nfl-badge.is-ok        { background: var(--green-subtle);  color: var(--green); }
+.nfl-badge.is-exists,
+.nfl-badge.is-duplicate { background: var(--yellow-subtle); color: var(--yellow); }
+.nfl-badge.is-invalid   { background: var(--red-subtle);    color: var(--red); }
+.nfl-list {
+  flex: 1; min-height: 240px; max-height: min(420px, 48vh);
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  padding: var(--space-1);
+}
+.nfl-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 28px; padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-base);
+}
+.nfl-row:hover { background: var(--bg-hover); }
+.nfl-idx { width: 28px; flex-shrink: 0; text-align: right; font-size: var(--fs-xs); color: var(--text-disabled); font-variant-numeric: tabular-nums; }
+.nfl-st { display: inline-flex; flex-shrink: 0; }
+.nfl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.nfl-reason { margin-left: auto; padding-left: var(--space-3); flex-shrink: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); }
+.nfl-row.is-ok .nfl-st { color: var(--green); }
+.nfl-row.is-exists .nfl-st, .nfl-row.is-duplicate .nfl-st, .nfl-row.is-exists .nfl-reason, .nfl-row.is-duplicate .nfl-reason { color: var(--yellow); }
+.nfl-row.is-invalid .nfl-st, .nfl-row.is-invalid .nfl-reason { color: var(--red); }
+.nfl-row:not(.is-ok) .nfl-name { color: var(--text-muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
+.nfl-empty { height: 100%; justify-content: center; }
+
+@media (max-width: 900px) {
+  .nfl-grid { grid-template-columns: 1fr; }
+  .nfl-modal .modal-body { overflow-y: auto; }
+}
