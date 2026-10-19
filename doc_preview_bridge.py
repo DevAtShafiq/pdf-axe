@@ -61,12 +61,24 @@ class DocPreviewBridgeMixin:
         return _guard("pdf_all_text", run)
 
     # ── Word / Excel / CSV ───────────────────────────────────────────────────
-    def docx_preview_html(self, path: str) -> dict:
+    def docx_preview_html(self, path: str, edit: bool = False) -> dict:
         def run():
-            r = _dp.docx_to_html(path)
+            r = _dp.docx_to_html(path, edit=bool(edit))
             app = _dp.office_app_for(os.path.splitext(path)[1], include_native=True)
             return _ok(office=bool(app and _dp.office_available(app)), app=app or "", **r)
         return _guard("docx_preview_html", run)
+
+    def docx_save_edits(self, path: str, edits: list, out_path: str, sig: str = "") -> dict:
+        """Word quick edits → a new file: {out_path, changed} (docx_edit.save)."""
+        import docx_edit as _de
+
+        def run():
+            try:
+                _log.info("docx_save_edits: %s -> %s (%d edits)", path, out_path, len(edits or []))
+                return _ok(**_de.save(path, edits or [], out_path, sig or ""))
+            except _de.DocxEditError as exc:
+                return _err(str(exc), exc.code)
+        return _guard("docx_save_edits", run)
 
     def sheet_preview_html(self, path: str, sheet: str = "") -> dict:
         def run():

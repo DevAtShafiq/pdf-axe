@@ -392,6 +392,7 @@ const Preview = (() => {
         `<button class="btn btn-sm" data-act="open">${Icons.svg('external-link', 14)}Open</button>`);
     }
     const bar = `<div class="doc-bar"><span class="doc-bar-meta">${_esc(meta)}</span><span class="flex-1"></span>`
+      + (/\.docx$/i.test(path) && window.DocxEdit ? `<button class="btn btn-ghost btn-sm" data-act="edit" title="Change the text of this document">${Icons.svg('file-pen', 14)}Edit</button>` : '')
       + (r.office ? _officeBtn('Word') : '') + '</div>';
     const missing = s.images_skipped ? _notice(`${s.images_skipped} image${s.images_skipped === 1 ? ' is' : 's are'} too large to preview.`) : '';
     docEl().innerHTML = bar + top + missing + `<div class="doc-page-wrap"><article class="doc-sheet">${r.html || '<p class="doc-empty-text">This document is empty.</p>'}</article></div>`;
@@ -404,6 +405,7 @@ const Preview = (() => {
       const act = b.dataset.act;
       if (act === 'open') SFM.openNative(path);
       if (act === 'office') _convertViaOffice(path, tok);
+      if (act === 'edit') DocxEdit.open(path);
     }));
   }
 

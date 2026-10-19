@@ -350,6 +350,7 @@ class _DocxRenderer:
         self.paragraphs = 0
         self._num_cache: dict = {}
         self._style_cache: dict = {}
+        self.pidx: dict = {}            # w:p → its number, for the Word quick editor
 
     # ── numbering (lists) ────────────────────────────────────────────────────
     def _num_fmt(self, num_id: str, ilvl: str) -> str:
@@ -525,15 +526,20 @@ class _DocxRenderer:
         inner = self.render_runs(p_el)
         text = re.sub(r"<[^>]+>", "", inner)
         self.words += len(html.unescape(text).split())
+        pi = self.pidx.get(p_el)
+        ed = ""
+        if pi is not None:
+            import docx_edit
+            ed = f' data-pi="{pi}"' + ("" if docx_edit.is_editable(p_el) else " data-ro")
         if inner_only:
-            return inner or "&#8203;"
+            return f"<span{ed}>{inner or '&#8203;'}</span>" if ed else (inner or "&#8203;")
         cls = ""
         if lname in ("quote", "intense quote"):
             cls = ' class="doc-quote"'
         st = f' style="{";".join(style)}"' if style else ""
         if not inner.strip():
-            return f"<{tag}{cls}{st}>&nbsp;</{tag}>" if tag == "p" else ""
-        return f"<{tag}{cls}{st}>{inner}</{tag}>"
+            return f"<{tag}{cls}{st}{ed}>&nbsp;</{tag}>" if tag == "p" else ""
+        return f"<{tag}{cls}{st}{ed}>{inner}</{tag}>"
 
     def render_runs(self, parent, href=None) -> str:
         parts: list[str] = []
@@ -800,8 +806,9 @@ def docx_app_props(path: str) -> dict:
     return res
 
 
-def docx_to_html(path: str, max_blocks: int = MAX_DOCX_BLOCKS) -> dict:
-    """→ {html, truncated, stats{paragraphs, words, tables, images, pages?}}"""
+def docx_to_html(path: str, max_blocks: int = MAX_DOCX_BLOCKS, edit: bool = False) -> dict:
+    """→ {html, truncated, stats{paragraphs, words, tables, images, pages?}, sig}
+    edit: tag paragraphs with data-pi / data-ro for the Word quick editor."""
     try:
         import docx  # python-docx
     except ImportError as exc:  # pragma: no cover
@@ -816,6 +823,9 @@ def docx_to_html(path: str, max_blocks: int = MAX_DOCX_BLOCKS) -> dict:
     rnd = _DocxRenderer(document)
     out: list[str] = []
     body = document.element.body
+    import docx_edit
+    if edit:
+        rnd.pidx = docx_edit.paragraph_index(body)
     truncated = rnd.render_blocks(body, out, top_level=True, limit=max_blocks)
     # Remaining top-level blocks after truncation, for the notice
     total_blocks = sum(1 for c in body.iterchildren() if c.tag in (_W + "p", _W + "tbl"))
@@ -830,7 +840,8 @@ def docx_to_html(path: str, max_blocks: int = MAX_DOCX_BLOCKS) -> dict:
             stats["words"] = sum(len((p.text or "").split()) for p in document.paragraphs)
         except Exception:
             pass
-    return {"html": "".join(out), "truncated": bool(truncated), "stats": stats}
+    return {"html": "".join(out), "truncated": bool(truncated), "stats": stats,
+            "sig": docx_edit.file_sig(path)}
 
 
 # ═════════════════════════════════════════════════════════════════════════════

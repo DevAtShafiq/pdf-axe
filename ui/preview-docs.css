@@ -254,3 +254,13 @@
 }
 .fv-doc-wrap > .doc-preview { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4); }
 .fv-doc-wrap > .doc-preview > .xl-scroll { padding: 0; }
+
+/* ── Word quick edit (docx-edit.js) ───────────────────────── */
+.dx-hint { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-4); font-size: var(--fs-sm); color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+.dx-wrap { background: var(--bg-preview); }
+.dx-sheet [contenteditable] { outline: none; border-radius: 2px; min-height: 1.2em; cursor: text; }
+.dx-sheet span[contenteditable] { display: inline-block; min-width: 2em; }
+.dx-sheet [contenteditable]:hover { box-shadow: 0 0 0 1px rgba(80, 130, 230, .35); }
+.dx-sheet [contenteditable]:focus { box-shadow: 0 0 0 2px rgba(80, 130, 230, .7); background: rgba(80, 130, 230, .05); }
+.dx-sheet .dx-changed { background: rgba(250, 200, 50, .18); }
+.dx-sheet [data-ro] { cursor: not-allowed; }

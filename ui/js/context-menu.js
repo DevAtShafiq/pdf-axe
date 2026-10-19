@@ -113,6 +113,10 @@ const ContextMenu = (() => {
       _item(menu, 'compress', cmpLabel(entries.length), '', openCmp);
       _sep(menu);
     }
+    if (!multi && /\.docx$/i.test(mainPath || '') && window.DocxEdit) {
+      _item(menu, 'file-pen', 'Edit…', '', () => { hide(); DocxEdit.open(mainPath); });
+      _sep(menu);
+    }
     if (allPdf) {
       if (multi) {
         _item(menu, 'merge', 'Merge PDFs…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });

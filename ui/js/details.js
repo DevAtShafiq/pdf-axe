@@ -161,7 +161,11 @@ const Details = (() => {
     wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
     wire('qa-sign',        () => { if (_path) sign(_path); });
     wire('qa-add-photo',   () => { if (_path) addPhoto(_path); });
-    wire('qa-studio',      () => { if (_path && window.Studio) Studio.open(_path); });
+    wire('qa-studio',      () => {
+      if (!_path) return;
+      if (/\.docx$/i.test(_path) && window.DocxEdit) DocxEdit.open(_path);
+      else if (window.Studio) Studio.open(_path);
+    });
     wire('qa-annotate',    () => { if (_path && window.Annotate) Annotate.open(_path); });
     wire('qa-compress',    () => {
       if (!_path) return;
@@ -179,7 +183,7 @@ const Details = (() => {
     show('qa-convert-img', isImg);
     show('qa-pdf-images',  isPdf);
     show('qa-compress',    isImg || isPdf);
-    show('qa-studio',      isPdf && !!window.Studio);
+    show('qa-studio',      (isPdf && !!window.Studio) || (file && /\.docx$/i.test(entry.path) && !!window.DocxEdit));
     show('qa-sign',        canSign(entry));
     show('qa-add-photo',   isPdf && !!window.Studio);
     // PDFs: one "Edit" (PDF Studio) button covers text, comments and signing; Annotate is for images.
