@@ -302,7 +302,6 @@ def test_image_save_over_original_keeps_backup(tmp_path):
 class _Bridge(AnnotateBridgeMixin):
     def __init__(self):
         self.settings = {}
-        self._cloud_user_cache = {"email": "staff@example.com"}
 
     def _load_settings(self):
         return dict(self.settings)
@@ -311,7 +310,8 @@ class _Bridge(AnnotateBridgeMixin):
         self.settings.update(data)
 
 
-def test_bridge_round_trip(tmp_path):
+def test_bridge_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERNAME", "staff@example.com")
     b = _Bridge()
     src = make_pdf(tmp_path / "doc.pdf", pages=1)
     assert b.annot_author()["author"] == "staff@example.com"

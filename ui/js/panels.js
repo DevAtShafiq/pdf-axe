@@ -4,7 +4,6 @@
  * Manages:
  *   - Panel: Settings (opens Dialogs.openSettings)
  *
- * (Account and Cloud panels are rendered by account.js.)
  */
 
 // ── Settings Panel ────────────────────────────────────────────────────────────

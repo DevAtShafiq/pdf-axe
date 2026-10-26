@@ -119,14 +119,12 @@ def _fmt_size(n: int) -> str:
 
 # ── bridge ────────────────────────────────────────────────────────────────────
 
-from cloud_bridge import CloudBridgeMixin  # noqa: E402  (account / subscription / cloud methods)
-from office_bridge import OfficeBridgeMixin  # noqa: E402  (office + shared drive methods)
 from archive_bridge import ArchiveBridgeMixin  # noqa: E402  (zip / unzip / ZIP + PDF passwords)
 from recorder_bridge import RecorderBridgeMixin  # noqa: E402  (screen recording + screenshots)
 from doc_preview_bridge import DocPreviewBridgeMixin  # noqa: E402  (PDF text layer, Word/Excel previews)
 
 
-class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, StudioBridgeMixin, CloudBridgeMixin, OfficeBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin):
+class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, StudioBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().
@@ -1836,18 +1834,14 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
     def run_ai_photo_action(self, path: str, action: str, opts: dict = None) -> dict:
         """Start an AI photo edit in the background.
 
-        The subscription gate, file and API-key checks happen synchronously, so a
-        rejected call returns {ok:false, error, need_subscription|need_login|
-        need_api_key} and nothing starts. Otherwise returns {ok, started:true,
+        The file and API-key checks happen synchronously, so a rejected call
+        returns {ok:false, error, need_api_key} and nothing starts. Otherwise returns {ok, started:true,
         job_id, cost_est_usd}; the result arrives as the ``ai_photo_result``
         event: {ok:true, out, src, action, job_id} or {ok:false, error, action, job_id}.
         The original file is never overwritten (a new <name>_suit<ext> is written).
         opts: {suit_color, tie, quality, job_id, out_path}.
         """
         opts = opts or {}
-        gate = self._require_plan()
-        if gate:
-            return gate
         if not path or not os.path.isfile(path):
             return _err(f"File not found: {path}")
         import ai_photo_editor as _ape
@@ -1884,7 +1878,3 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         self._thread(_run)
         return _ok(started=True, job_id=job_id, cost_est_usd=est, options=options)
 
-    # =========================================================================
-    # ACCOUNT / CLOUD — sign-in, monthly subscription and cloud storage live in
-    # cloud_bridge.CloudBridgeMixin (inherited above).
-    # =========================================================================

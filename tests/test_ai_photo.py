@@ -254,19 +254,8 @@ def _bridge(monkeypatch):
     return b, events, threads
 
 
-def test_gate_rejects_before_anything_starts(isolated_env, monkeypatch):
-    b, events, threads = _bridge(monkeypatch)
-    monkeypatch.setattr(b, "_require_plan",
-                        lambda: {"ok": False, "error": "An active subscription is required",
-                                 "need_subscription": True})
-    r = b.run_ai_photo_action(_make_src(isolated_env), "wear_suit", {})
-    assert r["ok"] is False and r["need_subscription"]
-    assert threads == [] and events == []
-
-
 def test_missing_api_key_reported_synchronously(isolated_env, monkeypatch):
     b, events, threads = _bridge(monkeypatch)
-    monkeypatch.setattr(b, "_require_plan", lambda: None)
     monkeypatch.setattr(b, "_openai_key", lambda: "")
     r = b.run_ai_photo_action(_make_src(isolated_env), "wear_suit", {})
     assert r["ok"] is False and r["need_api_key"] and threads == []
@@ -275,7 +264,6 @@ def test_missing_api_key_reported_synchronously(isolated_env, monkeypatch):
 def test_bridge_runs_with_options(isolated_env, monkeypatch):
     b, events, threads = _bridge(monkeypatch)
     calls: list = []
-    monkeypatch.setattr(b, "_require_plan", lambda: None)
     monkeypatch.setattr(b, "_openai_key", lambda: FAKE_KEY)
     monkeypatch.setattr(ape, "_openai_client", lambda: _fake_openai_factory(calls))
     src = _make_src(isolated_env)

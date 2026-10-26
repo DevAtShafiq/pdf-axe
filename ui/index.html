@@ -42,8 +42,6 @@
 <link rel="stylesheet" href="pdf-edit.css">
 <link rel="stylesheet" href="studio.css">
 <link rel="stylesheet" href="media-tools.css">
-<link rel="stylesheet" href="account.css">
-<link rel="stylesheet" href="office.css">
 <link rel="stylesheet" href="archive.css">
 <link rel="stylesheet" href="recorder.css">
 <link rel="stylesheet" href="preview-docs.css">
@@ -64,17 +62,9 @@
         <i data-icon="folder" data-size="20"></i>
         <span class="tooltip-label">Files</span>
       </button>
-      <button class="sidebar-btn" data-panel="cloud" aria-label="Cloud">
-        <i data-icon="cloud" data-size="20"></i>
-        <span class="tooltip-label">Cloud</span>
-      </button>
     </nav>
 
     <div class="sidebar-bottom">
-      <button class="sidebar-btn" data-panel="account" aria-label="Account">
-        <i data-icon="user" data-size="20"></i>
-        <span class="tooltip-label">Account</span>
-      </button>
       <button class="sidebar-btn" data-panel="settings" aria-label="Settings">
         <i data-icon="settings" data-size="20"></i>
         <span class="tooltip-label">Settings</span>
@@ -162,11 +152,6 @@
 
     <!-- Theme toggle -->
     <button class="toolbar-btn-icon" id="btn-theme" title="Switch to light theme" aria-label="Toggle theme"><i data-icon="moon"></i></button>
-
-    <!-- Account (menu is built by account.js) -->
-    <button class="avatar-btn" id="btn-account" title="Account" aria-label="Account" aria-haspopup="menu">
-      <span class="avatar" id="btn-account-avatar"><i data-icon="user" data-size="14"></i></span>
-    </button>
 
   </header>
 
@@ -415,7 +400,6 @@
                   <label class="switch" title="Add a necktie"><input type="checkbox" id="ai-tie" checked><span class="switch-track"></span></label>
                 </div>
               </div>
-              <div class="callout ai-plan-note hidden" id="ai-plan-note"><i data-icon="lock" data-size="14"></i><span>Part of the Office Axe monthly plan.</span></div>
               <button class="btn btn-primary btn-block" id="ai-wear-suit" data-ai-action="wear_suit"><i data-icon="shirt" data-size="16"></i>Wear suit &amp; tie</button>
               <div class="ai-out" id="ai-out-name"></div>
               <div id="ai-photo-status" class="ai-status"></div>
@@ -457,16 +441,6 @@
       </div>
     </div>
 
-    <!-- ─── PANEL: Account (rendered by account.js) ── -->
-    <div id="panel-account" class="panel-view acct-panel" style="display:none">
-      <div class="acct-panel-inner" id="acct-panel-body"></div>
-    </div>
-
-    <!-- ─── PANEL: Cloud (rendered by account.js) ──── -->
-    <div id="panel-cloud" class="panel-view acct-panel" style="display:none">
-      <div class="acct-panel-inner cloud-panel-inner" id="cloud-panel-body"></div>
-    </div>
-
   </main><!-- /workspace -->
 
   <!-- ═══════════════════════════════════════════════
@@ -487,10 +461,6 @@
       <span id="status-sel-text"></span>
     </div>
     <div class="status-spacer"></div>
-    <div class="status-item acct-chip" id="acct-chip" style="display:none" title="Account">
-      <span class="acct-chip-dot" id="acct-chip-dot"></span>
-      <span id="acct-chip-text"></span>
-    </div>
   </footer>
 
 </div><!-- /app -->
@@ -516,8 +486,6 @@
 <script src="js/icons.js"></script>
 <script src="js/bridge.js"></script>
 <script src="js/app.js"></script>
-<script src="js/account.js"></script>
-<script src="js/office.js"></script>
 <script src="js/file-tree.js"></script>
 <script src="js/pdf-text.js"></script>
 <script src="js/preview.js"></script>

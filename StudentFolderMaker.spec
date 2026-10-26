@@ -3,9 +3,6 @@
 # StudentFolderMaker v2 — PyWebView build (onedir)
 # Entry point : main_webview.py  (PyWebView + SFMBridge)
 # UI assets   : ui/ folder (HTML / CSS / JS) — bundled via glob below
-#               (includes ui/js/account.js for the sign-in / subscription screen)
-# Cloud       : cloud_client.py talks to the account server in server/
-#               (the server itself is deployed separately — see server/README.md)
 #
 # Run once to test without building:
 #   python main_webview.py
@@ -46,11 +43,7 @@ datas = [
     ("rename_templates.py",    "."),   # document-name templates (F2 rename suggestions)
     ("student_folder_maker.py","."),   # lazily imported for rename templates
     ("excel_grid.py",          "."),   # imported by student_folder_maker
-    ("cloud_client.py",        "."),   # account server client (sign-in, cloud sync, live events)
     ("media_convert.py",       "."),   # image<->PDF conversion + PDF/image compression
-    ("cloud_bridge.py",        "."),   # account / cloud methods of the JS bridge
-    ("office_bridge.py",       "."),   # office + shared drive methods of the JS bridge
-    ("secure_store.py",        "."),   # DPAPI protection of the stored session token
     ("pdf_tools.py",         "."),
     ("pdf_tools_bridge.py",  "."),
     ("annotate.py",          "."),   # annotation engine (PDF + image)
@@ -89,11 +82,7 @@ hiddenimports = [
     "student_folder_maker",
     "sfm_bridge",
     "main_webview",
-    "cloud_client",
     "media_convert",
-    "cloud_bridge",
-    "office_bridge",
-    "secure_store",
     "pdf_tools",
     "pdf_tools_bridge",
     "annotate",

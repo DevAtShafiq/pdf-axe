@@ -505,13 +505,6 @@ const AiPhoto = (() => {
     }
     const cmp = $('ai-compare');
     if (cmp) cmp.classList.toggle('hidden', !(currentPath && pairs.has(norm(currentPath))));
-    // Plan hint: shown when an account server is configured but the plan is not active.
-    const note = $('ai-plan-note');
-    if (note) {
-      let locked = false;
-      try { locked = !!(typeof Account !== 'undefined' && Account.state && Account.state.configured && !Account.isActive()); } catch (_) {}
-      note.classList.toggle('hidden', !locked);
-    }
     if (jobs.size && !ticker) ticker = setInterval(refreshButtons, 1000);
     if (!jobs.size && ticker) { clearInterval(ticker); ticker = null; }
   }
@@ -557,34 +550,6 @@ const AiPhoto = (() => {
   }
 
   // ── gate / key messages ──────────────────────────────────────────────────
-  function showNeedPlan(r) {
-    const login = !!(r && r.need_login);
-    const id = Dialogs.modal('ai-need-plan', {
-      title: login ? 'Sign in to use AI photo edits' : 'Subscription required',
-      icon: 'lock',
-      subtitle: 'Wear suit & tie',
-      width: '460px',
-      body: `<p class="ai-dlg-text">AI photo editing is part of the Office Axe monthly plan.
-               ${login ? 'Sign in to your account, then subscribe from the Account page.'
-                       : 'Your account does not have an active subscription.'}</p>
-             <ul class="ai-dlg-list">
-               <li>${Icons.svg('check', 14)}AI photo edits such as Wear suit &amp; tie</li>
-               <li>${Icons.svg('check', 14)}Cloud storage and automatic sync</li>
-               <li>${Icons.svg('check', 14)}Cancel any time</li>
-             </ul>`,
-      footer: `<button class="btn" id="anp-cancel-__ID__">Not now</button>
-               <button class="btn btn-primary" id="anp-go-__ID__">${Icons.svg(login ? 'log-in' : 'credit-card', 16)}${login ? 'Sign in' : 'Subscribe'}</button>`,
-    });
-    const root = document.getElementById('mo-' + id);
-    root.querySelectorAll('[id*="__ID__"]').forEach(el => { el.id = el.id.replace('__ID__', id); });
-    $('anp-cancel-' + id).addEventListener('click', () => Dialogs.closeModal(id));
-    $('anp-go-' + id).addEventListener('click', () => {
-      Dialogs.closeModal(id);
-      App.switchPanel('account');
-      try { Account.refresh(); } catch (_) {}
-    });
-  }
-
   function showNeedKey(msg) {
     const id = Dialogs.modal('ai-need-key', {
       title: 'OpenAI API key needed',
@@ -620,8 +585,7 @@ const AiPhoto = (() => {
 
     if (!r || !r.ok) {
       refreshButtons();
-      if (r && (r.need_subscription || r.need_login)) showNeedPlan(r);
-      else if (r && r.need_api_key) showNeedKey(r.error);
+      if (r && r.need_api_key) showNeedKey(r.error);
       else App.toast(`${label}: ${PhotoTools.esc((r && r.error) || 'could not start')}`, 'error', 6000);
       return r || { ok: false };
     }

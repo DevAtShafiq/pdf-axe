@@ -310,7 +310,7 @@ const App = (() => {
       // the selected file mid-rename, Ctrl+Z runs file-op undo, etc.
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      // A dialog / editor is open, or another page (Cloud, Account…) is shown:
+      // A dialog / editor is open, or another page is shown:
       // Delete, F2, Ctrl+V… must not act on the file list hidden behind it.
       if (blocked()) return;
 

@@ -52,19 +52,11 @@ class AnnotateBridgeMixin:
 
     # ── who is annotating ────────────────────────────────────────────────────
     def annot_author(self) -> dict:
-        """Signed-in account email, else the Windows user name."""
-        name = ""
+        """The Windows user name."""
         try:
-            u = getattr(self, "_cloud_user_cache", None)
-            if isinstance(u, dict):
-                name = str(u.get("email") or "")
+            name = os.environ.get("USERNAME") or getpass.getuser()
         except Exception:
             name = ""
-        if not name:
-            try:
-                name = os.environ.get("USERNAME") or getpass.getuser()
-            except Exception:
-                name = ""
         return _ok(author=name or "User")
 
     # ── load / render ────────────────────────────────────────────────────────
