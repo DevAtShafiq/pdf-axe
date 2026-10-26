@@ -29,6 +29,9 @@ const ConvertTools = (() => {
                       '.tif', '.tiff', '.heic', '.heif'];
   const isImage = p => IMAGE_EXTS.includes(_ext(p));
   const isPdf   = p => _ext(p) === '.pdf';
+  // Word and 한글 documents → PDF (Microsoft Word / Hancom 한글 on this PC)
+  const DOC_EXTS = ['.docx', '.doc', '.docm', '.dotx', '.dot', '.dotm', '.rtf', '.odt', '.hwp', '.hwpx'];
+  const isDoc   = p => DOC_EXTS.includes(_ext(p));
 
   function _fmtBytes(n) {
     n = Number(n) || 0;
@@ -170,6 +173,22 @@ const ConvertTools = (() => {
       }
       return r;
     });
+  }
+
+  // Word / HWP / HWPX → "<name>.pdf" next to each file; the originals stay.
+  async function docsToPdf(paths) {
+    paths = (Array.isArray(paths) ? paths : [paths]).filter(p => p && isDoc(p));
+    if (!paths.length) return null;
+    App.setStatus(paths.length === 1 ? `Converting ${_name(paths[0])} to PDF…` : `Converting ${paths.length} documents to PDF…`, true);
+    const r = await SFM.docsToPdf(paths).catch(e => ({ ok: false, error: String(e) }));
+    App.setStatus('Ready');
+    if (!r || !r.ok) { App.toast('Convert to PDF failed: ' + _esc((r && r.error) || 'unknown error'), 'error', 7000); return r; }
+    const ok = r.results.filter(x => x.ok), bad = r.results.filter(x => !x.ok);
+    if (ok.length === 1 && !bad.length) App.toast('Created <strong>' + _esc(_name(ok[0].out_path)) + '</strong> · the original is kept', 'success');
+    else if (ok.length) App.toast(`Created ${ok.length} PDF${ok.length === 1 ? '' : 's'} · the originals are kept`, 'success');
+    bad.forEach(x => App.toast(_esc(_name(x.path)) + ': ' + _esc(x.error || 'failed'), 'error', 8000));
+    if (ok.length) _reveal(ok[ok.length - 1].out_path);
+    return r;
   }
 
   function openImagesToPdf(paths, options = {}) {
@@ -1027,7 +1046,7 @@ const ConvertTools = (() => {
   }
 
   return {
-    isImage, isPdf, IMAGE_EXTS,
+    isImage, isPdf, isDoc, IMAGE_EXTS, DOC_EXTS, docsToPdf,
     openImagesToPdf, quickImageToPdf, openPdfToImages, openConvertImage,
     openCompress, openCompressPdf, openCompressImages,
   };

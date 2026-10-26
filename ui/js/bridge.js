@@ -129,6 +129,7 @@ const SFM = (() => {
     pdfPageText:         (path, page=0)            => call('pdf_page_text', path, page),
     pdfAllText:          (path)                    => call('pdf_all_text', path),
     docxPreviewHtml:     (path, edit=false)        => call('docx_preview_html', path, edit),
+    docsToPdf:           (paths)                   => call('docs_to_pdf', paths),
     docxSaveEdits:       (path, edits, out, sig='') => call('docx_save_edits', path, edits, out, sig),
     sheetPreviewHtml:    (path, sheet='')          => call('sheet_preview_html', path, sheet),
     officePreviewInfo:   (path)                    => call('office_preview_info', path),

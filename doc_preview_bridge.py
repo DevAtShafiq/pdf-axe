@@ -80,6 +80,25 @@ class DocPreviewBridgeMixin:
                 return _err(str(exc), exc.code)
         return _guard("docx_save_edits", run)
 
+    def docs_to_pdf(self, paths: list) -> dict:
+        """Word / 한글 files → '<name>.pdf' next to each; originals kept.
+        {results: [{path, ok, out_path?, pages?, error?}], done, failed}"""
+        import doc_convert as _dc
+        results = []
+        for p in paths or []:
+            try:
+                r = _dc.to_pdf(str(p or ""))
+                _log.info("docs_to_pdf: %s -> %s (%s, %ss)", p, r["out_path"], r["app"], r.get("seconds"))
+                results.append({"path": p, "ok": True, **r})
+            except _dc.ConvertError as exc:
+                _log.warning("docs_to_pdf: %s: %s", p, exc)
+                results.append({"path": p, "ok": False, "error": str(exc), "code": exc.code})
+            except Exception as exc:  # noqa: BLE001
+                _log.error("docs_to_pdf: %s failed: %s", p, exc, exc_info=True)
+                results.append({"path": p, "ok": False, "error": str(exc)})
+        done = sum(1 for r in results if r["ok"])
+        return _ok(results=results, done=done, failed=len(results) - done)
+
     def sheet_preview_html(self, path: str, sheet: str = "") -> dict:
         def run():
             ext = os.path.splitext(path)[1].lower()

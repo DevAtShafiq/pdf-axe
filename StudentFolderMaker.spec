@@ -71,6 +71,7 @@ datas = [
     ("doc_preview.py",       "."),   # PDF text layer + Word/Excel/Office previews
     ("doc_preview_bridge.py", "."),
     ("docx_edit.py",         "."),   # Word quick edits
+    ("doc_convert.py",       "."),   # Word / HWP(X) → PDF
     ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
@@ -113,6 +114,7 @@ hiddenimports = [
     "doc_preview",
     "doc_preview_bridge",
     "docx_edit",
+    "doc_convert",
     "screen_pick",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",

@@ -156,7 +156,11 @@ const Details = (() => {
       await FileTree.softDeletePaths([_path]);
     });
     // Conversion / compression (convert-tools.js)
-    wire('qa-convert-pdf', () => { if (_path) ConvertTools.quickImageToPdf(_path); });
+    wire('qa-convert-pdf', () => {
+      if (!_path) return;
+      if (ConvertTools.isDoc(_path)) ConvertTools.docsToPdf([_path]);
+      else ConvertTools.quickImageToPdf(_path);
+    });
     wire('qa-convert-img', () => { if (_path) ConvertTools.openConvertImage([_path]); });
     wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
     wire('qa-sign',        () => { if (_path) sign(_path); });
@@ -179,7 +183,7 @@ const Details = (() => {
     const isImg = file && ConvertTools.isImage(entry.path);
     const isPdf = file && ConvertTools.isPdf(entry.path);
     const show = (id, on) => { const b = $(id); if (b) b.classList.toggle('hidden', !on); };
-    show('qa-convert-pdf', isImg);
+    show('qa-convert-pdf', isImg || (file && ConvertTools.isDoc(entry.path)));
     show('qa-convert-img', isImg);
     show('qa-pdf-images',  isPdf);
     show('qa-compress',    isImg || isPdf);

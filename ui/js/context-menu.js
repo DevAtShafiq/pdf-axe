@@ -154,6 +154,14 @@ const ContextMenu = (() => {
       _item(menu, 'shirt', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
     }
 
+    // Section: Word / 한글 documents → PDF (single or multi-select)
+    const allDoc = entries.length > 0 && entries.every(e => !e.is_dir && ConvertTools.isDoc(e.path));
+    if (allDoc) {
+      const docPaths = entries.map(e => e.path);
+      _item(menu, 'file-pdf', docPaths.length > 1 ? `Convert ${docPaths.length} to PDF` : 'Convert to PDF', '', () => { hide(); ConvertTools.docsToPdf(docPaths); });
+      _sep(menu);
+    }
+
     // Section: image compress / convert (single or multi-select)
     const IMG_EXTS = ConvertTools.IMAGE_EXTS;
     const allImg = entries.length > 0 && entries.every(e => !e.is_dir && IMG_EXTS.includes((e.ext||'').toLowerCase()));
