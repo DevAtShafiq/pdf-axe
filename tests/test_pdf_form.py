@@ -22,9 +22,8 @@ def _form(path):
     add(fitz.PDF_WIDGET_TYPE_TEXT, "Date", (100, 130, 300, 150))
     add(fitz.PDF_WIDGET_TYPE_TEXT, "Fixed", (100, 330, 300, 350), field_flags=1, field_value="keep")
     add(fitz.PDF_WIDGET_TYPE_CHECKBOX, "Agree", (100, 160, 116, 176))
-    for i in range(2):
-        add(fitz.PDF_WIDGET_TYPE_RADIOBUTTON, "Pick", (100 + 40 * i, 190, 116 + 40 * i, 206), field_value=False)
     add(fitz.PDF_WIDGET_TYPE_COMBOBOX, "City", (100, 220, 300, 240), choice_values=["Seoul", "Busan"])
+    _radio_group(d, pg, "Pick", [(100, 190, 116, 206), (140, 190, 156, 206)], ["A", "B"])
     d.save(path)
     d.close()
     d = fitz.open(path)
@@ -33,6 +32,33 @@ def _form(path):
     d.saveIncr()
     d.close()
     return path
+
+
+def _radio_group(d, pg, name, rects, ons):
+    """A radio group written as plain PDF objects, the way other programs
+    make them (PyMuPDF's own radio creation differs between versions)."""
+    h = pg.rect.height
+    fields_t, fields = d.xref_get_key(d.pdf_catalog(), "AcroForm/Fields")
+    parent = d.get_new_xref()
+    kids = []
+    for (x0, y0, x1, y1), on in zip(rects, ons):
+        aps = []
+        for body in (b"0 g 4 4 8 8 re f", b""):
+            x = d.get_new_xref()
+            d.update_object(x, "<</Type/XObject/Subtype/Form/BBox[0 0 16 16]>>")
+            d.update_stream(x, body)
+            aps.append(x)
+        k = d.get_new_xref()
+        d.update_object(k, f"<</Type/Annot/Subtype/Widget/Parent {parent} 0 R/P {pg.xref} 0 R/F 4"
+                           f"/Rect[{x0} {h - y1} {x1} {h - y0}]/AS/Off/MK<<>>"
+                           f"/AP<</N<</{on} {aps[0]} 0 R/Off {aps[1]} 0 R>>>>>>")
+        kids.append(k)
+    d.update_object(parent, f"<</FT/Btn/Ff 49152/T({name})/V/Off/Kids[{' '.join(f'{k} 0 R' for k in kids)}]>>")
+    t, annots = d.xref_get_key(pg.xref, "Annots")
+    refs = (annots.strip("[]") + " " if t == "array" else "") + " ".join(f"{k} 0 R" for k in kids)
+    d.xref_set_key(pg.xref, "Annots", f"[{refs}]")
+    refs = (fields.strip("[]") + " " if fields_t == "array" else "") + f"{parent} 0 R"
+    d.xref_set_key(d.pdf_catalog(), "AcroForm/Fields", f"[{refs}]")
 
 
 def _by_name(info):
