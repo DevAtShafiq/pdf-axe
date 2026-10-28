@@ -758,6 +758,7 @@ const FileTree = (() => {
     const r = cut ? await SFM.moveFiles(_clipboard.paths, folder)
                   : await SFM.copyFiles(_clipboard.paths, folder);
     const done = (r && r.results || []).filter(x => x.ok && !x.unchanged);
+    pushFileOpUndo(cut, done);
     if (cut && r && r.ok) _clipboard = { mode: null, paths: [] };
     if (r && r.ok) App.toast(cut ? `Moved ${done.length || r.results.length} item(s)` : `Pasted ${done.length} item(s)`, 'success');
     else App.toast(`${cut ? 'Move' : 'Paste'} failed${done.length ? ` for some items (${done.length} done)` : ''}: ${r ? r.error : 'unknown error'}`, 'error', 6000);
@@ -791,6 +792,9 @@ const FileTree = (() => {
       for (let n = 2; taken.has(suggestion.toLowerCase()); n++) suggestion = `New folder (${n})`;
       const r = await SFM.createFolder(_currentFolder, suggestion);
       if (!r || !r.ok) { App.toast('Couldn’t create the folder: ' + ((r && r.error) || 'unknown error'), 'error'); return; }
+      // Ctrl+Z removes it again (to the Recycle Bin). Renaming it right after
+      // is its own undo step, undone first.
+      _pushCreatedUndo(`New folder “${suggestion}”`, [r.path]);
       // A search that hides the new folder would leave nothing to rename.
       if (_searchQuery) {
         const si = $('search-input'); if (si) si.value = '';
@@ -819,43 +823,105 @@ const FileTree = (() => {
     return softDeletePaths(Array.from(_selected));
   }
 
-  // Move to review (Del key, context menu, details pane): confirm, move the
-  // items into _to_review/, and make it undoable (Ctrl+Z moves them back —
-  // the undo used to be an empty function that still said "Undone").
+  // Delete (Del key, context menu, details pane), like File Explorer: confirm,
+  // move the items to the Recycle Bin, Ctrl+Z puts them back. On a drive with
+  // no Recycle Bin (USB stick, network share) they go to _to_review instead.
+  const _items = n => `${n} item${n === 1 ? '' : 's'}`;
+
+  // Recycle *paths*; returns the undo records ({path, trashed_at} / {path, moved_to}).
+  async function _recycle(paths) {
+    const r = await SFM.recycleDelete(paths);
+    const gone = ((r && r.results) || []).filter(x => x.ok)
+      .map(x => x.moved_to ? { path: x.path, moved_to: x.moved_to } : { path: x.path, trashed_at: x.trashed_at });
+    return { r, gone };
+  }
+
+  // Undo entry: Ctrl+Z restores what *gone* lists, Ctrl+Y deletes it again.
+  function _pushRecycleUndo(label, gone, after = refresh) {
+    App.pushUndo({
+      label,
+      undo: async () => {
+        const u = await SFM.restoreRecycled(gone);
+        await after();
+        if (!u || !u.ok) throw new Error((u && u.error) || 'restore failed');
+      },
+      redo: async () => {
+        const again = await _recycle(gone.map(g => g.path));
+        gone = again.gone;
+        await after();
+        if (!again.r || !again.r.ok) throw new Error((again.r && again.r.error) || 'delete failed');
+      },
+    });
+  }
+
+  // Undo entry for a copy / move (paste, drag, "Move to…" dialog), like
+  // Explorer: undoing a copy sends the copies to the Recycle Bin; undoing a
+  // move puts the items back where they came from. *done* = [{src, dst}].
+  function pushFileOpUndo(cut, done, after = refresh) {
+    let items = (done || []).filter(x => x && x.dst && !x.unchanged).map(x => ({ src: x.src, dst: x.dst }));
+    if (!items.length) return;
+    const label = `${cut ? 'Move' : 'Copy'} ${_items(items.length)}`;
+    if (!cut) { _pushCreatedUndo(label, items.map(x => x.dst), after); return; }
+    // undo_moves answers one result per item, in order; each tells where the
+    // item really landed ("name (2)" if the name had been taken meanwhile).
+    App.pushUndo({
+      label,
+      undo: async () => {
+        const u = await SFM.undoMoves(items);
+        ((u && u.results) || []).forEach((x, k) => { if (x.ok && items[k]) items[k].src = x.dst; });
+        await after();
+        if (!u || !u.ok) throw new Error((u && u.error) || 'move back failed');
+      },
+      redo: async () => {
+        const u = await SFM.undoMoves(items.map(i => ({ src: i.dst, dst: i.src })));
+        ((u && u.results) || []).forEach((x, k) => { if (x.ok && items[k]) items[k].dst = x.dst; });
+        await after();
+        if (!u || !u.ok) throw new Error((u && u.error) || 'move failed');
+      },
+    });
+  }
+
+  // Undo entry for new items (copies, a new folder): Ctrl+Z sends them to the
+  // Recycle Bin, Ctrl+Y brings them back.
+  function _pushCreatedUndo(label, paths, after = refresh) {
+    let gone = [];
+    App.pushUndo({
+      label,
+      undo: async () => {
+        const res = await _recycle(paths);
+        gone = res.gone;
+        await after();
+        if (!res.r || !res.r.ok) throw new Error((res.r && res.r.error) || 'delete failed');
+      },
+      redo: async () => {
+        const u = await SFM.restoreRecycled(gone);
+        await after();
+        if (!u || !u.ok) throw new Error((u && u.error) || 'restore failed');
+      },
+    });
+  }
+
   async function softDeletePaths(paths) {
     paths = (paths || []).filter(Boolean);
     if (!paths.length) return false;
     const one = paths.length === 1 ? paths[0].split(/[\\/]/).pop() : '';
     const ok = await Dialogs.confirm({
-      title: 'Move to review',
-      message: one ? `Move “${one}” to the _to_review folder?` : `Move ${paths.length} items to the _to_review folder?`,
-      detail: 'Nothing is deleted — the items are moved into a _to_review folder next to them, where you can restore them.',
-      okLabel: 'Move to review', okIcon: 'archive', icon: 'archive', tone: 'warning',
+      title: paths.length === 1 ? 'Delete' : `Delete ${_items(paths.length)}`,
+      message: one ? `Move “${one}” to the Recycle Bin?` : `Move these ${_items(paths.length)} to the Recycle Bin?`,
+      detail: `You can restore ${paths.length === 1 ? 'it' : 'them'} from the Recycle Bin, or press Ctrl+Z.`,
+      okLabel: 'Delete', okIcon: 'trash', icon: 'trash', danger: true,
     });
     if (!ok) return false;
-    const r = await SFM.softDelete(paths);
-    let moved = ((r && r.results) || []).filter(x => x.ok && x.moved_to)
-      .map(x => ({ path: x.path, moved_to: x.moved_to }));
-    if (moved.length) {
-      const label = `Move ${moved.length} item(s) to review`;
-      App.pushUndo({
-        label,
-        undo: async () => {
-          const u = await SFM.call('restore_soft_deleted', moved);
-          await refresh();
-          if (!u || !u.ok) throw new Error((u && u.error) || 'restore failed');
-        },
-        redo: async () => {
-          const again = await SFM.softDelete(moved.map(m => m.path));
-          moved = ((again && again.results) || []).filter(x => x.ok && x.moved_to)
-            .map(x => ({ path: x.path, moved_to: x.moved_to }));
-          await refresh();
-          if (!again || !again.ok) throw new Error((again && again.error) || 'move failed');
-        },
-      });
+    const { r, gone } = await _recycle(paths);
+    if (gone.length) _pushRecycleUndo(`Delete ${_items(gone.length)}`, gone);
+    const review = gone.filter(g => g.moved_to).length;
+    if (r && r.ok) {
+      App.toast(review
+        ? `${_items(gone.length)} removed — this drive has no Recycle Bin, so ${review === 1 ? 'it was' : 'they were'} moved to _to_review/. Ctrl+Z to undo`
+        : `${_items(gone.length)} moved to the Recycle Bin — Ctrl+Z to undo`, 'success', review ? 6000 : 3500);
+    } else {
+      App.toast('Delete failed' + (gone.length ? ` for some items (${gone.length} deleted)` : '') + ': ' + _esc((r && r.error) || 'unknown error'), 'error', 7000);
     }
-    if (r && r.ok) App.toast(`${paths.length} item(s) moved to _to_review/ — Ctrl+Z to undo`, 'success');
-    else App.toast('Move to review failed: ' + ((r && r.error) || 'unknown error'), 'error', 6000);
     await refresh();
     return !!(r && r.ok);
   }
@@ -1490,7 +1556,7 @@ const FileTree = (() => {
   return {
     loadFolder, refresh, refreshAndSelect, revealPath, applySearch, setViewMode,
     copySelection, cutSelection, pasteSelection,
-    newFolder, selectPaths, deleteSelection, softDeletePaths,
+    newFolder, selectPaths, deleteSelection, softDeletePaths, pushFileOpUndo, pushCreatedUndo: _pushCreatedUndo,
     combineSelected, browseFolder,
     getSelected, getFocusedEntry, getCurrentFolder, getEntry,
     expandAll, collapseAll,

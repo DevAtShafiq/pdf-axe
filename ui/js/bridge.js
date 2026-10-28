@@ -114,6 +114,9 @@ const SFM = (() => {
     // File ops
     renameFile:          (old, name)               => call('rename_file', old, name),
     softDelete:          (paths)                   => call('soft_delete', paths),
+    recycleDelete:       (paths)                   => call('recycle_delete', paths),
+    restoreRecycled:     (items)                   => call('restore_recycled', items),
+    undoMoves:           (items)                   => call('undo_moves', items),
     copyFiles:           (paths, dest)             => call('copy_files', paths, dest),
     moveFiles:           (paths, dest)             => call('move_files', paths, dest),
     createFolder:        (parent, name)            => call('create_folder', parent, name),
