@@ -177,6 +177,18 @@ const Details = (() => {
     });
   }
 
+  // "To PDF" shows a spinner and "Converting…" while this file is converting.
+  function _syncConvertBtn(path) {
+    const b = $('qa-convert-pdf'); if (!b) return;
+    const busy = !!(path && ConvertTools.isConverting && ConvertTools.isConverting(path));
+    b.disabled = busy;
+    b.classList.toggle('is-busy', busy);
+    const icon = b.querySelector('.icon');
+    if (icon) icon.innerHTML = busy ? '<span class="spinner"></span>' : Icons.svg('file-pdf', 16);
+    b.lastChild.textContent = busy ? ' Converting…' : ' To PDF';
+  }
+  document.addEventListener('oa-convert-state', () => _syncConvertBtn(_path));
+
   // Image → PDF / format / compress for images; → images / compress for PDFs.
   function _showConvertAction(entry) {
     const file  = entry && !entry.is_dir;
@@ -184,6 +196,7 @@ const Details = (() => {
     const isPdf = file && ConvertTools.isPdf(entry.path);
     const show = (id, on) => { const b = $(id); if (b) b.classList.toggle('hidden', !on); };
     show('qa-convert-pdf', isImg || (file && ConvertTools.isDoc(entry.path)));
+    _syncConvertBtn(entry && entry.path);
     show('qa-convert-img', isImg);
     show('qa-pdf-images',  isPdf);
     show('qa-compress',    isImg || isPdf);

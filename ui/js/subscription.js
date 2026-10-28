@@ -99,9 +99,14 @@ const Subscription = (() => {
       document.body.appendChild(el);
       el.addEventListener('click', onGateClick);
       el.addEventListener('input', onGateInput);
+      // Esc closes the "extend" gate wherever the focus is (not just inside it).
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && gateOpen && gateDismissable && view !== 'processing'
+            && !document.querySelector('.modal-overlay')) { e.stopPropagation(); closeGate(); }
+      }, true);
       el.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && gateDismissable && view !== 'processing') { e.stopPropagation(); closeGate(); }
         if (e.key === 'Enter' && e.target.matches('#sub-key-input')) activateKey();
+        if (e.key === 'Enter' && e.target.matches('#sub-form input')) { e.preventDefault(); readForm(); pay(); }
       });
     }
     return el;
@@ -335,7 +340,8 @@ const Subscription = (() => {
     checkoutDraft = {
       name: f.elements.name.value.trim(),
       email: f.elements.email.value.trim(),
-      phone: f.elements.phone.value.trim(),
+      // Bangla digits (০-৯) are fine to type; the gateway gets 0-9.
+      phone: f.elements.phone.value.trim().replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d))),
     };
     return checkoutDraft;
   }
@@ -357,21 +363,26 @@ const Subscription = (() => {
     }
   }
 
+  let paying = false;
   async function pay() {
+    if (paying) return;                 // a double-click must not start two payments
     const c = readForm();
     const bad = validate(c);
     if (bad) { showFormError(bad); return; }
     showFormError(null);
     const btn = document.querySelector('[data-act="pay"]');
-    if (btn) btn.classList.add('is-loading');
+    if (btn) { btn.classList.add('is-loading'); btn.disabled = true; }
+    paying = true;
     let r;
     try {
       r = await SFM.call('subscription_checkout', plan, method, c);
     } catch (e) {
       r = { ok: false, error: String(e && e.message || e) };
+    } finally {
+      paying = false;
     }
     if (!r || !r.ok) {
-      if (btn) btn.classList.remove('is-loading');
+      if (btn) { btn.classList.remove('is-loading'); btn.disabled = false; }
       showFormError({ field: r && r.field, error: (r && r.error) || 'The payment could not be started.' });
       return;
     }
@@ -747,6 +758,12 @@ const Subscription = (() => {
     const chip = document.getElementById('sub-chip');
     if (chip) chip.addEventListener('click', () => App.switchPanel('subscription'));
     SFM.on('subscription_changed', s => { if (s && s.ok) apply(s); });
+    let lastRequired = 0;
+    SFM.on('subscription_required', () => {
+      if (Date.now() - lastRequired < 3000) return;     // many calls fail at once
+      lastRequired = Date.now();
+      refresh();
+    });
     // Gate right away (before the first answer) so the app never flashes unlocked.
     openGate({ blocking: true });
     refresh();

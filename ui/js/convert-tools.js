@@ -175,13 +175,108 @@ const ConvertTools = (() => {
     });
   }
 
+  // ── Task card: a small, non-blocking progress card (bottom-right) for slow
+  // conversions. Word / 한글 can take several seconds per file (longer the
+  // first time while they start), so the user must see that work is going on.
+  function _taskCard({ title, total = 1, hint = '' }) {
+    let host = $('task-cards');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'task-cards';
+      host.className = 'task-cards';
+      host.setAttribute('aria-live', 'polite');
+      document.body.appendChild(host);
+    }
+    const el = document.createElement('div');
+    el.className = 'task-card';
+    el.setAttribute('role', 'status');
+    el.innerHTML = `
+      <div class="task-card-head">
+        <span class="spinner task-card-spin"></span>
+        <span class="task-card-title">${_esc(title)}</span>
+        <span class="task-card-time">0:00</span>
+      </div>
+      <div class="task-card-file truncate"></div>
+      <div class="progress-wrap task-card-bar"><div class="progress-bar ${total > 1 ? '' : 'indeterminate'}" style="width:${total > 1 ? 0 : 100}%"></div></div>
+      <div class="task-card-meta">
+        <span class="task-card-count"></span>
+        ${hint ? `<span class="task-card-hint">${_esc(hint)}</span>` : ''}
+      </div>`;
+    host.appendChild(el);
+    const t0 = Date.now();
+    const q = s => el.querySelector(s);
+    const tick = setInterval(() => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      q('.task-card-time').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }, 1000);
+    return {
+      file(path, index) {
+        q('.task-card-file').textContent = _name(path);
+        q('.task-card-file').title = path;
+        if (total > 1) q('.task-card-count').textContent = `File ${index + 1} of ${total}`;
+      },
+      progress(done) {
+        if (total > 1) q('.task-card-bar .progress-bar').style.width = Math.round(done * 100 / total) + '%';
+      },
+      finish(ok, text) {
+        clearInterval(tick);
+        el.classList.add(ok ? 'is-done' : 'is-failed');
+        q('.task-card-spin').outerHTML = `<span class="task-card-icon">${Icons.svg(ok ? 'check-circle' : 'x-circle', 16)}</span>`;
+        q('.task-card-title').textContent = text;
+        const hintEl = q('.task-card-hint');
+        if (hintEl) hintEl.remove();
+        const bar = q('.task-card-bar .progress-bar');
+        bar.classList.remove('indeterminate'); bar.style.width = '100%';
+        setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 300); }, ok ? 1600 : 3000);
+      },
+    };
+  }
+
+  // Files being converted right now (a second click must not start them again).
+  const _converting = new Set();
+  const _convKey = p => String(p || '').replace(/\//g, '\\').toLowerCase();
+  const isConverting = p => _converting.has(_convKey(p));
+
   // Word / HWP / HWPX → "<name>.pdf" next to each file; the originals stay.
   async function docsToPdf(paths) {
     paths = (Array.isArray(paths) ? paths : [paths]).filter(p => p && isDoc(p));
+    const busy = paths.filter(isConverting);
+    paths = paths.filter(p => !isConverting(p));
+    if (busy.length && !paths.length) {
+      App.toast(busy.length === 1 ? `${_esc(_name(busy[0]))} is already being converted…` : 'These files are already being converted…', 'info', 3000);
+      return null;
+    }
     if (!paths.length) return null;
+    const keys = paths.map(_convKey);
+    keys.forEach(k => _converting.add(k));
+    document.dispatchEvent(new CustomEvent('oa-convert-state'));
+    const job = _newJob('docs2pdf');
+    const card = _taskCard({
+      title: paths.length === 1 ? 'Converting to PDF…' : `Converting ${paths.length} documents to PDF…`,
+      total: paths.length,
+      hint: 'You can keep working meanwhile',
+    });
+    card.file(paths[0], 0);
+    const off = SFM.on('docs_convert_progress', p => {
+      if (!p || p.job !== job) return;
+      if (p.state === 'start') card.file(p.path, p.index);
+      else card.progress(p.index + 1);
+    });
     App.setStatus(paths.length === 1 ? `Converting ${_name(paths[0])} to PDF…` : `Converting ${paths.length} documents to PDF…`, true);
-    const r = await SFM.docsToPdf(paths).catch(e => ({ ok: false, error: String(e) }));
+    let r;
+    try {
+      r = await SFM.docsToPdf(paths, job).catch(e => ({ ok: false, error: String(e) }));
+    } finally {
+      off();
+      keys.forEach(k => _converting.delete(k));
+      document.dispatchEvent(new CustomEvent('oa-convert-state'));
+    }
     App.setStatus('Ready');
+    const nOk = r && r.ok ? r.results.filter(x => x.ok).length : 0;
+    card.finish(nOk > 0 && nOk === paths.length,
+      !r || !r.ok || !nOk ? 'Conversion failed'
+        : nOk === paths.length ? (nOk === 1 ? 'PDF created' : `${nOk} PDFs created`)
+        : `${nOk} of ${paths.length} converted`);
     if (!r || !r.ok) { App.toast('Convert to PDF failed: ' + _esc((r && r.error) || 'unknown error'), 'error', 7000); return r; }
     const ok = r.results.filter(x => x.ok), bad = r.results.filter(x => !x.ok);
     if (ok.length === 1 && !bad.length) App.toast('Created <strong>' + _esc(_name(ok[0].out_path)) + '</strong> · the original is kept', 'success');
@@ -1046,7 +1141,7 @@ const ConvertTools = (() => {
   }
 
   return {
-    isImage, isPdf, isDoc, IMAGE_EXTS, DOC_EXTS, docsToPdf,
+    isImage, isPdf, isDoc, IMAGE_EXTS, DOC_EXTS, docsToPdf, isConverting,
     openImagesToPdf, quickImageToPdf, openPdfToImages, openConvertImage,
     openCompress, openCompressPdf, openCompressImages,
   };

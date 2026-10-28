@@ -234,7 +234,7 @@ const QrScan = (() => {
       return;
     }
     _picking = true;
-    App.setStatus('Click a QR code anywhere on screen — drag a box around it, or press Esc to cancel', true);
+    App.setStatus('Click a QR code anywhere on screen, or drag a box around it — click × or press Esc to cancel', true);
   }
 
   function _hostHtml(res) {
