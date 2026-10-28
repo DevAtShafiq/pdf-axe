@@ -277,3 +277,46 @@ def test_bridge_runs_with_options(isolated_env, monkeypatch):
     assert "medium grey" in calls[0]["prompt"]
     est = b.ai_photo_estimate(src, {"quality": "medium"})
     assert est["ok"] and est["out_name"] == "student_suit (2).jpg"
+
+
+def test_uses_a_current_image_model(isolated_env, monkeypatch):
+    """gpt-image-1 was retired for edits; the first choice is a current model."""
+    calls: list = []
+    monkeypatch.setattr(ape, "_openai_client", lambda: _fake_openai_factory(calls))
+    ok, out = ape.run_ai_edit(_make_src(isolated_env), "wear_suit", api_key=FAKE_KEY)
+    assert ok, out
+    assert calls[0]["model"] == ape._AI_EDIT_MODELS[0] != "gpt-image-1"
+
+
+def test_falls_back_when_a_model_does_not_exist(isolated_env, monkeypatch):
+    calls: list = []
+
+    class Images(_FakeImages):
+        def edit(self, **kw):
+            if kw["model"] == ape._AI_EDIT_MODELS[0]:
+                calls.append("rejected " + kw["model"])
+                raise RuntimeError("Error code: 400 - {'error': {'message': \"The model '"
+                                   + kw["model"] + "' does not exist.\", 'param': 'model', 'code': 'invalid_value'}}")
+            return super().edit(**kw)
+
+    class Fake:
+        def __init__(self, **kw):
+            self.images = Images(calls)
+    monkeypatch.setattr(ape, "_openai_client", lambda: Fake)
+    ok, out = ape.run_ai_edit(_make_src(isolated_env), "wear_suit", api_key=FAKE_KEY)
+    assert ok, out
+    assert calls[0].startswith("rejected") and calls[1]["model"] == ape._AI_EDIT_MODELS[1]
+
+
+def test_no_model_available_gives_a_clear_message(isolated_env, monkeypatch):
+    class Images:
+        def edit(self, **kw):
+            raise RuntimeError(f"The model '{kw['model']}' does not exist.")
+
+    class Fake:
+        def __init__(self, **kw):
+            self.images = Images()
+    monkeypatch.setattr(ape, "_openai_client", lambda: Fake)
+    ok, msg = ape.run_ai_edit(_make_src(isolated_env), "wear_suit", api_key=FAKE_KEY)
+    assert not ok and "image model" in msg and "update Office Axe" in msg
+    assert sorted(os.listdir(isolated_env)) == ["student.jpg"]

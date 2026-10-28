@@ -67,7 +67,8 @@ KEY_UP, KEY_UNICODE = 0x2, 0x4
 
 VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "enter": 0x0D, "esc": 0x1B, "tab": 0x09,
       "delete": 0x2E, "backspace": 0x08, "f2": 0x71, "home": 0x24, "end": 0x23,
-      "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28, "space": 0x20}
+      "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28, "space": 0x20,
+      "plus": 0xBB, "minus": 0xBD, "zero": 0x30}
 
 
 # ── mouse ─────────────────────────────────────────────────────────────────────
@@ -81,9 +82,23 @@ def _ease(t):
     return 0.5 - 0.5 * math.cos(math.pi * t)
 
 
+# Area the cursor may travel through (left, top, right, bottom), set by the
+# recorder to the filmed window: a curved path must never dip onto the
+# taskbar, whose hover previews would show other windows.
+BOUNDS = None
+
+
+def _clamp(x, y):
+    if not BOUNDS:
+        return x, y
+    l, t, r, b = BOUNDS
+    return min(max(x, l + 2), r - 3), min(max(y, t + 2), b - 3)
+
+
 def move(x, y, duration=None, fps=120):
     """Glide the real cursor to (x, y) on a gentle curve with ease in/out."""
-    x0, y0 = cursor()
+    x, y = _clamp(x, y)
+    x0, y0 = _clamp(*cursor())
     dist = math.hypot(x - x0, y - y0)
     if duration is None:
         duration = min(0.95, 0.28 + dist / 1900.0)
@@ -94,8 +109,8 @@ def move(x, y, duration=None, fps=120):
     for i in range(1, steps + 1):
         t = _ease(i / steps)
         arc = math.sin(math.pi * t) * bend
-        user32.SetCursorPos(int(round(x0 + (x - x0) * t + nx * arc)),
-                            int(round(y0 + (y - y0) * t + ny * arc)))
+        px, py = _clamp(x0 + (x - x0) * t + nx * arc, y0 + (y - y0) * t + ny * arc)
+        user32.SetCursorPos(int(round(px)), int(round(py)))
         time.sleep(duration / steps)
     user32.SetCursorPos(int(round(x)), int(round(y)))
 

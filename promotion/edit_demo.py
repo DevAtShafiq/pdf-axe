@@ -1,32 +1,39 @@
 # -*- coding: utf-8 -*-
 """
-edit_demo.py — turn a raw take into the finished product video.
+edit_demo.py — turn the chapter takes into the finished product video.
 
-    python promotion/edit_demo.py promotion/work/<take> [--voice-dir promotion/work/voice]
-                                  [--out promotion/office-axe-demo.mp4] [--preview]
+    python promotion/edit_demo.py promotion/work/<run> [--voice-dir promotion/work/voice]
+                                  [--out promotion/office-axe-demo.mp4] [--preview] [--chapters 1,2]
 
 Inputs
-    <take>/raw.mp4       real screen recording (record_demo.py)
-    <take>/events.json   what happened when, with on-screen rectangles
-    narration.json       script, section titles and callout texts
-    <voice-dir>/*.wav    one WAV per narration line (make_voiceover.py)
+    <run>/chNN[-k]/raw.mp4, events.json   one take per chapter (record_demo.py);
+                                          the newest successful take is used
+    narration.json                        script, chapter titles, callout texts
+    <voice-dir>/<id>.wav                  narration lines (make_voiceover.py)
 
-Output
-    office-axe-demo.mp4  1920×1080, 30 fps, H.264 + AAC
-    narration.srt        subtitles with the same timing as the burned-in captions
-    <take>/timeline.json the computed edit (for debugging / re-use)
+Outputs
+    office-axe-demo-1440p.mp4   2560×1440, 30 fps, H.264 + AAC (master)
+    office-axe-demo-1080p.mp4   the same at 1920×1080
+    office-axe-demo.mp4         compact 1080p copy for sharing / the repository
+    narration.srt               subtitles (same timing as the burned-in captions)
+    <run>/timeline.json         the computed edit
 
-The motion graphics (title cards, section titles, zooms, highlight boxes,
-callouts, click ripples, key caps, captions) are drawn here with Pillow on
-top of the real frames; the app itself is never altered.
+What the editor adds on top of the real footage: opening / chapter / closing
+cards, a camera that smoothly follows the action, callouts with highlight
+boxes, click ripples, key caps, a chapter label, captions, a blur over
+anything sensitive (the API key field), and a soundtrack — narration, UI
+sounds and a quiet music bed made by sfx.py. Long waits (Word starting,
+the AI call) are sped up with a visible badge.
 """
 from __future__ import annotations
 
 import argparse
+import glob
 import io
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import wave
@@ -36,72 +43,63 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-W, H, FPS = 1920, 1080, 30
-SR = 48000
+sys.path.insert(0, HERE)
+import sfx  # noqa: E402
 
-# ── look ──────────────────────────────────────────────────────────────────────
+OW, OH, FPS = 2560, 1440, 30
+SR = sfx.SR
+U = OW / 1920.0                    # layout unit: sizes below are designed for 1080p
+
 NAVY = (15, 27, 51)
 NAVY2 = (22, 44, 86)
 ACCENT = (47, 134, 255)
-ACCENT_SOFT = (47, 134, 255, 60)
 WHITE = (255, 255, 255)
 INK = (24, 31, 46)
 MUTED = (110, 120, 138)
-CARD = (255, 255, 255, 245)
-CAPTION_BG = (12, 18, 30, 205)
 
-_FONT_CACHE: dict = {}
+_FONTS: dict = {}
 
 
-def font(size: int, bold: bool = False):
-    """Helvetica-class fonts bundled with PyMuPDF (no system font folder needed)."""
-    key = (size, bold)
-    if key not in _FONT_CACHE:
+def font(size, bold=False):
+    key = (int(size * U), bold)
+    if key not in _FONTS:
         import pymupdf
-        data = pymupdf.Font("hebo" if bold else "helv").buffer
-        _FONT_CACHE[key] = ImageFont.truetype(io.BytesIO(data), size)
-    return _FONT_CACHE[key]
+        _FONTS[key] = ImageFont.truetype(io.BytesIO(pymupdf.Font("hebo" if bold else "helv").buffer), key[0])
+    return _FONTS[key]
 
 
-def ease(x: float) -> float:
+def ease(x):
     x = max(0.0, min(1.0, x))
     return x * x * (3 - 2 * x)
 
 
-def ease_out(x: float) -> float:
+def ease_out(x):
     x = max(0.0, min(1.0, x))
     return 1 - (1 - x) ** 3
 
 
-def ffmpeg_exe() -> str:
-    try:
-        import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        return "ffmpeg"
+def ffmpeg_exe():
+    import imageio_ffmpeg
+    return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-# ── video I/O ─────────────────────────────────────────────────────────────────
+# ── video input ───────────────────────────────────────────────────────────────
 class RawReader:
-    """Sequential frames of raw.mp4 at a constant 30 fps (frame i = i / 30 s)."""
-
-    def __init__(self, path: str):
+    def __init__(self, path, w, h):
+        self.w, self.h = w, h
         self.p = subprocess.Popen([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-i", path,
-                                   "-vf", f"fps={FPS},scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                   "-vf", f"fps={FPS}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                                   stdout=subprocess.PIPE)
-        self.idx = -1
-        self.frame = None
-        self.size = W * H * 3
+        self.idx, self.frame, self.size = -1, None, w * h * 3
 
-    def get(self, i: int):
+    def get(self, i):
         i = max(0, i)
         while self.idx < i:
             buf = self.p.stdout.read(self.size)
             if len(buf) < self.size:
-                break                       # past the end: keep the last frame
-            self.frame = buf
-            self.idx += 1
-        return Image.frombuffer("RGB", (W, H), self.frame, "raw", "RGB", 0, 1)
+                break
+            self.frame, self.idx = buf, self.idx + 1
+        return Image.frombuffer("RGB", (self.w, self.h), self.frame, "raw", "RGB", 0, 1)
 
     def close(self):
         try:
@@ -110,223 +108,302 @@ class RawReader:
             pass
 
 
-def find_sync(raw_path: str, x: int, y: int, max_s: float = 10.0) -> float | None:
-    """Video time of the first frame whose pixel (x, y) is magenta."""
-    r = RawReader(raw_path)
+def probe_size(path):
+    info = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", path], capture_output=True, text=True, errors="replace").stderr
+    m = re.search(r"Video: .*?, (\d{3,5})x(\d{3,5})", info)
+    return int(m.group(1)), int(m.group(2))
+
+
+def find_sync(path, w, h, x, y, t_hint=0.0, span=5.0):
+    """Video time of the magenta sync marker. Looks around the time the event
+    log says it was shown (it can be minutes into the file)."""
+    start = max(0.0, t_hint - 1.0)
+    p = subprocess.Popen([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", path,
+                          "-t", f"{span:.1f}", "-vf", f"fps={FPS}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         stdout=subprocess.PIPE)
+    size = w * h * 3
     try:
-        for i in range(int(max_s * FPS)):
-            img = r.get(i)
-            px = img.getpixel((x, y))
-            if px[0] > 200 and px[2] > 200 and px[1] < 80:
-                return i / FPS
+        for i in range(int(span * FPS)):
+            buf = p.stdout.read(size)
+            if len(buf) < size:
+                break
+            o = (y * w + x) * 3
+            r, g, b = buf[o], buf[o + 1], buf[o + 2]
+            if r > 200 and b > 200 and g < 80:
+                return start + i / FPS
     finally:
-        r.close()
+        p.kill()
     return None
 
 
+# ── takes ─────────────────────────────────────────────────────────────────────
+def load_takes(run, only=None):
+    takes = {}
+    for d in sorted(glob.glob(os.path.join(run, "ch[0-9][0-9]*"))):
+        ev = os.path.join(d, "events.json")
+        if not (os.path.isfile(ev) and os.path.isfile(os.path.join(d, "raw.mp4"))):
+            continue
+        log = json.load(open(ev, encoding="utf-8"))
+        if not log.get("ok"):
+            continue
+        n = log["chapter"]
+        if only and n not in only:
+            continue
+        if n not in takes or os.path.getmtime(ev) > takes[n]["mtime"]:
+            takes[n] = {"dir": d, "mtime": os.path.getmtime(ev), **log}
+    out = []
+    for n in sorted(takes):
+        t = takes[n]
+        raw = os.path.join(t["dir"], "raw.mp4")
+        w, h = probe_size(raw)
+        sync = next((e for e in t["events"] if e["type"] == "sync"), None)
+        vs = find_sync(raw, w, h, sync["x"], sync["y"], sync["t"] + 0.5) if sync else None
+        if vs is None:
+            print(f"  ! chapter {n}: sync marker not found, using the typical offset")
+        t["offset"] = (vs - sync["t"]) if (sync and vs is not None) else 0.77
+        t["raw"], t["w"], t["h"] = raw, w, h
+        print(f"chapter {n:2d} {t['key']:10s} {os.path.basename(t['dir'])}  sync {t['offset']:+.3f}s")
+        out.append(t)
+    return out
+
+
 # ── timeline ──────────────────────────────────────────────────────────────────
-def wav_info(path):
+def wav_len(path):
     with wave.open(path, "rb") as w:
         return w.getnframes() / float(w.getframerate())
 
 
-def build_timeline(events: list, offset: float, script: dict, voice_dir: str) -> dict:
-    """Segments (cards, video, holds), narration placement and overlays — all
-    in output seconds."""
-    vt = lambda e: e["t"] + offset                      # event → raw video time
-    by_type = lambda t: [e for e in events if e["type"] == t]
-    secs = by_type("section")
-    end_t = vt(by_type("end")[0]) if by_type("end") else vt(events[-1])
-    durs = {ln["id"]: wav_info(os.path.join(voice_dir, ln["id"] + ".wav")) for ln in script["lines"]}
-    lines_for = lambda sec: [ln for ln in script["lines"] if ln["section"] == sec]
+def speed_pieces(take, r0, r1):
+    """Split [r0, r1] (raw seconds) into (a, b, speed): explicit waits and any
+    stretch with no logged activity for > 4 s are played faster."""
+    vt = lambda e: e["t"] + take["offset"]
+    ev = [e for e in take["events"] if r0 <= vt(e) <= r1]
+    spans = []
+    fc = [e for e in ev if e["type"] == "focus" and e.get("name") == "task card"]
+    fd = [e for e in ev if e["type"] == "focus" and e.get("name") == "task done"]
+    if fc and fd:
+        spans.append((vt(fc[0]) + 1.4, vt(fd[0]) - 0.4))
+    ws = [e for e in ev if e["type"] == "wait_start"]
+    we = [e for e in ev if e["type"] == "wait_end"]
+    for a, b in zip(ws, we):
+        spans.append((vt(a) + 1.5, vt(b) - 0.4))
+    times = sorted(vt(e) for e in ev if e["type"] not in ("typing",))
+    for a, b in zip(times, times[1:]):
+        if b - a > 4.2 and not any(sa <= a + 1 <= sb for sa, sb in spans):
+            spans.append((a + 1.4, b - 0.9))
+    spans = sorted((a, b) for a, b in spans if b - a > 1.5)
+    pieces, cur = [], r0
+    for a, b in spans:
+        if a < cur:
+            continue
+        pieces.append((cur, a, 1.0))
+        sp = max(2.0, min(12.0, (b - a) / 1.6))
+        pieces.append((a, b, round(sp, 1)))
+        cur = b
+    pieces.append((cur, r1, 1.0))
+    return [p for p in pieces if p[1] - p[0] > 0.02]
 
-    segs, narr = [], []
+
+def build_timeline(takes, script, voice_dir):
+    durs = {l["id"]: wav_len(os.path.join(voice_dir, l["id"] + ".wav")) for l in script["lines"]}
+    lines_for = lambda key: [l for l in script["lines"] if l["section"] == key]
+    segs, narr, chapters = [], [], []
     out = 0.0
 
-    # opening card
-    intro_d = max(6.5, sum(durs[l["id"]] for l in lines_for("intro")) + 1.6)
-    segs.append({"kind": "card", "card": "intro", "t0": out, "t1": out + intro_d})
-    t = out + 0.8
-    for ln in lines_for("intro"):
-        narr.append({"id": ln["id"], "text": ln["text"], "t0": t, "t1": t + durs[ln["id"]]})
-        t += durs[ln["id"]] + 0.3
-    out += intro_d
+    def place_lines(key, t):
+        nonlocal narr
+        for l in lines_for(key):
+            narr.append({"id": l["id"], "text": l["text"], "t0": t, "t1": t + durs[l["id"]]})
+            t += durs[l["id"]] + 0.35
+        return t
 
-    sections = []
-    for k, s in enumerate(secs):
-        r0 = vt(s) - 0.2
-        r1 = vt(secs[k + 1]) - 0.2 if k + 1 < len(secs) else end_t
-        # speed up long waits (Word starting up): logged by the recorder as task card → task done
-        pieces = [(r0, r1, 1.0)]
-        if s["name"] == "convert":
-            fc = [e for e in events if e["type"] == "focus" and e.get("name") == "task card"]
-            fd = [e for e in events if e["type"] == "focus" and e.get("name") == "task done"]
-            if fc and fd and vt(fd[0]) - vt(fc[0]) > 4:
-                a, b = vt(fc[0]) + 1.2, vt(fd[0]) - 0.4
-                pieces = [(r0, a, 1.0), (a, b, 4.0), (b, r1, 1.0)]
-        sec_out0 = out
-        for a, b, sp in pieces:
+    intro = max(7.0, sum(durs[l["id"]] for l in lines_for("intro")) + 2.2)
+    segs.append({"kind": "card", "card": "intro", "t0": out, "t1": out + intro})
+    place_lines("intro", out + 1.2)
+    out += intro
+
+    for ci, tk in enumerate(takes):
+        key = tk["key"]
+        vt = lambda e, tk=tk: e["t"] + tk["offset"]
+        sec = next(e for e in tk["events"] if e["type"] == "section")
+        end = next((e for e in tk["events"] if e["type"] == "end"), tk["events"][-1])
+        r0, r1 = vt(sec) - 0.1, vt(end) - 0.35
+        card_d = 2.4
+        segs.append({"kind": "card", "card": "chapter", "key": key, "take": ci, "r": r0 + 0.3,
+                     "t0": out, "t1": out + card_d})
+        out += card_d
+        c0 = out
+        for a, b, sp in speed_pieces(tk, r0, r1):
             d = (b - a) / sp
-            segs.append({"kind": "video", "r0": a, "r1": b, "speed": sp, "t0": out, "t1": out + d,
-                         "section": s["name"]})
+            segs.append({"kind": "video", "take": ci, "r0": a, "r1": b, "speed": sp, "t0": out, "t1": out + d})
             out += d
-        # narration for this section
-        t = sec_out0 + 0.9
-        lines = lines_for(s["name"])
-        # second line of a section starts at a meaningful moment when we can
-        anchors = {"s2b": ("key", "F2"), "s4b": ("click", "sideways page")}
-        for ln in lines:
-            if ln["id"] in anchors:
-                typ, name = anchors[ln["id"]]
-                ev = next((e for e in events if e["type"] == typ and (e.get("name") == name or e.get("text") == name)
-                           and vt(e) >= r0), None)
-                if ev:
-                    t = max(t, map_raw_to_out(segs, vt(ev)) - 0.2)
-            narr.append({"id": ln["id"], "text": ln["text"], "t0": t, "t1": t + durs[ln["id"]]})
-            t += durs[ln["id"]] + 0.35
-        need = t - out + 0.2
-        if need > 0:                                    # narration longer than the footage: hold the last frame
-            segs.append({"kind": "hold", "r": r1, "t0": out, "t1": out + need, "section": s["name"]})
+        # narration: first line shortly after the chapter starts; others at their anchor
+        t = c0 + 0.5
+        for l in lines_for(key):
+            if l.get("anchor"):
+                typ, name = l["anchor"]
+                e = next((e for e in tk["events"] if e["type"] == typ and
+                          (name in (e.get("name") or "") or name == e.get("text"))), None)
+                if e:
+                    t = max(t, raw_to_out(segs, ci, vt(e)) - 0.3)
+            narr.append({"id": l["id"], "text": l["text"], "t0": t, "t1": t + durs[l["id"]]})
+            t += durs[l["id"]] + 0.35
+        need = t - out + 0.4
+        if need > 0:
+            segs.append({"kind": "hold", "take": ci, "r": r1, "t0": out, "t1": out + need})
             out += need
-        sections.append({"name": s["name"], "t0": sec_out0, "t1": out})
+        chapters.append({"key": key, "n": tk["chapter"], "t0": c0, "t1": out})
 
-    outro_d = max(6.0, sum(durs[l["id"]] for l in lines_for("outro")) + 2.2)
-    segs.append({"kind": "card", "card": "outro", "t0": out, "t1": out + outro_d})
-    t = out + 0.9
-    for ln in lines_for("outro"):
-        narr.append({"id": ln["id"], "text": ln["text"], "t0": t, "t1": t + durs[ln["id"]]})
-    out += outro_d
-    return {"segments": segs, "narration": narr, "sections": sections, "duration": out, "offset": offset}
+    outro = max(8.0, sum(durs[l["id"]] for l in lines_for("outro")) + 4.0)
+    segs.append({"kind": "card", "card": "outro", "t0": out, "t1": out + outro})
+    place_lines("outro", out + 1.6)
+    out += outro
+    return {"segments": segs, "narration": narr, "chapters": chapters, "duration": out}
 
 
-def map_raw_to_out(segs, r: float) -> float:
+def raw_to_out(segs, take, r):
     for s in segs:
-        if s["kind"] == "video" and s["r0"] <= r <= s["r1"]:
+        if s["kind"] == "video" and s["take"] == take and s["r0"] <= r <= s["r1"]:
             return s["t0"] + (r - s["r0"]) / s["speed"]
-    return 0.0
+    best = None
+    for s in segs:                                # inside a gap: nearest segment edge
+        if s["kind"] == "video" and s["take"] == take:
+            if r < s["r0"]:
+                return s["t0"] if best is None else best
+            best = s["t1"]
+    return best or 0.0
 
 
-def out_to_raw(segs, t: float):
+def seg_at(segs, t):
     for s in segs:
         if s["t0"] <= t < s["t1"]:
-            if s["kind"] == "video":
-                return s, s["r0"] + (t - s["t0"]) * s["speed"]
-            if s["kind"] == "hold":
-                return s, s["r"]
-            return s, None
-    return segs[-1], None
+            return s
+    return segs[-1]
 
 
-# ── camera (zoom) ─────────────────────────────────────────────────────────────
-def zoom_windows(events, offset):
-    """[(r_start, r_end, rect, scale)] in raw time: where the camera zooms in."""
-    vt = lambda e: e["t"] + offset
-    ev = events
+# ── camera ────────────────────────────────────────────────────────────────────
+class Camera:
+    """Follows the action: each logged event sets a target region; a spring
+    eases the view there. Coordinates are raw-video pixels of the take."""
 
-    def after(name_or_text, t, typ=None):
-        for e in ev:
-            if vt(e) > t and (typ is None or e["type"] == typ) and \
-                    (e.get("name") == name_or_text or e.get("text") == name_or_text):
-                return vt(e)
-        return None
+    def __init__(self, take):
+        self.w, self.h = take["w"], take["h"]
+        vt = lambda e: e["t"] + take["offset"]
+        tg = []
+        for e in take["events"]:
+            t, typ = vt(e), e["type"]
+            if typ in ("section", "wide", "dialog", "end"):
+                tg.append((t - 0.2, None, 1.0))
+            elif typ == "click" and "x" in e:
+                tg.append((t - 0.45, self._around(e["x"], e["y"], 1.6), 1.6))
+            elif typ in ("focus",) and e.get("rect"):
+                tg.append((t - 0.2, e["rect"], 2.1))
+            elif typ == "typing" and e.get("rect"):
+                tg.append((t - 0.2, e["rect"], 2.0))
+            elif typ == "drag" and e.get("frm"):
+                (x0, y0), (x1, y1) = e["frm"], e["to"]
+                tg.append((t - 0.4, [min(x0, x1), min(y0, y1), abs(x1 - x0) + 1, abs(y1 - y0) + 1], 1.7))
+        self.targets = sorted(tg, key=lambda x: x[0])
+        self.state = None
+        self.last_r = None
 
-    out = []
-    for e in ev:
-        if e["type"] not in ("focus", "typing") or not e.get("rect"):
-            continue
-        n, t = e.get("name"), vt(e)
-        rule = {
-            "names":       ("click", "Create", -0.15, 1.75),
-            "suggestions": ("click", "학사 학위증명서 (아포스티유 포함)", 0.9, 1.9),
-            "task card":   ("focus", "task done", 1.8, 1.9),
-            "page grid":   ("click", "Save", -0.25, 1.35),
-        }.get(n)
-        if not rule:
-            continue
-        typ, until, extra, scale = rule
-        t_end = after(until, t, typ)
-        if t_end is None:
-            continue
-        rect = e["rect"]
-        if n == "names":                       # the whole dialog: names on the left, preview on the right
-            dlg = next((x for x in ev if x["type"] == "focus" and x.get("name") == "dialog"), None)
-            rect = dlg["rect"] if dlg else rect
-        if n == "suggestions":                 # start a little earlier: when F2 is pressed
-            f2 = next((vt(x) for x in reversed(ev) if x["type"] == "key" and x.get("text") == "F2" and vt(x) < t), t)
-            t = f2 + 0.2
-        out.append((t - 0.1, t_end + extra, rect, scale))
-    return out
+    def _around(self, x, y, s):
+        w, h = self.w / s, self.h / s
+        return [x - w / 2, y - h / 2, w, h]
 
-
-def camera_at(zooms, r: float):
-    """(cx, cy, scale) of the virtual camera at raw time r (eased in/out)."""
-    full = (W / 2, H / 2, 1.0)
-    for a, b, rect, smax in zooms:
-        if a - 0.6 <= r <= b + 0.6:
+    def _goal(self, r):
+        cur = (self.w / 2, self.h / 2, 1.0)
+        for t, rect, smax in self.targets:
+            if t > r:
+                break
+            if rect is None:
+                cur = (self.w / 2, self.h / 2, 1.0)
+                continue
             x, y, w, h = rect
-            pad = 70
-            sc = min(smax, W / (w + 2 * pad), H / (h + 2 * pad))
-            sc = max(1.0, sc)
-            cx, cy = x + w / 2, y + h / 2
-            hw, hh = W / sc / 2, H / sc / 2
-            cx, cy = min(max(cx, hw), W - hw), min(max(cy, hh), H - hh)
-            k = ease((r - (a - 0.6)) / 0.6) if r < a else ease(((b + 0.6) - r) / 0.6) if r > b else 1.0
-            return (full[0] + (cx - full[0]) * k, full[1] + (cy - full[1]) * k, 1.0 + (sc - 1.0) * k)
-    return full
+            pad = 90
+            s = max(1.0, min(smax, self.w / (w + 2 * pad), self.h / (h + 2 * pad)))
+            cur = (x + w / 2, y + h / 2, s)
+        return cur
+
+    def at(self, r):
+        gx, gy, gs = self._goal(r)
+        if self.state is None or self.last_r is None or r < self.last_r or r - self.last_r > 1.0:
+            self.state = [self.w / 2, self.h / 2, 1.0]
+            self.last_r = r
+        dt = max(0.0, r - self.last_r)
+        self.last_r = r
+        k = 1 - math.exp(-dt / 0.42)
+        ks = 1 - math.exp(-dt / 0.55)
+        x, y, s = self.state
+        x += (gx - x) * k
+        y += (gy - y) * k
+        s = math.exp(math.log(s) + (math.log(gs) - math.log(s)) * ks)
+        hw, hh = self.w / s / 2, self.h / s / 2
+        x, y = min(max(x, hw), self.w - hw), min(max(y, hh), self.h - hh)
+        self.state = [x, y, s]
+        return x, y, s
+
+    def reset(self):
+        self.state, self.last_r = None, None
 
 
-def apply_camera(img: Image.Image, cam):
-    cx, cy, sc = cam
-    if sc <= 1.001:
-        return img, (0.0, 0.0, 1.0)
-    cw, ch = W / sc, H / sc
+def frame_through(img, cam):
+    """Crop the camera's view and scale it to the output size → (image, tf)."""
+    w, h = img.size
+    cx, cy, s = cam
+    cw, ch = w / s, h / s
     x0, y0 = cx - cw / 2, cy - ch / 2
-    box = (x0, y0, x0 + cw, y0 + ch)
-    return img.resize((W, H), Image.BICUBIC, box=box), (x0, y0, sc)
+    out = img.resize((OW, OH), Image.BICUBIC, box=(x0, y0, x0 + cw, y0 + ch))
+    return out, (x0, y0, OW / cw)
 
 
 def to_out(pt, tf):
-    x0, y0, sc = tf
-    return (pt[0] - x0) * sc, (pt[1] - y0) * sc
+    x0, y0, k = tf
+    return (pt[0] - x0) * k, (pt[1] - y0) * k
 
 
 def rect_out(r, tf):
-    a = to_out((r[0], r[1]), tf)
-    b = to_out((r[0] + r[2], r[1] + r[3]), tf)
+    a, b = to_out((r[0], r[1]), tf), to_out((r[0] + r[2], r[1] + r[3]), tf)
     return [a[0], a[1], b[0], b[1]]
 
 
-# ── drawing helpers ───────────────────────────────────────────────────────────
-def rounded(d, box, r, fill=None, outline=None, width=1):
-    d.rounded_rectangle([round(v) for v in box], radius=r, fill=fill, outline=outline, width=width)
+# ── drawing helpers (draw on small RGBA patches, paste with alpha) ───────────
+def paste_patch(base, patch, x, y, alpha=1.0):
+    if alpha <= 0:
+        return
+    if alpha < 1:
+        patch = patch.copy()
+        patch.putalpha(patch.getchannel("A").point(lambda v: int(v * alpha)))
+    base.paste(patch, (int(round(x)), int(round(y))), patch)
 
 
-def shadow_card(layer, box, radius=18, fill=CARD, blur=18, alpha=70):
-    sh = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-    ImageDraw.Draw(sh).rounded_rectangle([box[0], box[1] + 6, box[2], box[3] + 10], radius=radius,
-                                         fill=(0, 0, 0, alpha))
-    sh = sh.filter(ImageFilter.GaussianBlur(blur))
-    layer.alpha_composite(sh)
-    ImageDraw.Draw(layer).rounded_rectangle(box, radius=radius, fill=fill)
+def card_patch(w, h, radius, fill, shadow=True, outline=None, ow=0):
+    pad = int(26 * U) if shadow else 0
+    im = Image.new("RGBA", (int(w + 2 * pad), int(h + 2 * pad)), (0, 0, 0, 0))
+    if shadow:
+        sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
+        ImageDraw.Draw(sh).rounded_rectangle([pad, pad + 6 * U, pad + w, pad + h + 8 * U], radius=radius, fill=(0, 0, 0, 80))
+        im = Image.alpha_composite(im, sh.filter(ImageFilter.GaussianBlur(14 * U)))
+    ImageDraw.Draw(im).rounded_rectangle([pad, pad, pad + w, pad + h], radius=radius, fill=fill,
+                                         outline=outline, width=ow)
+    return im, pad
 
 
 def wrap(text, fnt, max_w):
-    words, lines, cur = text.split(), [], ""
-    for w_ in words:
-        test = (cur + " " + w_).strip()
+    out, cur = [], ""
+    for wd in text.split():
+        test = (cur + " " + wd).strip()
         if fnt.getlength(test) <= max_w or not cur:
             cur = test
         else:
-            lines.append(cur)
-            cur = w_
+            out.append(cur)
+            cur = wd
     if cur:
-        lines.append(cur)
-    return lines
+        out.append(cur)
+    return out
 
 
-def caption_chunks(text, max_chars=78):
-    """Split a narration line into caption-sized pieces at sentence/comma breaks."""
-    import re
+def caption_chunks(text, max_chars=84):
     parts = re.split(r"(?<=[.?!—])\s+|(?<=,)\s+", text)
     chunks, cur = [], ""
     for p in parts:
@@ -342,274 +419,362 @@ def caption_chunks(text, max_chars=78):
 
 # ── overlays ──────────────────────────────────────────────────────────────────
 class Overlays:
-    def __init__(self, events, offset, tl, script, segs):
-        self.ev = events
-        self.off = offset
-        self.tl = tl
-        self.script = script
-        self.segs = segs
-        self.vt = lambda e: e["t"] + offset
+    def __init__(self, takes, tl, script):
+        self.takes, self.tl, self.script = takes, tl, script
+        self.callouts = script.get("callouts", {})
         self.captions = []
         for n in tl["narration"]:
-            chunks = caption_chunks(n["text"])
-            total = sum(len(c) for c in chunks)
+            ch = caption_chunks(n["text"])
+            tot = sum(len(c) for c in ch)
             t = n["t0"]
-            for c in chunks:
-                d = (n["t1"] - n["t0"]) * len(c) / total
+            for c in ch:
+                d = (n["t1"] - n["t0"]) * len(c) / tot
                 self.captions.append({"t0": t, "t1": t + d, "text": c})
                 t += d
+        self.focus_windows = {}
+        for ci, tk in enumerate(takes):
+            vt = lambda e, tk=tk: e["t"] + tk["offset"]
+            ev = tk["events"]
+            wins = []
+            for i, e in enumerate(ev):
+                if e["type"] != "focus" or e.get("name") not in self.callouts or not e.get("rect"):
+                    continue
+                t0 = vt(e)
+                nxt = next((vt(x) for x in ev[i + 1:] if x["type"] in ("focus", "click", "section", "key")
+                            and vt(x) > t0 + 0.4), t0 + 3.0)
+                wins.append((t0, min(t0 + 3.4, max(t0 + 1.6, nxt + 0.2)), e))
+            self.focus_windows[ci] = wins
 
-    def section_title(self, layer, t):
-        for s in self.tl["sections"]:
-            dt = t - s["t0"]
-            if 0 <= dt <= 3.2:
-                meta = self.script["sections"].get(s["name"], {})
-                k_in, k_out = ease_out(dt / 0.5), ease(min(1.0, (3.2 - dt) / 0.45))
-                a = min(k_in, k_out)
-                f1, f2 = font(40, True), font(22)
-                title = meta.get("title", s["name"])
-                n = meta.get("n", "")
-                tw = f1.getlength(title)
-                w_ = int(tw + 150)
-                x = int(48 - (1 - k_in) * 60)
-                y = 54
-                card = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-                shadow_card(card, [x, y, x + w_, y + 104], radius=22, fill=(255, 255, 255, 250), alpha=60)
-                d = ImageDraw.Draw(card)
-                d.ellipse([x + 22, y + 24, x + 78, y + 80], fill=ACCENT)
-                d.text((x + 50, y + 52), str(n), font=font(30, True), fill=WHITE, anchor="mm")
-                d.text((x + 98, y + 22), f"STEP {n} OF 4", font=f2, fill=MUTED)
-                d.text((x + 98, y + 48), title, font=f1, fill=INK)
-                card.putalpha(card.getchannel("A").point(lambda v: int(v * a)))
-                layer.alpha_composite(card)
+    def chapter_label(self, img, t, key):
+        meta = self.script["sections"].get(key, {})
+        txt = f"{meta.get('n', 0):02d}   {meta.get('title', key)}"
+        f = font(20, True)
+        w = f.getlength(txt) + 40 * U
+        patch, pad = card_patch(w, 42 * U, int(21 * U), (15, 27, 51, 225), shadow=False)
+        d = ImageDraw.Draw(patch)
+        d.text((pad + 20 * U, pad + 21 * U), txt, font=f, fill=WHITE, anchor="lm")
+        paste_patch(img, patch, 26 * U, OH - 70 * U)
 
-    def highlight(self, layer, t, raw, tf):
-        """Box + callout for focus events that have a callout text."""
-        callouts = self.script.get("callouts", {})
-        for e in self.ev:
-            if e["type"] != "focus" or e.get("name") not in callouts or not e.get("rect"):
-                continue
-            rt = self.vt(e)
-            nxt = next((self.vt(x) for x in self.ev if self.vt(x) > rt + 0.3 and x["type"] in ("focus", "section", "click")), rt + 3.0)
-            r_end = min(rt + 3.2, nxt + 0.2) if e.get("name") != "task card" else nxt
-            if raw is None or not (rt <= raw <= r_end):
-                continue
-            k = min(ease_out((raw - rt) / 0.35), ease((r_end - raw) / 0.3))
-            box = rect_out(e["rect"], tf)
-            pad = 8
-            box = [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad]
-            box = [max(6, box[0]), max(6, box[1]), min(W - 6, box[2]), min(H - 6, box[3])]
-            lay = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-            d = ImageDraw.Draw(lay)
-            grow = (1 - k) * 14
-            rounded(d, [box[0] - grow, box[1] - grow, box[2] + grow, box[3] + grow], 14,
-                    outline=ACCENT + (int(255 * k),), width=4)
-            # callout card beside the box, with a short connector
-            text = callouts[e["name"]]
-            f = font(28, True)
-            lines = wrap(text, f, 420)
-            cw = int(max(f.getlength(l_) for l_ in lines) + 56)
-            ch = 30 + 38 * len(lines)
-            right_space = W - box[2]
-            if right_space > cw + 80:
-                cx0 = box[2] + 40
-            elif box[0] > cw + 80:
-                cx0 = box[0] - 40 - cw
-            else:
-                cx0 = min(max(40, box[0]), W - cw - 40)
-            cy0 = min(max(40, (box[1] + box[3]) / 2 - ch / 2), H - ch - 150)
-            if box[1] - 20 < cy0 + ch and box[3] + 20 > cy0 and box[0] - 20 < cx0 + cw and box[2] + 20 > cx0:
-                cy0 = min(box[3] + 24, H - ch - 150)          # would cover the box: put it below
-            cx0 += (1 - k) * (16 if cx0 > box[2] else -16)
-            shadow_card(lay, [cx0, cy0, cx0 + cw, cy0 + ch], radius=16, fill=(15, 27, 51, 240), alpha=80)
-            d = ImageDraw.Draw(lay)
-            d.rectangle([cx0, cy0 + 14, cx0 + 5, cy0 + ch - 14], fill=ACCENT)
-            for i, l_ in enumerate(lines):
-                d.text((cx0 + 28, cy0 + 16 + 38 * i), l_, font=f, fill=WHITE)
-            # connector
-            if cx0 > box[2]:
-                p0, p1 = (box[2] + 4, (box[1] + box[3]) / 2), (cx0, cy0 + ch / 2)
-            elif cx0 + cw < box[0]:
-                p0, p1 = (box[0] - 4, (box[1] + box[3]) / 2), (cx0 + cw, cy0 + ch / 2)
-            else:
-                p0, p1 = ((box[0] + box[2]) / 2, box[3] + 4), (cx0 + cw / 2, cy0)
-            d.line([p0, p1], fill=ACCENT + (int(230 * k),), width=3)
-            d.ellipse([p0[0] - 6, p0[1] - 6, p0[0] + 6, p0[1] + 6], fill=ACCENT + (int(255 * k),))
-            lay.putalpha(lay.getchannel("A").point(lambda v: int(v * k)))
-            layer.alpha_composite(lay)
-
-    def ripples(self, layer, raw, tf):
-        if raw is None:
+    def ripples(self, img, ci, r, tf):
+        if r is None:
             return
-        d = ImageDraw.Draw(layer)
-        for e in self.ev:
+        d = None
+        for e in self.takes[ci]["events"]:
             if e["type"] != "click" or "x" not in e:
                 continue
-            dt = raw - self.vt(e) - 0.05
+            dt = r - (e["t"] + self.takes[ci]["offset"]) - 0.03
             if 0 <= dt <= 0.6:
                 x, y = to_out((e["x"], e["y"]), tf)
                 k = ease_out(dt / 0.6)
-                r = 10 + 34 * k
-                a = int(220 * (1 - k))
-                d.ellipse([x - r, y - r, x + r, y + r], outline=ACCENT + (a,), width=5)
+                rad = (12 + 40 * k) * U
+                s = int(rad * 2 + 20)
+                patch = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+                pd = ImageDraw.Draw(patch)
+                c = s / 2
+                pd.ellipse([c - rad, c - rad, c + rad, c + rad], outline=ACCENT + (int(230 * (1 - k)),), width=int(5 * U))
                 if dt < 0.25:
-                    r2 = 14
-                    d.ellipse([x - r2, y - r2, x + r2, y + r2], fill=(255, 214, 10, int(140 * (1 - dt / 0.25))))
-        # drag: a soft trail along the drag path
-        for e in self.ev:
-            if e["type"] == "drag" and e.get("rect"):
-                dt = raw - self.vt(e)
-                if 0 <= dt <= 1.9:
-                    x0, y0 = to_out((e["rect"][0] + e["rect"][2] / 2, e["rect"][1] + e["rect"][3] / 2), tf)
-                    x1, y1 = to_out(tuple(e["to"]), tf)
-                    k = ease((dt - 0.3) / 1.2)
-                    a = int(200 * min(1.0, dt / 0.3) * (1 - max(0.0, (dt - 1.5) / 0.4)))
-                    xm, ym = x0 + (x1 - x0) * k, y0 + (y1 - y0) * k
-                    d.line([(x0, y0), (xm, ym)], fill=ACCENT + (a,), width=6)
-                    d.ellipse([xm - 9, ym - 9, xm + 9, ym + 9], fill=ACCENT + (a,))
+                    r2 = 16 * U
+                    pd.ellipse([c - r2, c - r2, c + r2, c + r2], fill=(255, 214, 10, int(150 * (1 - dt / 0.25))))
+                paste_patch(img, patch, x - c, y - c)
 
-    def keycaps(self, layer, raw):
-        if raw is None:
+    def drags(self, img, ci, r, tf):
+        if r is None:
             return
-        for e in self.ev:
-            if e["type"] != "key" or e.get("text") in ("Ctrl+A",):
+        for e in self.takes[ci]["events"]:
+            if e["type"] != "drag" or not e.get("frm") or e.get("name") == "signature":
                 continue
-            dt = raw - self.vt(e)
-            if 0 <= dt <= 1.5:
-                k = min(ease_out(dt / 0.25), ease((1.5 - dt) / 0.3))
-                label = e["text"].replace("Ctrl+Z", "Ctrl + Z")
-                f = font(40, True)
-                parts = [p.strip() for p in label.split("+")] if "+" in label and "click" not in label else [label]
-                widths = [max(64, f.getlength(p) + 44) for p in parts]
-                total = sum(widths) + 40 * (len(parts) - 1)
-                x = W / 2 - total / 2
-                y = H - 250 + (1 - k) * 20
-                lay = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-                for i, p in enumerate(parts):
-                    shadow_card(lay, [x, y, x + widths[i], y + 76], radius=14, fill=(255, 255, 255, 250), alpha=90)
-                    d = ImageDraw.Draw(lay)
-                    rounded(d, [x, y, x + widths[i], y + 76], 14, outline=(205, 212, 224, 255), width=2)
-                    d.line([(x + 10, y + 70), (x + widths[i] - 10, y + 70)], fill=(205, 212, 224, 255), width=3)
-                    d.text((x + widths[i] / 2, y + 36), p, font=f, fill=INK, anchor="mm")
-                    x += widths[i]
-                    if i < len(parts) - 1:
-                        d.text((x + 20, y + 36), "+", font=font(36, True), fill=WHITE, anchor="mm")
-                        x += 40
-                lay.putalpha(lay.getchannel("A").point(lambda v: int(v * k)))
-                layer.alpha_composite(lay)
+            dt = r - (e["t"] + self.takes[ci]["offset"])
+            if 0 <= dt <= 1.9:
+                x0, y0 = to_out(e["frm"], tf)
+                x1, y1 = to_out(e["to"], tf)
+                k = ease((dt - 0.3) / 1.2)
+                a = int(190 * min(1.0, dt / 0.3) * (1 - max(0.0, (dt - 1.5) / 0.4)))
+                xm, ym = x0 + (x1 - x0) * k, y0 + (y1 - y0) * k
+                l, tp = min(x0, xm) - 12, min(y0, ym) - 12
+                patch = Image.new("RGBA", (int(abs(xm - x0) + 24), int(abs(ym - y0) + 24)), (0, 0, 0, 0))
+                pd = ImageDraw.Draw(patch)
+                pd.line([(x0 - l, y0 - tp), (xm - l, ym - tp)], fill=ACCENT + (a,), width=int(6 * U))
+                pd.ellipse([xm - l - 9, ym - tp - 9, xm - l + 9, ym - tp + 9], fill=ACCENT + (a,))
+                paste_patch(img, patch, l, tp)
 
-    def caption(self, layer, t):
+    def highlight(self, img, ci, r, tf):
+        if r is None:
+            return
+        for t0, t1, e in self.focus_windows.get(ci, []):
+            if not (t0 <= r <= t1):
+                continue
+            k = min(ease_out((r - t0) / 0.35), ease((t1 - r) / 0.3))
+            box = rect_out(e["rect"], tf)
+            pad = 10 * U
+            box = [max(8, box[0] - pad), max(8, box[1] - pad), min(OW - 8, box[2] + pad), min(OH - 8, box[3] + pad)]
+            bw, bh = box[2] - box[0], box[3] - box[1]
+            if bw < 20 or bh < 20:
+                continue
+            ring = Image.new("RGBA", (int(bw + 8), int(bh + 8)), (0, 0, 0, 0))
+            ImageDraw.Draw(ring).rounded_rectangle([4, 4, bw + 4, bh + 4], radius=int(16 * U),
+                                                   outline=ACCENT + (255,), width=int(4 * U))
+            paste_patch(img, ring, box[0] - 4, box[1] - 4, k)
+            text = self.callouts[e["name"]]
+            f = font(28, True)
+            lines = wrap(text, f, 440 * U)
+            cw = max(f.getlength(l) for l in lines) + 60 * U
+            chh = 34 * U + 40 * U * len(lines)
+            patch, ppad = card_patch(cw, chh, int(16 * U), (15, 27, 51, 242))
+            d = ImageDraw.Draw(patch)
+            d.rectangle([ppad, ppad + 14 * U, ppad + 6 * U, ppad + chh - 14 * U], fill=ACCENT)
+            for i, l in enumerate(lines):
+                d.text((ppad + 30 * U, ppad + 17 * U + 40 * U * i), l, font=f, fill=WHITE)
+            gap = 34 * U
+            if OW - box[2] > cw + 2 * gap:
+                cx = box[2] + gap
+            elif box[0] > cw + 2 * gap:
+                cx = box[0] - gap - cw
+            else:
+                cx = min(max(gap, box[0]), OW - cw - gap)
+            cy = min(max(gap, (box[1] + box[3]) / 2 - chh / 2), OH - chh - 190 * U)
+            if box[0] - gap < cx + cw and cx < box[2] + gap and box[1] - gap < cy + chh and cy < box[3] + gap:
+                cy = box[1] - chh - gap if box[1] > chh + 2 * gap else min(box[3] + gap, OH - chh - 190 * U)
+            paste_patch(img, patch, cx - ppad + (1 - k) * 18 * (1 if cx > box[2] else -1), cy - ppad, k)
+
+    def keycaps(self, img, ci, r):
+        if r is None:
+            return
+        for e in self.takes[ci]["events"]:
+            if e["type"] != "key" or not e.get("show", True):
+                continue
+            dt = r - (e["t"] + self.takes[ci]["offset"])
+            if not (0 <= dt <= 1.5):
+                continue
+            k = min(ease_out(dt / 0.25), ease((1.5 - dt) / 0.3))
+            label = e["text"]
+            parts = [label] if "click" in label or "rotate" in label else [p.strip() for p in label.split("+")]
+            f = font(40, True)
+            widths = [max(70 * U, f.getlength(p) + 48 * U) for p in parts]
+            total = sum(widths) + 44 * U * (len(parts) - 1)
+            x = OW / 2 - total / 2
+            y = OH - 270 * U + (1 - k) * 20 * U
+            for i, p in enumerate(parts):
+                patch, pad = card_patch(widths[i], 80 * U, int(14 * U), (255, 255, 255, 250),
+                                        outline=(205, 212, 224, 255), ow=2)
+                d = ImageDraw.Draw(patch)
+                d.line([(pad + 10, pad + 74 * U), (pad + widths[i] - 10, pad + 74 * U)], fill=(205, 212, 224, 255), width=3)
+                d.text((pad + widths[i] / 2, pad + 38 * U), p, font=f, fill=INK, anchor="mm")
+                paste_patch(img, patch, x - pad, y - pad, k)
+                x += widths[i]
+                if i < len(parts) - 1:
+                    plus = Image.new("RGBA", (int(44 * U), int(80 * U)), (0, 0, 0, 0))
+                    ImageDraw.Draw(plus).text((22 * U, 40 * U), "+", font=font(36, True), fill=WHITE, anchor="mm")
+                    paste_patch(img, plus, x, y, k)
+                    x += 44 * U
+
+    def redact(self, img, ci, r, tf):
+        if r is None:
+            return
+        ev = self.takes[ci]["events"]
+        off = self.takes[ci]["offset"]
+        for i, e in enumerate(ev):
+            if e["type"] != "redact" or not e.get("rect"):
+                continue
+            end = next((x for x in ev[i + 1:] if x["type"] == "redact_end"), None)
+            t0, t1 = e["t"] + off - 0.4, (end["t"] + off + 0.4) if end else 1e9
+            if t0 <= r <= t1:
+                b = [int(v) for v in rect_out(e["rect"], tf)]
+                b = [max(0, b[0]), max(0, b[1]), min(OW, b[2]), min(OH, b[3])]
+                if b[2] > b[0] and b[3] > b[1]:
+                    region = img.crop(b).filter(ImageFilter.GaussianBlur(18 * U))
+                    region = region.resize((max(1, (b[2] - b[0]) // 24), max(1, (b[3] - b[1]) // 24))).resize((b[2] - b[0], b[3] - b[1]))
+                    img.paste(region, b[:2])
+
+    def caption(self, img, t):
         for c in self.captions:
             if c["t0"] <= t < c["t1"]:
                 f = font(34)
-                lines = wrap(c["text"], f, 1360)
-                lw = max(f.getlength(l_) for l_ in lines)
-                bw, bh = lw + 64, 22 + 46 * len(lines)
-                x0, y0 = W / 2 - bw / 2, H - 70 - bh
-                d = ImageDraw.Draw(layer)
-                rounded(d, [x0, y0, x0 + bw, y0 + bh], 14, fill=CAPTION_BG)
-                for i, l_ in enumerate(lines):
-                    d.text((W / 2, y0 + 11 + 46 * i + 23), l_, font=f, fill=WHITE, anchor="mm")
+                lines = wrap(c["text"], f, 1400 * U)
+                lw = max(f.getlength(l) for l in lines)
+                bw, bh = lw + 64 * U, 24 * U + 48 * U * len(lines)
+                patch, pad = card_patch(bw, bh, int(16 * U), (12, 18, 30, 210), shadow=False)
+                d = ImageDraw.Draw(patch)
+                for i, l in enumerate(lines):
+                    d.text((pad + bw / 2, pad + 12 * U + 48 * U * i + 24 * U), l, font=f, fill=WHITE, anchor="mm")
+                paste_patch(img, patch, OW / 2 - bw / 2 - pad, OH - 80 * U - bh - pad)
                 return
 
-    def speed_badge(self, layer, seg):
-        if seg and seg.get("kind") == "video" and seg.get("speed", 1) > 1:
-            d = ImageDraw.Draw(layer)
-            rounded(d, [W - 230, 40, W - 40, 100], 30, fill=(15, 27, 51, 220))
-            d.text((W - 135, 70), f"▶▶ ×{int(seg['speed'])} speed", font=font(26, True), fill=WHITE, anchor="mm")
+    def speed_badge(self, img, seg):
+        if seg.get("kind") == "video" and seg.get("speed", 1) > 1:
+            txt = f"▶▶  ×{seg['speed']:g}"
+            f = font(26, True)
+            w = f.getlength(txt) + 44 * U
+            patch, pad = card_patch(w, 54 * U, int(27 * U), (15, 27, 51, 225), shadow=False)
+            ImageDraw.Draw(patch).text((pad + w / 2, pad + 27 * U), txt, font=f, fill=WHITE, anchor="mm")
+            paste_patch(img, patch, OW - w - 40 * U, 36 * U)
 
 
 # ── title cards ───────────────────────────────────────────────────────────────
-def background():
-    g = np.linspace(0, 1, H)[:, None]
-    gx = np.linspace(0, 1, W)[None, :]
-    k = np.clip(0.6 * g + 0.4 * gx, 0, 1)[..., None]
-    a, b = np.array(NAVY, float), np.array(NAVY2, float)
-    img = (a * (1 - k) + b * k).astype(np.uint8)
-    im = Image.fromarray(img, "RGB").convert("RGBA")
-    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse([W * 0.55, -H * 0.4, W * 1.3, H * 0.7], fill=(47, 134, 255, 70))
-    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(120)))
-    return im
-
-
 _BG = None
 _LOGO = None
+
+
+def background():
+    global _BG
+    if _BG is None:
+        g = np.linspace(0, 1, OH)[:, None]
+        gx = np.linspace(0, 1, OW)[None, :]
+        k = np.clip(0.6 * g + 0.4 * gx, 0, 1)[..., None]
+        img = (np.array(NAVY, float) * (1 - k) + np.array(NAVY2, float) * k).astype(np.uint8)
+        im = Image.fromarray(img, "RGB").convert("RGBA")
+        glow = Image.new("RGBA", (OW, OH), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse([OW * 0.55, -OH * 0.4, OW * 1.3, OH * 0.7], fill=(47, 134, 255, 70))
+        im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(160)))
+        _BG = im.convert("RGB")
+    return _BG.copy()
 
 
 def logo(size):
     global _LOGO
     if _LOGO is None:
-        p = os.path.join(ROOT, "ui", "assets", "brand", "office-axe-mark.png")
-        _LOGO = Image.open(p).convert("RGBA")
+        _LOGO = Image.open(os.path.join(ROOT, "ui", "assets", "brand", "office-axe-mark.png")).convert("RGBA")
     im = _LOGO.copy()
-    im.thumbnail((size, size), Image.LANCZOS)
+    im.thumbnail((int(size), int(size)), Image.LANCZOS)
     return im
 
 
-def card_frame(kind, dt, dur):
-    global _BG
-    if _BG is None:
-        _BG = background()
-    img = _BG.copy()
-    lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(lay)
-    fade_out = ease((dur - dt) / 0.5)
-    if kind == "intro":
-        k1, k2, k3 = ease_out(dt / 0.8), ease_out((dt - 0.35) / 0.8), ease_out((dt - 0.7) / 0.8)
-        lg = logo(int(150 + 20 * k1))
-        lay.alpha_composite(lg, (int(W / 2 - lg.width / 2), int(300 - lg.height / 2 + (1 - k1) * 30)))
-        d.text((W / 2, 470 + (1 - k2) * 24), "Office Axe", font=font(124, True), fill=WHITE + (int(255 * k2),), anchor="mm")
-        d.text((W / 2, 575 + (1 - k3) * 18), "Student documents, done in minutes", font=font(46),
-               fill=(205, 220, 245, int(255 * k3)), anchor="mm")
-        lw = 260 * ease_out((dt - 1.0) / 0.7)
-        d.rounded_rectangle([W / 2 - lw / 2, 640, W / 2 + lw / 2, 646], radius=3, fill=ACCENT)
-        d.text((W / 2, 720), "A desktop app for Windows", font=font(30), fill=(160, 180, 210, int(255 * k3)), anchor="mm")
-    else:
-        k1, k2 = ease_out(dt / 0.7), ease_out((dt - 0.3) / 0.7)
-        lg = logo(120)
-        lay.alpha_composite(lg, (int(W / 2 - lg.width / 2), int(200 - lg.height / 2 + (1 - k1) * 20)))
-        d.text((W / 2, 340), "Office Axe", font=font(100, True), fill=WHITE + (int(255 * k1),), anchor="mm")
-        d.text((W / 2, 425), "Student documents, sorted.", font=font(40), fill=(205, 220, 245, int(255 * k2)), anchor="mm")
-        items = ["A folder for every student, from a list", "Instant preview and English–Korean renaming",
-                 "Word to PDF in the background", "Arrange pages, with Ctrl+Z for every step"]
-        for i, it in enumerate(items):
-            k = ease_out((dt - 0.7 - 0.25 * i) / 0.6)
-            y = 540 + 72 * i
-            x = W / 2 - 400 + (1 - k) * 30
-            d.ellipse([x, y - 18, x + 36, y + 18], fill=ACCENT + (int(255 * k),))
-            d.line([(x + 10, y), (x + 16, y + 7), (x + 27, y - 8)], fill=WHITE + (int(255 * k),), width=4)
-            d.text((x + 58, y), it, font=font(36), fill=WHITE + (int(255 * k),), anchor="lm")
-    img.alpha_composite(lay)
-    if kind == "intro":
-        return img.convert("RGB"), fade_out
-    fade_in = ease(dt / 0.5)
-    return img.convert("RGB"), fade_in
+def intro_card(dt, dur):
+    img = background()
+    d = ImageDraw.Draw(img, "RGBA")
+    k1, k2, k3 = ease_out(dt / 0.8), ease_out((dt - 0.35) / 0.8), ease_out((dt - 0.75) / 0.8)
+    lg = logo((150 + 20 * k1) * U)
+    img.paste(lg, (int(OW / 2 - lg.width / 2), int(300 * U - lg.height / 2 + (1 - k1) * 30)), lg)
+    d.text((OW / 2, 470 * U + (1 - k2) * 24), "Office Axe", font=font(124, True), fill=WHITE + (int(255 * k2),), anchor="mm")
+    d.text((OW / 2, 575 * U + (1 - k3) * 18), "Every student document task, in one desktop app", font=font(46),
+           fill=(205, 220, 245, int(255 * k3)), anchor="mm")
+    lw = 300 * U * ease_out((dt - 1.0) / 0.7)
+    d.rounded_rectangle([OW / 2 - lw / 2, 640 * U, OW / 2 + lw / 2, 646 * U], radius=3, fill=ACCENT)
+    d.text((OW / 2, 722 * U), "17 features in 6 minutes  ·  Windows", font=font(30), fill=(160, 180, 210, int(255 * k3)), anchor="mm")
+    return img
+
+
+def chapter_card(dt, dur, key, script, bg_frame, total):
+    meta = script["sections"].get(key, {})
+    bw, bh = bg_frame.size
+    top = int(bh * 0.05)                              # leave out the dark window title bar
+    bg = bg_frame.crop((0, top, bw, bh)).resize((OW, OH), Image.BILINEAR).filter(ImageFilter.GaussianBlur(26 * U))
+    dark = Image.new("RGB", (OW, OH), NAVY)
+    img = Image.blend(bg, dark, 0.72)
+    d = ImageDraw.Draw(img, "RGBA")
+    k1, k2, k3 = ease_out(dt / 0.55), ease_out((dt - 0.15) / 0.55), ease_out((dt - 0.3) / 0.55)
+    n = meta.get("n", 0)
+    d.text((OW / 2, 520 * U + (1 - k1) * 30), f"{n:02d}", font=font(150, True), fill=ACCENT + (int(255 * k1),), anchor="mm")
+    d.text((OW / 2, 660 * U + (1 - k2) * 26), meta.get("title", key), font=font(84, True), fill=WHITE + (int(255 * k2),), anchor="mm")
+    d.text((OW / 2, 750 * U + (1 - k3) * 20), meta.get("tagline", ""), font=font(40), fill=(190, 205, 230, int(255 * k3)), anchor="mm")
+    # progress dots
+    gap = 26 * U
+    x0 = OW / 2 - gap * (total - 1) / 2
+    for i in range(total):
+        r = (7 if i + 1 == n else 5) * U
+        col = ACCENT + (255,) if i + 1 == n else ((255, 255, 255, 170) if i + 1 < n else (255, 255, 255, 60))
+        d.ellipse([x0 + gap * i - r, 880 * U - r, x0 + gap * i + r, 880 * U + r], fill=col)
+    return img
+
+
+def outro_card(dt, dur, script):
+    img = background()
+    d = ImageDraw.Draw(img, "RGBA")
+    k1, k2 = ease_out(dt / 0.7), ease_out((dt - 0.3) / 0.7)
+    lg = logo(120 * U)
+    img.paste(lg, (int(OW / 2 - lg.width / 2), int(150 * U - lg.height / 2 + (1 - k1) * 20)), lg)
+    d.text((OW / 2, 285 * U), "Office Axe", font=font(100, True), fill=WHITE + (int(255 * k1),), anchor="mm")
+    d.text((OW / 2, 365 * U), "Student documents, sorted.", font=font(40), fill=(205, 220, 245, int(255 * k2)), anchor="mm")
+    items = [v["title"] for v in sorted(script["sections"].values(), key=lambda v: v["n"])]
+    cols = 2
+    per = math.ceil(len(items) / cols)
+    for i, it in enumerate(items):
+        k = ease_out((dt - 0.6 - 0.07 * i) / 0.5)
+        col, row = divmod(i, per)
+        x = OW / 2 - 640 * U + col * 680 * U + (1 - k) * 24
+        y = 470 * U + row * 56 * U
+        d.ellipse([x, y - 15 * U, x + 30 * U, y + 15 * U], fill=ACCENT + (int(255 * k),))
+        d.line([(x + 9 * U, y), (x + 14 * U, y + 6 * U), (x + 22 * U, y - 7 * U)], fill=WHITE + (int(255 * k),), width=int(4 * U))
+        d.text((x + 48 * U, y), it, font=font(32), fill=WHITE + (int(255 * k),), anchor="lm")
+    return img
 
 
 # ── audio ─────────────────────────────────────────────────────────────────────
-def build_audio(tl, voice_dir, path):
-    n = int(math.ceil(tl["duration"] * SR))
-    track = np.zeros(n, dtype=np.float32)
+def load_wav(path):
+    with wave.open(path, "rb") as w:
+        sr, ch = w.getframerate(), w.getnchannels()
+        data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+    if ch > 1:
+        data = data.reshape(-1, ch).mean(axis=1)
+    if sr != SR:
+        xs = np.linspace(0, len(data) - 1, int(len(data) * SR / sr))
+        data = np.interp(xs, np.arange(len(data)), data).astype(np.float32)
+    return data
+
+
+def build_audio(tl, takes, ov, voice_dir, path):
+    n = int(math.ceil(tl["duration"] * SR)) + SR
+    voice = np.zeros(n, np.float32)
+    fx = np.zeros(n, np.float32)
+
+    def add(track, clip, t, gain=1.0):
+        i = int(t * SR)
+        if 0 <= i < n:
+            seg = clip[: n - i]
+            track[i:i + len(seg)] += seg * gain
+
     for line in tl["narration"]:
-        with wave.open(os.path.join(voice_dir, line["id"] + ".wav"), "rb") as w:
-            sr, ch, sw = w.getframerate(), w.getnchannels(), w.getsampwidth()
-            data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
-        if ch > 1:
-            data = data.reshape(-1, ch).mean(axis=1)
-        if sr != SR:                                     # simple linear resample
-            xs = np.linspace(0, len(data) - 1, int(len(data) * SR / sr))
-            data = np.interp(xs, np.arange(len(data)), data).astype(np.float32)
-        i0 = int(line["t0"] * SR)
-        seg = data[: max(0, n - i0)]
-        track[i0:i0 + len(seg)] += seg * 0.95
-    peak = float(np.max(np.abs(track))) or 1.0
-    track = np.clip(track / max(peak, 0.89) * 0.89, -1, 1)
+        add(voice, load_wav(os.path.join(voice_dir, line["id"] + ".wav")), line["t0"])
+    segs = tl["segments"]
+    S_CLICK, S_POP, S_CHIME, S_WHOOSH = sfx.click(), sfx.pop(), sfx.chime(), sfx.whoosh()
+    for s in segs:
+        if s["kind"] == "card" and s["card"] == "chapter":
+            add(fx, S_WHOOSH, s["t0"] - 0.15, 0.9)
+        if s["kind"] == "card" and s["card"] in ("intro", "outro"):
+            add(fx, S_CHIME, s["t0"] + 0.7, 0.55)
+
+    def at_normal_speed(ci, r):
+        for s in segs:
+            if s["kind"] == "video" and s["take"] == ci and s["r0"] <= r <= s["r1"]:
+                return s["speed"] == 1.0
+        return False
+
+    for ci, tk in enumerate(takes):
+        off = tk["offset"]
+        for e in tk["events"]:
+            r = e["t"] + off
+            if not at_normal_speed(ci, r):
+                continue
+            t = raw_to_out(segs, ci, r)
+            if e["type"] == "click" and e.get("sound", True):
+                add(fx, S_CLICK, t + 0.02, 0.9)
+                if e.get("double"):
+                    add(fx, S_CLICK, t + 0.15, 0.7)
+            elif e["type"] == "key":
+                add(fx, sfx.key(), t, 1.6)
+            elif e["type"] == "typing":
+                chars, dur = max(1, e.get("chars", 1)), e.get("dur", 0.5)
+                step = max(0.06, dur / chars)
+                k = 0.0
+                while k < dur:
+                    add(fx, sfx.key(), t + k, 1.0)
+                    k += step
+            elif e["type"] == "success":
+                add(fx, S_CHIME, t, 0.8)
+        for t0, t1, e in ov.focus_windows.get(ci, []):
+            if at_normal_speed(ci, t0):
+                add(fx, S_POP, raw_to_out(segs, ci, t0) + 0.05, 0.8)
+
+    bed = sfx.music(n / SR)
+    bed = sfx.duck(bed, voice, amount=0.55)
+    mix = voice * 1.0 + fx * 0.55 + bed * 0.16
+    peak = float(np.max(np.abs(mix))) or 1.0
+    mix = np.clip(mix / max(peak, 0.97) * 0.95, -1, 1)
+    stereo = np.repeat(mix[:, None], 2, axis=1)
     with wave.open(path, "wb") as w:
-        w.setnchannels(1)
+        w.setnchannels(2)
         w.setsampwidth(2)
         w.setframerate(SR)
-        w.writeframes((track * 32767).astype(np.int16).tobytes())
+        w.writeframes((stereo * 32767).astype(np.int16).tobytes())
 
 
 def write_srt(captions, path):
@@ -622,95 +787,162 @@ def write_srt(captions, path):
 
 
 # ── render ────────────────────────────────────────────────────────────────────
-def render(take, script, voice_dir, out_path, srt_path, preview=False):
-    with open(os.path.join(take, "events.json"), encoding="utf-8") as fh:
-        log = json.load(fh)
-    events = log["events"]
-    raw = os.path.join(take, "raw.mp4")
-    sync = next((e for e in events if e["type"] == "sync"), None)
-    vsync = find_sync(raw, sync["x"], sync["y"]) if sync else None
-    offset = (vsync - sync["t"]) if (sync and vsync is not None) else 0.6
-    print(f"sync offset: {offset:+.3f}s (video time = event time {'+' if offset >= 0 else ''}{offset:.3f})")
-
-    tl = build_timeline(events, offset, script, voice_dir)
-    segs = tl["segments"]
-    zooms = zoom_windows(events, offset)
-    ov = Overlays(events, offset, tl, script, segs)
-    with open(os.path.join(take, "timeline.json"), "w", encoding="utf-8") as fh:
-        json.dump({**tl, "zooms": zooms, "captions": ov.captions}, fh, ensure_ascii=False, indent=1)
+def render(run, script, voice_dir, out_path, srt_path, preview=False, only=None):
+    takes = load_takes(run, only)
+    if not takes:
+        raise SystemExit("no successful takes found in " + run)
+    tl = build_timeline(takes, script, voice_dir)
+    ov = Overlays(takes, tl, script)
+    with open(os.path.join(run, "timeline.json"), "w", encoding="utf-8") as fh:
+        json.dump({k: v for k, v in tl.items()}, fh, ensure_ascii=False, indent=1)
     write_srt(ov.captions, srt_path)
-    wav = os.path.join(take, "narration_mix.wav")
-    build_audio(tl, voice_dir, wav)
+    wav = os.path.join(run, "soundtrack.wav")
+    build_audio(tl, takes, ov, voice_dir, wav)
+    print(f"timeline {tl['duration']:.1f}s, {len(takes)} chapters")
 
     total = int(round(tl["duration"] * FPS))
     scale = 0.5 if preview else 1.0
-    ow, oh = int(W * scale), int(H * scale)
+    ow, oh = int(OW * scale), int(OH * scale)
     enc = subprocess.Popen([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y",
                             "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{ow}x{oh}", "-r", str(FPS), "-i", "-",
-                            "-i", wav,
-                            "-c:v", "libx264", "-preset", "veryfast" if preview else "slow", "-crf", "20" if preview else "17",
-                            "-pix_fmt", "yuv420p", "-profile:v", "high", "-movflags", "+faststart",
-                            "-c:a", "aac", "-b:a", "192k", "-ar", str(SR), "-ac", "2", "-shortest", out_path],
+                            "-i", wav, "-c:v", "libx264", "-preset", "veryfast" if preview else "medium",
+                            "-crf", "22" if preview else "18", "-pix_fmt", "yuv420p", "-profile:v", "high",
+                            "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k", "-ar", str(SR), "-shortest", out_path],
                            stdin=subprocess.PIPE)
-    reader = RawReader(raw)
-    first_video = next(s for s in segs if s["kind"] == "video")
-    last_video = [s for s in segs if s["kind"] in ("video", "hold")][-1]
+    readers = {}
+    cams = {ci: Camera(tk) for ci, tk in enumerate(takes)}
+    segs = tl["segments"]
+
+    def reader(ci):
+        if ci not in readers:
+            for k in list(readers):                 # one open decoder at a time
+                readers.pop(k).close()
+            tk = takes[ci]
+            readers[ci] = RawReader(tk["raw"], tk["w"], tk["h"])
+        return readers[ci]
+
+    # Gaps where the app window was minimised / moved for a moment (logged by
+    # the recorder): show the last good frame instead, never what was behind.
+    lost = {}
+    for ci, tk in enumerate(takes):
+        sp, cur = [], None
+        for e in tk["events"]:
+            if e["type"] == "window_lost" and cur is None:
+                cur = e["t"] + tk["offset"] - 0.3
+            elif e["type"] == "window_back" and cur is not None:
+                sp.append((cur, e["t"] + tk["offset"] + 0.5))
+                cur = None
+        if cur is not None:
+            sp.append((cur, 1e9))
+        # spans found afterwards in the footage (e.g. a taskbar preview popup)
+        sp += [(e["a"], e["b"]) for e in tk["events"] if e["type"] == "mask_raw"]
+        lost[ci] = sp
+    last_good = {}
+
+    def masked(ci, r):
+        return next(((a, b) for a, b in lost[ci] if a <= r <= b), None)
+
+    def video_frame(ci, r):
+        span = masked(ci, r)
+        if span and ci in last_good:
+            img = last_good[ci]
+        elif span:                                   # masked from the start: use the next clean frame
+            img = reader(ci).get(int(round((span[1] + 0.05) * FPS)))
+            last_good[ci] = img.copy()
+        else:
+            img = reader(ci).get(int(round(r * FPS)))
+            last_good[ci] = img.copy()
+        cam = cams[ci].at(r)
+        return frame_through(img, cam)
+
+    last_video = {}
     try:
         for fi in range(total):
             t = fi / FPS
-            seg, r = out_to_raw(segs, t)
-            if seg["kind"] == "card":
-                img, k = card_frame(seg["card"], t - seg["t0"], seg["t1"] - seg["t0"])
-                # cross-fade into / out of the footage
-                if seg["card"] == "intro" and k < 1:
-                    vid = reader.get(int(round(first_video["r0"] * FPS)))
-                    img = Image.blend(vid, img, k)
-                elif seg["card"] == "outro" and k < 1:
-                    rr = last_video["r1"] if last_video["kind"] == "video" else last_video["r"]
-                    vid = reader.get(int(round(rr * FPS)))
-                    img = Image.blend(vid, img, k)
+            s = seg_at(segs, t)
+            if s["kind"] == "card":
+                dt, dur = t - s["t0"], s["t1"] - s["t0"]
+                if s["card"] == "intro":
+                    img = intro_card(dt, dur)
+                elif s["card"] == "outro":
+                    img = outro_card(dt, dur, script)
+                    if dt < 0.6 and last_video.get("img") is not None:
+                        img = Image.blend(last_video["img"], img, ease(dt / 0.6))
+                else:
+                    ci = s["take"]
+                    if "bg" not in s:
+                        cams[ci].reset()
+                        rbg = s["r"]
+                        span = masked(ci, rbg)
+                        if span:
+                            rbg = span[1] + 0.05
+                        s["bg"] = reader(ci).get(int(round(rbg * FPS))).copy()
+                    img = chapter_card(dt, dur, s["key"], script, s["bg"], len(script["sections"]))
+                    if dt < 0.35 and last_video.get("img") is not None:
+                        img = Image.blend(last_video["img"], img, ease(dt / 0.35))
+                    if dur - dt < 0.4:
+                        nxt = next(x for x in segs if x["kind"] == "video" and x["take"] == ci)
+                        vid, _ = video_frame(ci, nxt["r0"])
+                        img = Image.blend(img, vid, ease(1 - (dur - dt) / 0.4))
+                ov.caption(img, t)
             else:
-                frame = reader.get(int(round(r * FPS)))
-                cam = camera_at(zooms, r)
-                img, tf = apply_camera(frame, cam)
-                layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-                ov.ripples(layer, r if seg["kind"] == "video" else None, tf)
-                ov.highlight(layer, t, r, tf)
-                ov.keycaps(layer, r if seg["kind"] == "video" else None)
-                ov.section_title(layer, t)
-                ov.speed_badge(layer, seg)
-                ov.caption(layer, t)
-                img = Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB")
-            if seg["kind"] == "card":
-                ImageDraw.Draw(img)
-                lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-                ov.caption(lay, t)
-                img = Image.alpha_composite(img.convert("RGBA"), lay).convert("RGB")
+                ci = s["take"]
+                r = s["r0"] + (t - s["t0"]) * s["speed"] if s["kind"] == "video" else s["r"]
+                img, tf = video_frame(ci, r)
+                live = r if s["kind"] == "video" else None
+                ov.redact(img, ci, r, tf)
+                ov.highlight(img, ci, r, tf)
+                ov.ripples(img, ci, live, tf)
+                ov.drags(img, ci, live, tf)
+                ov.keycaps(img, ci, live)
+                ov.speed_badge(img, s)
+                ov.chapter_label(img, t, takes[ci]["key"])
+                ov.caption(img, t)
+                last_video["img"] = img
             if scale != 1.0:
                 img = img.resize((ow, oh), Image.BILINEAR)
             enc.stdin.write(img.tobytes())
-            if fi % (FPS * 5) == 0:
-                print(f"  {t:5.1f}s / {tl['duration']:.1f}s", flush=True)
+            if fi % (FPS * 10) == 0:
+                print(f"  {t:6.1f}s / {tl['duration']:.1f}s", flush=True)
     finally:
-        reader.close()
+        for r in readers.values():
+            r.close()
         enc.stdin.close()
         enc.wait()
     return tl
 
 
+def make_1080p(src, dst):
+    subprocess.run([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-i", src,
+                    "-vf", "scale=1920:1080:flags=lanczos", "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+                    "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "copy", dst], check=True)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("take")
+    ap.add_argument("run")
     ap.add_argument("--script", default=os.path.join(HERE, "narration.json"))
-    ap.add_argument("--voice-dir", default=os.path.join(HERE, "work", "voice"))
-    ap.add_argument("--out", default=os.path.join(HERE, "office-axe-demo.mp4"))
+    ap.add_argument("--voice-dir", default=os.path.join(HERE, "work", "voice2"))
+    ap.add_argument("--out", default=os.path.join(HERE, "office-axe-demo-1440p.mp4"))
     ap.add_argument("--srt", default=os.path.join(HERE, "narration.srt"))
-    ap.add_argument("--preview", action="store_true", help="half size, fast encode")
+    ap.add_argument("--preview", action="store_true")
+    ap.add_argument("--chapters", default="")
+    ap.add_argument("--no-1080p", action="store_true")
     a = ap.parse_args(argv)
-    with open(a.script, encoding="utf-8") as fh:
-        script = json.load(fh)
-    tl = render(os.path.abspath(a.take), script, a.voice_dir, a.out, a.srt, a.preview)
+    script = json.load(open(a.script, encoding="utf-8"))
+    only = [int(x) for x in a.chapters.split(",") if x.strip()] or None
+    tl = render(os.path.abspath(a.run), script, a.voice_dir, a.out, a.srt, a.preview, only)
     print(f"wrote {a.out} ({tl['duration']:.1f}s) and {a.srt}")
+    if not a.preview and not a.no_1080p:
+        dst = a.out.replace("-1440p", "") [:-4] + "-1080p.mp4"
+        make_1080p(a.out, dst)
+        print(f"wrote {dst}")
+        # a compact copy for sharing / the repository (GitHub refuses files > 100 MB)
+        web = os.path.join(os.path.dirname(a.out), "office-axe-demo.mp4")
+        subprocess.run([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-i", dst, "-c:v", "libx264",
+                        "-preset", "slow", "-crf", "25", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                        "-c:a", "aac", "-b:a", "128k", web], check=True)
+        print(f"wrote {web}")
     return 0
 
 
