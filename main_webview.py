@@ -131,6 +131,9 @@ def main() -> None:
     from sfm_bridge import SFMBridge
 
     bridge = SFMBridge()
+    # The app's tools only answer once the subscription is active on this PC
+    # (subscription_bridge.py); the UI shows the plans / checkout until then.
+    bridge.enforce_subscription = True
 
     # ── create window ─────────────────────────────────────────────────────────
     window = webview.create_window(

@@ -45,6 +45,7 @@
 <link rel="stylesheet" href="archive.css">
 <link rel="stylesheet" href="recorder.css">
 <link rel="stylesheet" href="preview-docs.css">
+<link rel="stylesheet" href="subscription.css">
 <link rel="stylesheet" href="folder-tools.css">
 </head>
 <body>
@@ -65,6 +66,10 @@
     </nav>
 
     <div class="sidebar-bottom">
+      <button class="sidebar-btn" data-panel="subscription" aria-label="Subscription">
+        <i data-icon="crown" data-size="20"></i>
+        <span class="tooltip-label">Subscription</span>
+      </button>
       <button class="sidebar-btn" data-panel="settings" aria-label="Settings">
         <i data-icon="settings" data-size="20"></i>
         <span class="tooltip-label">Settings</span>
@@ -421,6 +426,20 @@
 
     </div><!-- /panel-workspace -->
 
+    <!-- ─── PANEL: Subscription (rendered by subscription.js) ── -->
+    <div id="panel-subscription" class="panel-view page-panel hidden" style="display:none">
+      <div class="page-inner">
+        <div class="page-header">
+          <div class="page-header-icon"><i data-icon="crown" data-size="20"></i></div>
+          <div>
+            <h2 class="page-title">Subscription</h2>
+            <p class="page-subtitle">Your plan, expiry date, devices and payment history.</p>
+          </div>
+        </div>
+        <div class="sub-page-body" id="sub-page-body"></div>
+      </div>
+    </div>
+
     <!-- ─── PANEL: Settings ─────────────────────── -->
     <div id="panel-settings" class="panel-view page-panel hidden" style="display:none">
       <div class="page-inner">
@@ -461,6 +480,10 @@
       <span id="status-sel-text"></span>
     </div>
     <div class="status-spacer"></div>
+    <div class="status-item sub-chip" id="sub-chip" style="display:none" role="button" tabindex="0">
+      <span class="sub-chip-dot"></span>
+      <span class="sub-chip-text"></span>
+    </div>
   </footer>
 
 </div><!-- /app -->
@@ -507,6 +530,7 @@
 <script src="js/photo-tools.js"></script>
 <script src="js/photo-size.js"></script>
 <script src="js/recorder.js"></script>
+<script src="js/subscription.js"></script>
 
 </body>
 </html>
