@@ -65,8 +65,6 @@ datas = [
     ("doc_preview_bridge.py", "."),
     ("docx_edit.py",         "."),   # Word quick edits
     ("doc_convert.py",       "."),   # Word / HWP(X) → PDF
-    ("subscription.py",      "."),   # plans, devices, payments
-    ("subscription_bridge.py", "."),
     ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
@@ -106,8 +104,6 @@ hiddenimports = [
     "doc_preview_bridge",
     "docx_edit",
     "doc_convert",
-    "subscription",
-    "subscription_bridge",
     "screen_pick",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",

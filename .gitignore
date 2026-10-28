@@ -1,6 +1,5 @@
 .env
 sfm_settings.json
-sfm_subscription.json
 dist/
 build/
 __pycache__/
