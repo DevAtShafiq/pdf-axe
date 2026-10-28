@@ -378,6 +378,7 @@ const FolderTools = (() => {
           return;
         }
         done = true;
+        FileTree.pushCreatedUndo(`New folder “${v}”`, [r.path], () => FileTree.refresh());
         ed.remove();
         await load(parent, true);
         setLeaf(parent, false);
@@ -417,6 +418,7 @@ const FolderTools = (() => {
       catch (e) { r = { ok: false, error: String(e), results: [] }; }
       App.setStatus('Ready');
       const done = ((r && r.results) || []).filter(x => x.ok && !x.unchanged);
+      FileTree.pushFileOpUndo(isMove, done, () => FileTree.refresh());
       const renamed = done.filter(x => _base(x.dst).toLowerCase() !== _base(x.src).toLowerCase());
       const where = _base(dest);
       if (done.length) {
@@ -591,22 +593,8 @@ const FolderTools = (() => {
       const made = r.created || [], skipped = r.skipped || [];
       if (made.length) {
         App.toast(`Created ${made.length} folder${made.length === 1 ? '' : 's'}${skipped.length ? ` — ${skipped.length} skipped` : ''}`, skipped.length ? 'warning' : 'success', 5000);
-        // Ctrl+Z moves the new (empty) folders to _to_review — nothing is deleted.
-        let moved = [];
-        App.pushUndo({
-          label: `Create ${made.length} folder${made.length === 1 ? '' : 's'}`,
-          undo: async () => {
-            const u = await SFM.softDelete(made);
-            moved = ((u && u.results) || []).filter(x => x.ok && x.moved_to).map(x => ({ path: x.path, moved_to: x.moved_to }));
-            await FileTree.refresh();
-            if (!u || !u.ok) throw new Error((u && u.error) || 'move failed');
-          },
-          redo: async () => {
-            const u = await SFM.restoreSoftDeleted(moved);
-            await FileTree.refresh();
-            if (!u || !u.ok) throw new Error((u && u.error) || 'restore failed');
-          },
-        });
+        // Ctrl+Z sends the new folders to the Recycle Bin, Ctrl+Y brings them back.
+        FileTree.pushCreatedUndo(`Create ${made.length} folder${made.length === 1 ? '' : 's'}`, made, () => FileTree.refresh());
       } else {
         App.toast('No folders were created — every name had a problem', 'warning', 5000);
       }

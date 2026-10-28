@@ -10,7 +10,7 @@ const ContextMenu = (() => {
 
   // ── Build DOM ─────────────────────────────────────────────────────────────
   let _menu = null;
-  const DANGER = new Set(['Move to Review']);
+  const DANGER = new Set(['Delete']);
 
   function _ensureMenu() {
     if (_menu) return _menu;
@@ -96,7 +96,7 @@ const ContextMenu = (() => {
     // Section: file ops
     _item(menu, 'text-cursor', 'Rename',         'F2',  () => { hide(); setTimeout(() => FileTree.startRename(), 50); });
     // Same flow as the Del key: names the file (not its full path), undoable.
-    _item(menu, 'archive', 'Move to Review', 'Del', () => { hide(); FileTree.softDeletePaths(paths); });
+    _item(menu, 'trash', 'Delete', 'Del', () => { hide(); FileTree.softDeletePaths(paths); });
     _sep(menu);
 
     // Section: PDF ops

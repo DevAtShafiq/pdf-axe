@@ -483,12 +483,12 @@ const Dialogs = (() => {
       document.getElementById('fv-copy-all').addEventListener('click', () => PdfText.copyAll(path));
       document.getElementById('fv-rot-ccw').addEventListener('click', async () => {
         const r = await SFM.rotatePage(path, page, -90);
-        if (r.ok) { renderPage(page); App.toast('Rotated CCW', 'success'); }
+        if (r.ok) { renderPage(page); App.toast('Rotated CCW', 'success'); PdfTools.pushRotateUndo(path, page, -90, () => renderPage(page)); }
         else App.toast('Rotate failed: ' + r.error, 'error');
       });
       document.getElementById('fv-rot-cw').addEventListener('click', async () => {
         const r = await SFM.rotatePage(path, page, 90);
-        if (r.ok) { renderPage(page); App.toast('Rotated CW', 'success'); }
+        if (r.ok) { renderPage(page); App.toast('Rotated CW', 'success'); PdfTools.pushRotateUndo(path, page, 90, () => renderPage(page)); }
         else App.toast('Rotate failed: ' + r.error, 'error');
       });
       document.getElementById('fv-del-page').addEventListener('click', async () => {
@@ -501,7 +501,8 @@ const Dialogs = (() => {
           if (totalEl) totalEl.textContent = total;
           if (pageInput) pageInput.value = page + 1;
           renderPage(page);
-          App.toast('Page deleted', 'success');
+          PdfTools.pushBackupUndo(path, r.backup, 'Delete page');
+          App.toast('Page deleted — Ctrl+Z to undo', 'success');
           FileTree.refresh();
         } else {
           App.toast('Delete page failed: ' + r.error, 'error');

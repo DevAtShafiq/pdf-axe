@@ -760,6 +760,72 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
                 results.append({"src": moved or orig, "ok": False, "error": str(exc)})
         return self._file_op_result(results, "restore")
 
+    def recycle_delete(self, paths: list) -> dict:
+        """Delete = move to the Windows Recycle Bin (after the UI confirmed).
+
+        On a drive without a Recycle Bin (USB stick, network share) nothing is
+        deleted: the item goes to the _to_review folder instead (``fallback:
+        "review"``, ``moved_to``). Results feed ``restore_recycled`` for Ctrl+Z.
+        → {results: [{path, ok, trashed_at? | fallback+moved_to?, error?}]}
+        """
+        import recycle_bin as _rb
+        paths = [os.path.abspath(str(p)) for p in (paths or []) if p]
+        try:
+            _fo.release_pdf_handles_for_paths(tuple(paths))
+        except Exception:
+            pass
+        results = []
+        for r in _rb.send_to_recycle_bin(paths):
+            if r.get("no_bin"):
+                try:
+                    ok, dst, err = _fo.soft_delete_path(r["path"])
+                    r = ({"path": r["path"], "ok": True, "fallback": "review", "moved_to": dst} if ok
+                         else {"path": r["path"], "ok": False, "error": err or "move failed"})
+                except Exception as exc:
+                    r = {"path": r["path"], "ok": False, "error": str(exc)}
+            results.append(r)
+        _log.info("recycle_delete: %s", [(os.path.basename(r["path"]), r.get("ok"), r.get("fallback")) for r in results])
+        return self._file_op_result([dict(r, src=r["path"]) for r in results], "delete")
+
+    def restore_recycled(self, items: list) -> dict:
+        """Undo Delete: bring each {path, trashed_at} back from the Recycle Bin
+        (or {path, moved_to} back from _to_review). Never overwrites."""
+        import recycle_bin as _rb
+        results = []
+        review = [it for it in items or [] if (it or {}).get("moved_to")]
+        if review:
+            results += self.restore_soft_deleted(review).get("results") or []
+        for it in items or []:
+            if not it or it.get("moved_to"):
+                continue
+            r = _rb.restore(str(it.get("path") or ""), float(it.get("trashed_at") or 0))
+            results.append(dict(r, src=r.get("path")))
+        return self._file_op_result(results, "restore")
+
+    def undo_moves(self, items: list) -> dict:
+        """Undo a move / cut-paste: move each {src, dst} from *dst* back to
+        *src* (or "name (2)" there when that name is taken again)."""
+        import shutil
+        results = []
+        for it in items or []:
+            src, dst = str((it or {}).get("src") or ""), str((it or {}).get("dst") or "")
+            try:
+                if not dst or not os.path.exists(dst):
+                    raise RuntimeError("the item is no longer where it was moved to")
+                parent = os.path.dirname(os.path.abspath(src))
+                if not os.path.isdir(parent):
+                    raise RuntimeError("its original folder no longer exists")
+                back = src if not os.path.exists(src) else self._free_dest(parent, os.path.basename(src), os.path.isdir(dst))
+                try:
+                    _fo.release_pdf_handles_for_paths((dst,))
+                except Exception:
+                    pass
+                shutil.move(dst, back)
+                results.append({"src": dst, "dst": back, "ok": True})
+            except Exception as exc:
+                results.append({"src": dst or src, "ok": False, "error": str(exc)})
+        return self._file_op_result(results, "move back")
+
     def create_folder(self, parent: str, name: str) -> dict:
         raw = str(name or "")
         cleaned = raw.strip()
@@ -1120,6 +1186,30 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             backup = _pt.backup_to_review(path)
             _check(_fo.pdf_delete_page(path, page), "Delete page failed")
             return _ok(backup=backup)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def swap_with_backup(self, path: str, backup: str) -> dict:
+        """Undo / redo for "changes the PDF itself" actions (delete page,
+        overwrite after Arrange): the current version is first backed up to
+        _to_review/ too, then *backup*'s content is copied over *path*.
+        → {ok, backup: <the version just replaced>} — pass it back to redo."""
+        import shutil
+        try:
+            import pdf_tools as _pt
+            if not backup or not os.path.isfile(backup):
+                raise RuntimeError("the earlier version is no longer in _to_review")
+            if not os.path.isfile(path):
+                raise RuntimeError("the PDF is no longer there")
+            current = _pt.backup_to_review(path)
+            try:
+                _fo.release_pdf_handles_for_paths((path,))
+            except Exception:
+                pass
+            tmp = path + ".restoring.pdf"
+            shutil.copy2(backup, tmp)
+            os.replace(tmp, path)
+            return _ok(backup=current)
         except Exception as exc:
             return _err(str(exc))
 
