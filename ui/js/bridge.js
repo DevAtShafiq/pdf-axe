@@ -248,6 +248,12 @@ const SFM = (() => {
     runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
     aiPhotoActions:      ()                        => call('ai_photo_actions'),
     aiPhotoEstimate:     (path, opts={})           => call('ai_photo_estimate', path, opts),
+    // Subscription / payments (subscription_bridge.py)
+    subscriptionStatus:  ()                        => call('subscription_status'),
+    subscriptionCheckout:(plan, billing)           => call('subscription_checkout', plan, billing),
+    subscriptionPay:     (sessionId, payload={})   => call('subscription_pay', sessionId, payload),
+    subscriptionCancel:  (sessionId)               => call('subscription_cancel_checkout', sessionId),
+    subscriptionRemoveDevice: (id)                 => call('subscription_remove_device', id),
   };
 })();
 

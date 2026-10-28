@@ -122,9 +122,10 @@ def _fmt_size(n: int) -> str:
 from archive_bridge import ArchiveBridgeMixin  # noqa: E402  (zip / unzip / ZIP + PDF passwords)
 from recorder_bridge import RecorderBridgeMixin  # noqa: E402  (screen recording + screenshots)
 from doc_preview_bridge import DocPreviewBridgeMixin  # noqa: E402  (PDF text layer, Word/Excel previews)
+from subscription_bridge import SubscriptionBridgeMixin  # noqa: E402  (plans, devices, payments)
 
 
-class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, StudioBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin):
+class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, StudioBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin, SubscriptionBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().

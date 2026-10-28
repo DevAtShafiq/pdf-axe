@@ -45,6 +45,7 @@
 <link rel="stylesheet" href="archive.css">
 <link rel="stylesheet" href="recorder.css">
 <link rel="stylesheet" href="preview-docs.css">
+<link rel="stylesheet" href="subscription.css">
 <link rel="stylesheet" href="folder-tools.css">
 </head>
 <body>
@@ -65,6 +66,10 @@
     </nav>
 
     <div class="sidebar-bottom">
+      <button class="sidebar-btn" data-panel="subscription" aria-label="Subscription">
+        <i data-icon="crown" data-size="20"></i>
+        <span class="tooltip-label">Subscription</span>
+      </button>
       <button class="sidebar-btn" data-panel="settings" aria-label="Settings">
         <i data-icon="settings" data-size="20"></i>
         <span class="tooltip-label">Settings</span>
@@ -422,6 +427,19 @@
     </div><!-- /panel-workspace -->
 
     <!-- ─── PANEL: Settings ─────────────────────── -->
+    <div id="panel-subscription" class="panel-view page-panel hidden" style="display:none">
+      <div class="page-inner sub-page">
+        <div class="page-header">
+          <div class="page-header-icon"><i data-icon="crown" data-size="20"></i></div>
+          <div>
+            <h2 class="page-title">Subscription</h2>
+            <p class="page-subtitle">Your plan, devices and payments.</p>
+          </div>
+        </div>
+        <div id="sub-page-body"><div class="empty-state empty-state-sm"><span class="spinner"></span></div></div>
+      </div>
+    </div>
+
     <div id="panel-settings" class="panel-view page-panel hidden" style="display:none">
       <div class="page-inner">
         <div class="page-header">
@@ -507,6 +525,7 @@
 <script src="js/photo-tools.js"></script>
 <script src="js/photo-size.js"></script>
 <script src="js/recorder.js"></script>
+<script src="js/subscription.js"></script>
 
 </body>
 </html>
