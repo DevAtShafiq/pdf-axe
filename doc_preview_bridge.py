@@ -80,12 +80,19 @@ class DocPreviewBridgeMixin:
                 return _err(str(exc), exc.code)
         return _guard("docx_save_edits", run)
 
-    def docs_to_pdf(self, paths: list) -> dict:
+    def docs_to_pdf(self, paths: list, job: str = "") -> dict:
         """Word / 한글 files → '<name>.pdf' next to each; originals kept.
-        {results: [{path, ok, out_path?, pages?, error?}], done, failed}"""
+        {results: [{path, ok, out_path?, pages?, error?}], done, failed}
+        With *job*, emits ``docs_convert_progress`` {job, index, total, path,
+        state: "start" | "done" | "failed"} so the UI can show which file is
+        being converted (Word can take a while to start)."""
         import doc_convert as _dc
         results = []
-        for p in paths or []:
+        paths = list(paths or [])
+        for i, p in enumerate(paths):
+            if job:
+                self._emit("docs_convert_progress",
+                           {"job": job, "index": i, "total": len(paths), "path": p, "state": "start"})
             try:
                 r = _dc.to_pdf(str(p or ""))
                 _log.info("docs_to_pdf: %s -> %s (%s, %ss)", p, r["out_path"], r["app"], r.get("seconds"))
@@ -96,6 +103,10 @@ class DocPreviewBridgeMixin:
             except Exception as exc:  # noqa: BLE001
                 _log.error("docs_to_pdf: %s failed: %s", p, exc, exc_info=True)
                 results.append({"path": p, "ok": False, "error": str(exc)})
+            if job:
+                self._emit("docs_convert_progress",
+                           {"job": job, "index": i, "total": len(paths), "path": p,
+                            "state": "done" if results[-1]["ok"] else "failed"})
         done = sum(1 for r in results if r["ok"])
         return _ok(results=results, done=done, failed=len(results) - done)
 

@@ -63,6 +63,9 @@ const SFM = (() => {
       const result = await api[method](...args);
       if (result && result.ok === false) {
         _pylog('warn', `${method} → error: ${result.error}`);
+        // The plan ran out while the app was open: show the plans right away
+        // instead of letting each tool fail on its own.
+        if (result.need_subscription) emit('subscription_required', { method });
       }
       return result;
     } catch(e) {
@@ -129,7 +132,7 @@ const SFM = (() => {
     pdfPageText:         (path, page=0)            => call('pdf_page_text', path, page),
     pdfAllText:          (path)                    => call('pdf_all_text', path),
     docxPreviewHtml:     (path, edit=false)        => call('docx_preview_html', path, edit),
-    docsToPdf:           (paths)                   => call('docs_to_pdf', paths),
+    docsToPdf:           (paths, job='')           => call('docs_to_pdf', paths, job),
     docxSaveEdits:       (path, edits, out, sig='') => call('docx_save_edits', path, edits, out, sig),
     sheetPreviewHtml:    (path, sheet='')          => call('sheet_preview_html', path, sheet),
     officePreviewInfo:   (path)                    => call('office_preview_info', path),

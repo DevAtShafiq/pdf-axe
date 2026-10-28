@@ -76,3 +76,35 @@
 @media (max-width: 640px) {
   .cmp-targets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── Task card: non-blocking progress for slow conversions (Word / 한글 → PDF).
+   Bottom-left, above the status bar, so it never hides the toasts (bottom-right). */
+.task-cards {
+  position: fixed; left: calc(var(--w-sidebar) + 16px); bottom: calc(var(--h-statusbar) + 12px);
+  z-index: 9990; display: flex; flex-direction: column; gap: var(--space-2);
+  pointer-events: none;
+}
+.task-card {
+  pointer-events: auto; width: 320px; max-width: calc(100vw - var(--w-sidebar) - 32px);
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg);
+  background: var(--bg-surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow-popup);
+  animation: task-card-in .18s var(--ease);
+  transition: opacity .3s var(--ease), transform .3s var(--ease);
+}
+.task-card.fade-out { opacity: 0; transform: translateY(6px); }
+@keyframes task-card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.task-card-head { display: flex; align-items: center; gap: var(--space-2); }
+.task-card-title { flex: 1; min-width: 0; font-weight: var(--fw-semibold); color: var(--text-primary); }
+.task-card-time { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--text-muted); }
+.task-card-icon { display: inline-flex; }
+.task-card.is-done .task-card-icon { color: var(--green); }
+.task-card.is-failed .task-card-icon { color: var(--red); }
+.task-card-file { font-size: var(--fs-sm); color: var(--text-secondary); }
+.task-card-bar { height: 4px; }
+.task-card.is-done .task-card-bar .progress-bar { background: var(--green); }
+.task-card.is-failed .task-card-bar .progress-bar { background: var(--red); }
+.task-card-meta { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-muted); }
+.task-card-meta:empty { display: none; }
+.qa-btn.is-busy { opacity: .8; cursor: progress; }
+.qa-btn.is-busy .spinner { width: 14px; height: 14px; }

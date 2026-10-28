@@ -101,6 +101,21 @@ def test_checkout_validation(tmp_path, clock):
     assert not r["ok"] and r["field"] == "email"
 
 
+def test_bangla_digits_in_phone(tmp_path, clock):
+    m = _mgr(tmp_path, clock)
+    r = m.start_checkout("monthly", "bkash", dict(CUST, phone="০১৭১২৩৪৫৬৭৮"))
+    assert r["ok"], r
+    assert m._checkouts[r["checkout_id"]]["order"]["customer"]["phone"] == "01712345678"
+
+
+def test_checkout_confirms_only_once(tmp_path, clock):
+    m = _mgr(tmp_path, clock)
+    r = m.start_checkout("monthly", "bkash", CUST)
+    assert m.confirm_checkout(r["checkout_id"])["paid"]
+    assert not m.confirm_checkout(r["checkout_id"])["ok"]
+    assert len(m.state()["payments"]) == 1
+
+
 def test_gateway_unavailable_without_sandbox(tmp_path, clock):
     m = _mgr(tmp_path, clock, sandbox=False)
     assert m.state()["gateway"]["available"] is False

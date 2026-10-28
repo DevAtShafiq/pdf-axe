@@ -79,6 +79,7 @@ ENV_SANDBOX = "OFFICEAXE_PAYMENT_SANDBOX"
 ENV_FILE = "OFFICEAXE_SUBSCRIPTION_FILE"
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_BN_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 \-]{6,18}$")
 
 
@@ -619,7 +620,7 @@ def _clean_customer(c: dict) -> dict:
     return {
         "name": str(c.get("name") or "").strip()[:80],
         "email": str(c.get("email") or "").strip()[:120],
-        "phone": str(c.get("phone") or "").strip()[:24],
+        "phone": str(c.get("phone") or "").strip().translate(_BN_DIGITS)[:24],
     }
 
 
