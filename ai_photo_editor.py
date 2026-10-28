@@ -31,7 +31,10 @@ from typing import Any, Callable
 import file_ops as fo
 
 _DEFAULT_AI_EDIT_USD_EST = 0.04   # legacy Tk hint only; the web UI uses estimate_cost_usd()
-_AI_EDIT_MODEL = "gpt-image-1"
+# Tried in order. OpenAI retired gpt-image-1 for edits ("model does not exist"),
+# so an account that lacks one model falls back to the next.
+_AI_EDIT_MODELS = ("gpt-image-1.5", "gpt-image-2")
+_AI_EDIT_MODEL = _AI_EDIT_MODELS[0]
 _REQUEST_TIMEOUT_S = 180.0        # one images.edit call; the SDK default is 10 minutes
 _MAX_SOURCE_PIXELS = 80_000_000   # refuse absurdly large inputs instead of eating RAM
 
@@ -550,12 +553,21 @@ def run_ai_edit(
                 kw["extra_body"] = {"input_fidelity": "high"}
             return client.images.edit(image=image_file, **kw)
 
-        try:
-            result = _edit(True)
-        except Exception as e:
-            if "input_fidelity" not in str(e):
+        result = None
+        for i, model in enumerate(_AI_EDIT_MODELS):
+            call_kwargs["model"] = model
+            try:
+                try:
+                    result = _edit(True)
+                except Exception as e:
+                    if "input_fidelity" not in str(e):
+                        raise
+                    result = _edit(False)   # endpoint without input_fidelity support (400, not billed)
+                break
+            except Exception as e:
+                if i + 1 < len(_AI_EDIT_MODELS) and _model_unavailable(e):
+                    continue                # rejected before any work: not billed, try the next model
                 raise
-            result = _edit(False)   # endpoint without input_fidelity support (400, not billed)
     except Exception as e:
         return False, f"OpenAI request failed: {_short_error(e)}"
 
@@ -612,11 +624,21 @@ def run_ai_edit(
     return True, out_path
 
 
+def _model_unavailable(e: Exception) -> bool:
+    """True when OpenAI says the requested model can't be used (retired,
+    unknown, or not enabled for this account) — worth trying the next one."""
+    low = str(e).lower()
+    return ("does not exist" in low or "model_not_found" in low or
+            ("model" in low and ("invalid_value" in low or "not supported" in low or "not have access" in low)))
+
+
 def _short_error(e: Exception) -> str:
     """Readable one-line message for common OpenAI failures."""
     msg = str(e) or e.__class__.__name__
     name = e.__class__.__name__
     low = msg.lower()
+    if _model_unavailable(e):
+        return "OpenAI no longer offers the image model this version uses — please update Office Axe"
     if name in ("APITimeoutError",) or "timed out" in low:
         return "the request timed out — please try again"
     if name == "AuthenticationError" or "invalid_api_key" in low or "incorrect api key" in low:

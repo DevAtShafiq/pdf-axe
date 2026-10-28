@@ -458,6 +458,7 @@ const AiPhoto = (() => {
   const jobs = new Map();       // job_id → {path, action, started, resolve}
   const pairs = new Map();      // norm(result) → source path (for Compare)
   const early = new Map();      // results that arrived before run() registered the job
+  const lastError = new Map();  // norm(photo) → last failure message (stays in the panel)
   let currentPath = null;
   let ticker = null;
 
@@ -500,7 +501,10 @@ const AiPhoto = (() => {
     }
     if (st) {
       const others = jobs.size - (running ? 1 : 0);
+      const err = !running && currentPath ? lastError.get(norm(currentPath)) : '';
+      st.classList.toggle('is-error', !!err);
       st.textContent = running ? 'Usually 20–60 s. You can keep working — the result is saved as a new file.'
+                     : err ? `Last try failed: ${err}`
                      : others > 0 ? `${others} AI edit${others > 1 ? 's' : ''} running in the background…` : '';
     }
     const cmp = $('ai-compare');
@@ -592,6 +596,7 @@ const AiPhoto = (() => {
 
     const jid = r.job_id || jobId;
     const done = new Promise(resolve => {
+      lastError.delete(norm(path));
       jobs.set(jid, { path, action, started: Date.now(), resolve, label });
     });
     if (early.has(jid)) { const ev = early.get(jid); early.delete(jid); onResult(ev); return done; }
@@ -625,6 +630,9 @@ const AiPhoto = (() => {
       const onSource = !sel.length || (sel.length === 1 && norm(sel[0]) === norm(src));
       if (PhotoTools.inCurrentFolder(r.out) && onSource) await PhotoTools.revealFile(r.out);
     } else {
+      // The toast goes away; the panel keeps saying what went wrong.
+      lastError.set(norm(job.path), String(r.error || 'unknown error'));
+      refreshButtons();
       App.toast(`${job.label} failed: ${PhotoTools.esc(r.error || 'unknown error')}`, 'error', 8000);
     }
     try { job.resolve(r); } catch (_) {}
