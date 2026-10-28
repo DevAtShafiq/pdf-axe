@@ -227,11 +227,15 @@ def test_text_only_target_unreachable_writes_nothing(text_pdf, tmp_path):
     r = mc.compress_pdf(text_pdf, target_kb=0.1)
     assert r["target_met"] is False and r["kept_original"] and r["out"] == ""
     assert "Could not reach" in r["note"] and "text and vector content" in r["note"]
-    assert r["smallest"] >= size and r["can_save_smallest"] is False
+    # PyMuPDF builds differ by a few bytes here; only a smaller result may be offered
+    assert r["can_save_smallest"] is (r["smallest"] < size)
     # even when asked to save the smallest, nothing bigger is ever written
     r2 = mc.compress_pdf(text_pdf, target_kb=0.1, save_smallest=True)
-    assert r2["kept_original"] and r2["out"] == ""
-    assert sorted(os.listdir(tmp_path)) == before_files
+    if r["can_save_smallest"]:
+        assert not r2["kept_original"] and os.path.getsize(r2["out"]) < size
+    else:
+        assert r2["kept_original"] and r2["out"] == ""
+        assert sorted(os.listdir(tmp_path)) == before_files
     assert os.path.getsize(text_pdf) == size
 
 
