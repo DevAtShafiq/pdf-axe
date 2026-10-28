@@ -942,7 +942,8 @@ const PdfTools = (() => {
         if (!r) return;
         if (!r.ok) { finish(r); return; }
         forceClose();
-        finish(r, `Saved <b>${esc(baseOf(primary))}</b> · backup in _to_review/`, primary);
+        pushBackupUndo(primary, r.backup, `Overwrite ${baseOf(primary)}`);
+        finish(r, `Saved <b>${esc(baseOf(primary))}</b> · backup in _to_review/ · Ctrl+Z to undo`, primary);
         try { if (Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === primary.toLowerCase()) Preview.previewFile(primary, '.pdf', { reload: true }); } catch (_) {}
         return;
       }
@@ -1245,8 +1246,40 @@ const PdfTools = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initDetails);
   else _initDetails();
 
+  // ── Ctrl+Z for actions that change a PDF in place ─────────────────────────
+  // Delete page / overwrite after Arrange back the old version up into
+  // _to_review/ first; undo swaps that version back in (the replaced one is
+  // backed up as well, so redo swaps again). Nothing is ever lost.
+  function _reloadIfShown(path) {
+    try {
+      if (Preview.getCurrentPath && (Preview.getCurrentPath() || '').toLowerCase() === String(path).toLowerCase())
+        Preview.previewFile(path, '.pdf', { reload: true });
+    } catch (_) {}
+  }
+  function pushBackupUndo(path, backup, label) {
+    if (!backup) return;
+    let other = backup;
+    const swap = async () => {
+      const r = await SFM.swapWithBackup(path, other);
+      if (!r || !r.ok) throw new Error((r && r.error) || 'could not restore the earlier version');
+      other = r.backup;
+      _reloadIfShown(path);
+      await FileTree.refreshAndSelect(path);       // keep the PDF selected
+    };
+    App.pushUndo({ label, undo: swap, redo: swap });
+  }
+  // Rotating one page: undo turns it back.
+  function pushRotateUndo(path, page, deg, after) {
+    const turn = async d => {
+      const r = await SFM.rotatePage(path, page, d);
+      if (!r || !r.ok) throw new Error((r && r.error) || 'rotate failed');
+      if (after) after(); else _reloadIfShown(path);
+    };
+    App.pushUndo({ label: `Rotate page ${page + 1}`, undo: () => turn(-deg), redo: () => turn(deg) });
+  }
+
   return {
     openMerge, openSplit, openExtract, extractPage, openArrange,
-    onDetails, previewPageFor,
+    onDetails, previewPageFor, pushBackupUndo, pushRotateUndo,
   };
 })();

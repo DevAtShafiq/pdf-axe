@@ -554,12 +554,14 @@ const Preview = (() => {
       const r = await SFM.rotatePage(_pdfSrc, _pdfCurPage, 90);
       if (!r || !r.ok) { App.toast('Rotate failed: ' + _escTxt(r && r.error), 'error', 6000); return; }
       _loadVisiblePages();
+      PdfTools.pushRotateUndo(_pdfSrc, _pdfCurPage, 90, () => _loadVisiblePages());
     });
     wire('pdf-rotate-ccw', async () => {
       if (!editable()) return;
       const r = await SFM.rotatePage(_pdfSrc, _pdfCurPage, -90);
       if (!r || !r.ok) { App.toast('Rotate failed: ' + _escTxt(r && r.error), 'error', 6000); return; }
       _loadVisiblePages();
+      PdfTools.pushRotateUndo(_pdfSrc, _pdfCurPage, -90, () => _loadVisiblePages());
     });
     wire('pdf-del-page', async () => {
       if (!editable()) return;
@@ -570,7 +572,8 @@ const Preview = (() => {
       _pdfCount--;
       _pdfCurPage = Math.min(_pdfCurPage, _pdfCount - 1);
       _loadVisiblePages();
-      App.toast('Page deleted', 'success');
+      PdfTools.pushBackupUndo(_pdfSrc, r.backup, `Delete page`);
+      App.toast('Page deleted — Ctrl+Z to undo', 'success');
     });
     wire('pdf-arrange', () => {
       if (!editable()) return;

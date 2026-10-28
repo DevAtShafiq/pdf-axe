@@ -152,6 +152,7 @@ const SFM = (() => {
     compressPreview:     (paths, settings={}, job='') => call('compress_preview', paths, settings, job),
     rotatePage:          (path, page, deg)         => call('rotate_pdf_page', path, page, deg),
     deletePage:          (path, page)              => call('delete_pdf_page', path, page),
+    swapWithBackup:      (path, backup)            => call('swap_with_backup', path, backup),
     reorderPages:        (path, order, out)        => call('reorder_pdf_pages', path, order, out),
     buildPdfFromPages:   (pages, out, replace=false) => call('build_pdf_from_pages', pages, out, replace),
     browseForPdfs:       ()                        => call('browse_for_pdfs'),

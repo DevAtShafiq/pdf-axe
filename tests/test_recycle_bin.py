@@ -113,3 +113,23 @@ def test_undo_moves(tmp_path):
     # redo = the same call with src/dst swapped
     again = b.undo_moves([{"src": moved["dst"], "dst": str(f)}])
     assert again["ok"] and os.path.exists(moved["dst"]) and not f.exists()
+
+
+def test_swap_with_backup_undo_redo(tmp_path):
+    """Undo / redo of delete page: swap the PDF with its _to_review backup."""
+    import pymupdf as fitz
+    import sfm_bridge
+    b = sfm_bridge.SFMBridge()
+    p = tmp_path / "doc.pdf"
+    d = fitz.open()
+    for i in range(3):
+        d.new_page().insert_text((72, 72), f"P{i + 1}")
+    d.save(str(p)); d.close()
+    r = b.delete_pdf_page(str(p), 0)
+    pages = lambda: [pg.get_text().strip() for pg in fitz.open(str(p))]
+    assert r["ok"] and pages() == ["P2", "P3"]
+    u = b.swap_with_backup(str(p), r["backup"])                 # Ctrl+Z
+    assert u["ok"] and pages() == ["P1", "P2", "P3"]
+    again = b.swap_with_backup(str(p), u["backup"])             # Ctrl+Y
+    assert again["ok"] and pages() == ["P2", "P3"]
+    assert not b.swap_with_backup(str(p), str(tmp_path / "missing.pdf"))["ok"]

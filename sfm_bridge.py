@@ -1189,6 +1189,30 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         except Exception as exc:
             return _err(str(exc))
 
+    def swap_with_backup(self, path: str, backup: str) -> dict:
+        """Undo / redo for "changes the PDF itself" actions (delete page,
+        overwrite after Arrange): the current version is first backed up to
+        _to_review/ too, then *backup*'s content is copied over *path*.
+        → {ok, backup: <the version just replaced>} — pass it back to redo."""
+        import shutil
+        try:
+            import pdf_tools as _pt
+            if not backup or not os.path.isfile(backup):
+                raise RuntimeError("the earlier version is no longer in _to_review")
+            if not os.path.isfile(path):
+                raise RuntimeError("the PDF is no longer there")
+            current = _pt.backup_to_review(path)
+            try:
+                _fo.release_pdf_handles_for_paths((path,))
+            except Exception:
+                pass
+            tmp = path + ".restoring.pdf"
+            shutil.copy2(backup, tmp)
+            os.replace(tmp, path)
+            return _ok(backup=current)
+        except Exception as exc:
+            return _err(str(exc))
+
     def reorder_pdf_pages(self, path: str, new_order: list, out_path: str) -> dict:
         """Old entry point: pages of *path* in *new_order* (0-based) → a NEW
         file (out_path, or '<name>_arranged.pdf'); the original is kept."""
