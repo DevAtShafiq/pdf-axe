@@ -1,0 +1,31 @@
+{
+  "voice": "Microsoft Zira Desktop",
+  "rate": 0,
+  "note": "Every line describes something the video really shows. Section ids match the 'section' events of record_demo.py; 'intro' and 'outro' are the title cards.",
+  "lines": [
+    {"id": "intro",   "section": "intro",   "text": "Meet Office Axe — a Windows desktop workspace for preparing student documents."},
+    {"id": "s1",      "section": "folders", "text": "Type or paste a list of names, and Office Axe creates a folder for every student. The live preview flags duplicates and invalid names before anything is made."},
+    {"id": "s2a",     "section": "preview", "text": "Every file previews right inside the app — Word documents and PDFs alike."},
+    {"id": "s2b",     "section": "preview", "text": "To rename, just start typing, and pick a ready-made English and Korean document name."},
+    {"id": "s3",      "section": "convert", "text": "Select Word files and convert them to PDF. The work runs in the background with a progress card, and the originals are always kept."},
+    {"id": "s4a",     "section": "arrange", "text": "Arrange pages visually. Delete a blank page — changed your mind? Control Z brings it back."},
+    {"id": "s4b",     "section": "arrange", "text": "Fix a sideways scan, drag the cover letter to the front, and save it as a new file."},
+    {"id": "outro",   "section": "outro",   "text": "Office Axe. Student documents, sorted."}
+  ],
+  "sections": {
+    "folders": {"title": "A folder for every student", "n": 1},
+    "preview": {"title": "Preview and smart rename", "n": 2},
+    "convert": {"title": "Word to PDF", "n": 3},
+    "arrange": {"title": "Arrange pages", "n": 4}
+  },
+  "callouts": {
+    "preview":       "Live preview — duplicates and invalid names are flagged",
+    "created":       "Six folders, one click",
+    "docx preview":  "Word preview, no Word window needed",
+    "suggestions":   "English + Korean name templates",
+    "task card":     "Converts in the background",
+    "task done":     "Originals are kept",
+    "page grid":     "Every page as a thumbnail",
+    "arranged":      "Saved as a new PDF — the original stays as it was"
+  }
+}

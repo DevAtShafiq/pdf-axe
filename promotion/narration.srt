@@ -1,0 +1,60 @@
+1
+00:00:00,800 --> 00:00:06,110
+Meet Office Axe — a Windows desktop workspace for preparing student documents.
+
+2
+00:00:07,810 --> 00:00:09,847
+Type or paste a list of names,
+
+3
+00:00:09,847 --> 00:00:13,243
+and Office Axe creates a folder for every student.
+
+4
+00:00:13,243 --> 00:00:18,404
+The live preview flags duplicates and invalid names before anything is made.
+
+5
+00:00:21,887 --> 00:00:27,002
+Every file previews right inside the app — Word documents and PDFs alike.
+
+6
+00:00:30,420 --> 00:00:32,531
+To rename, just start typing,
+
+7
+00:00:32,531 --> 00:00:36,535
+and pick a ready-made English and Korean document name.
+
+8
+00:00:38,914 --> 00:00:41,892
+Select Word files and convert them to PDF.
+
+9
+00:00:41,892 --> 00:00:45,649
+The work runs in the background with a progress card,
+
+10
+00:00:45,649 --> 00:00:48,059
+and the originals are always kept.
+
+11
+00:00:52,628 --> 00:00:58,182
+Arrange pages visually. Delete a blank page — changed your mind?
+
+12
+00:00:58,182 --> 00:01:00,352
+Control Z brings it back.
+
+13
+00:01:03,317 --> 00:01:07,479
+Fix a sideways scan, drag the cover letter to the front,
+
+14
+00:01:07,479 --> 00:01:09,411
+and save it as a new file.
+
+15
+00:01:14,815 --> 00:01:19,429
+Office Axe. Student documents, sorted.
+
