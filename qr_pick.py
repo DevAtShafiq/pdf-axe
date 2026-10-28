@@ -389,21 +389,15 @@ def _check_stack() -> str:
 # ── Overlay colours (dark, neutral; accent = Office Axe blue) ────────────────
 TINT = "#0b0d12"
 TINT_ALPHA = 0.15
-PILL_BG = "#16181d"
-PILL_BORDER = "#2c313b"
-PILL_TEXT = "#f3f4f6"
-PILL_MUTED = "#9aa3b2"
-KBD_BORDER = "#3b414d"
+CHIP_BG = "#16181d"
+CHIP_BORDER = "#2c313b"
+CHIP_TEXT = "#f3f4f6"
+CHIP_HOVER = "#262a33"
 ACCENT = "#2f86ff"
 GREEN = "#22c55e"
 AMBER = "#f5a524"
-KEY = "#fe00fe"           # transparent-colour key of the pill / frame windows
-
-MSG_IDLE = [("title", "Click a QR code to open it"), ("sep", ""), ("muted", "Drag to select an area"),
-            ("sep", ""), ("kbd", "Esc"), ("muted", "to cancel")]
-MSG_SCAN = [("dot:" + ACCENT, ""), ("title", "Scanning…")]
-MSG_MISS = [("dot:" + AMBER, ""), ("title", "No QR code here"), ("sep", ""),
-            ("muted", "click right on the code or drag a box around it")]
+RED = "#ef4444"
+KEY = "#fe00fe"           # transparent-colour key of the marker / frame windows
 
 
 class _Frame:
@@ -446,6 +440,106 @@ class _Frame:
             self.shown = False
 
 
+class _Marker:
+    """The small round × button shown right where the user clicked.
+
+    Its ring shows the state (blue while scanning, amber after a miss, green on
+    a hit) and a short note sits beside it only while there is something to
+    say. Clicking the × cancels and closes the scanner."""
+
+    def __init__(self, tk, master, scale: float, font, on_cancel: Callable[[], None]):
+        self.s = scale
+        self.font = font
+        self.on_cancel = on_cancel
+        self.d = int(round(28 * scale))          # button diameter
+        self.win = tk.Toplevel(master)
+        self.win.withdraw()
+        self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)
+        try:
+            self.win.attributes("-transparentcolor", KEY)
+        except tk.TclError:
+            pass
+        self.win.configure(bg=KEY)
+        self.cv = tk.Canvas(self.win, bg=KEY, highlightthickness=0, bd=0, cursor="hand2")
+        self.cv.pack(fill="both", expand=True)
+        self.cv.bind("<ButtonRelease-1>", self._click)
+        self.cv.bind("<Motion>", self._hover)
+        self.cv.bind("<Leave>", lambda e: self._set_hover(False))
+        self.win.bind("<Escape>", lambda e: on_cancel())
+        self.pos = None
+        self.ring = ACCENT
+        self.note = ""
+        self.hover = False
+        self.shown = False
+
+    def _on_button(self, x: float, y: float) -> bool:
+        r = self.d / 2.0
+        return (x - r) ** 2 + (y - r) ** 2 <= (r + 2) ** 2
+
+    def _click(self, e) -> None:
+        if self._on_button(e.x, e.y):
+            self.on_cancel()
+
+    def _hover(self, e) -> None:
+        self._set_hover(self._on_button(e.x, e.y))
+
+    def _set_hover(self, on: bool) -> None:
+        if on != self.hover:
+            self.hover = on
+            self.cv.configure(cursor="hand2" if on else "arrow")
+            self._draw()
+
+    def show(self, x: int, y: int, ring: str = ACCENT, note: str = "") -> None:
+        self.pos, self.ring, self.note = (x, y), ring, note
+        self._draw()
+        if not self.shown:
+            self.win.deiconify()
+            self.shown = True
+        self.win.lift()
+
+    def set_state(self, ring: str, note: str = "") -> None:
+        if self.pos is not None:
+            self.ring, self.note = ring, note
+            self._draw()
+
+    def _draw(self) -> None:
+        if self.pos is None:
+            return
+        s, d, c = self.s, self.d, self.cv
+        gap, pad_x = int(8 * s), int(10 * s)
+        note_w = self.font.measure(self.note) + 2 * pad_x if self.note else 0
+        w = d + (gap + note_w if note_w else 0) + 2
+        h = d + 2
+        c.delete("all")
+        c.configure(width=w, height=h)
+        # the button: dark disc, coloured ring, ×
+        bw = max(2, int(round(2 * s)))
+        o = bw / 2.0 + 0.5
+        c.create_oval(o, o, d - o, d - o, fill=CHIP_HOVER if self.hover else CHIP_BG,
+                      outline=RED if self.hover else self.ring, width=bw)
+        k = d * 0.2
+        cx = cy = d / 2.0
+        xw = max(2, int(round(1.8 * s)))
+        for dx in (-1, 1):
+            c.create_line(cx - k, cy - k * dx, cx + k, cy + k * dx, fill=CHIP_TEXT, width=xw, capstyle="round")
+        if note_w:
+            x1, y1, x2, y2 = d + gap, int(3 * s), d + gap + note_w, d - int(3 * s)
+            r = (y2 - y1) / 2.0
+            pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+                   x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+            c.create_polygon(pts, smooth=True, fill=CHIP_BG, outline=CHIP_BORDER, width=1)
+            c.create_text(x1 + pad_x, (y1 + y2) / 2.0, text=self.note, font=self.font, fill=CHIP_TEXT, anchor="w")
+        # centre the button on the click point
+        x, y = self.pos
+        self.win.geometry(f"{w}x{h}+{int(x - d / 2)}+{int(y - d / 2)}")
+
+    def hide(self) -> None:
+        if self.shown:
+            self.win.withdraw()
+            self.shown = False
+
+
 class PickOverlay:
     def __init__(self) -> None:
         import tkinter as tk
@@ -456,10 +550,8 @@ class PickOverlay:
         self.press = None
         self.dragging = False
         self._msg_job = None
-        self._mon = None
 
         self.vx, self.vy, self.vw, self.vh = _virtual_rect()
-        self.monitors = _monitors() or [(self.vx, self.vy, self.vw, self.vh)]
 
         self.root = tk.Tk()
         self.root.withdraw()
@@ -476,137 +568,31 @@ class PickOverlay:
         self.cv.pack(fill="both", expand=True)
 
         self.scale = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
-        self.f_title = tkfont.Font(family="Segoe UI Semibold", size=10)
-        self.f_text = tkfont.Font(family="Segoe UI", size=10)
-        self.f_kbd = tkfont.Font(family="Segoe UI", size=8)
-
-        # instruction pill (separate window so it stays fully opaque)
-        self.pill = tk.Toplevel(self.root)
-        self.pill.withdraw()
-        self.pill.overrideredirect(True)
-        self.pill.attributes("-topmost", True)
-        try:
-            self.pill.attributes("-transparentcolor", KEY)
-            self.pill.attributes("-alpha", 0.97)
-        except tk.TclError:
-            pass
-        self.pill.configure(bg=KEY)
-        self.pcv = tk.Canvas(self.pill, bg=KEY, highlightthickness=0, bd=0, cursor="crosshair")
-        self.pcv.pack(fill="both", expand=True)
-        self.mark = self._load_mark(int(round(20 * self.scale)))
+        self.f_text = tkfont.Font(family="Segoe UI", size=9)
 
         self.sel = _Frame(tk, self.root, ACCENT, max(2, int(round(2 * self.scale))))
         self.hit = _Frame(tk, self.root, GREEN, max(3, int(round(3 * self.scale))))
+        self.mark = _Marker(tk, self.root, self.scale, self.f_text, self.cancel)
 
-        for w in (self.root, self.pill):
-            w.bind("<Escape>", lambda e: self.cancel())
-            w.bind("<Button-3>", lambda e: self.cancel())
+        self.root.bind("<Escape>", lambda e: self.cancel())
+        self.root.bind("<Button-3>", lambda e: self.cancel())
         self.cv.bind("<ButtonPress-1>", self._on_press)
         self.cv.bind("<B1-Motion>", self._on_drag)
         self.cv.bind("<ButtonRelease-1>", self._on_release)
-        self.cv.bind("<Motion>", self._on_move)
 
-    # ── pill ────────────────────────────────────────────────────────────────
-    def _load_mark(self, size: int):
-        p = _brand_mark_path()
-        if not p:
-            return None
-        try:
-            from PIL import Image, ImageTk
-            im = Image.open(p).convert("RGBA")
-            im.thumbnail((size, size), Image.Resampling.LANCZOS)
-            bg = Image.new("RGBA", im.size, PILL_BG)
-            bg.alpha_composite(im)
-            return ImageTk.PhotoImage(bg.convert("RGB"), master=self.root)
-        except Exception:
-            return None
-
-    def _round_rect(self, x1, y1, x2, y2, r, **kw):
-        pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
-               x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
-        return self.pcv.create_polygon(pts, smooth=True, **kw)
-
-    def set_pill(self, parts, accent: Optional[str] = None) -> None:
-        s = self.scale
-        pad_x, h, gap = int(16 * s), int(42 * s), int(9 * s)
-        c = self.pcv
-        c.delete("all")
-        # measure
-        items = []
-        if self.mark is not None:
-            items.append(("img", self.mark.width()))
-        for kind, text in parts:
-            if kind == "title":
-                items.append((kind, self.f_title.measure(text), text))
-            elif kind == "muted":
-                items.append((kind, self.f_text.measure(text), text))
-            elif kind == "kbd":
-                items.append((kind, self.f_kbd.measure(text) + int(12 * s), text))
-            elif kind == "sep":
-                items.append((kind, int(4 * s), ""))
-            elif kind.startswith("dot:"):
-                items.append((kind, int(8 * s), ""))
-        w = pad_x * 2 + sum(it[1] for it in items) + gap * (len(items) - 1)
-        self.pill.geometry(f"{w}x{h}")
-        c.configure(width=w, height=h)
-        self._round_rect(1, 1, w - 2, h - 2, int(12 * s), fill=PILL_BG, outline=accent or PILL_BORDER,
-                         width=1)
-        x, cy = pad_x, h / 2.0
-        for it in items:
-            kind, iw = it[0], it[1]
-            if kind == "img":
-                c.create_image(x, cy, image=self.mark, anchor="w")
-            elif kind == "title":
-                c.create_text(x, cy, text=it[2], font=self.f_title, fill=PILL_TEXT, anchor="w")
-            elif kind == "muted":
-                c.create_text(x, cy, text=it[2], font=self.f_text, fill=PILL_MUTED, anchor="w")
-            elif kind == "kbd":
-                kh = int(18 * s)
-                c.create_rectangle(x, cy - kh / 2, x + iw, cy + kh / 2, outline=KBD_BORDER, width=1)
-                c.create_text(x + iw / 2.0, cy, text=it[2], font=self.f_kbd, fill=PILL_TEXT)
-            elif kind == "sep":
-                r = 1.5 * s
-                c.create_oval(x + iw / 2 - r, cy - r, x + iw / 2 + r, cy + r, fill=PILL_MUTED, outline="")
-            elif kind.startswith("dot:"):
-                col = kind[4:]
-                c.create_oval(x, cy - iw / 2, x + iw, cy + iw / 2, fill=col, outline="")
-            x += iw + gap
-        self._place_pill(force=True)
-
-    def _monitor_at(self, px: int, py: int) -> tuple:
-        for m in self.monitors:
-            if m[0] <= px < m[0] + m[2] and m[1] <= py < m[1] + m[3]:
-                return m
-        return self.monitors[0]
-
-    def _place_pill(self, force: bool = False, at: Optional[tuple] = None) -> None:
-        pos = at or _cursor_pos() or (self.vx + self.vw // 2, self.vy + self.vh // 2)
-        mon = self._monitor_at(*pos)
-        if mon == self._mon and not force:
-            return
-        self._mon = mon
-        self.pill.update_idletasks()
-        w = self.pill.winfo_reqwidth()
-        x = mon[0] + (mon[2] - w) // 2
-        y = mon[1] + int(28 * self.scale)
-        self.pill.geometry(f"+{x}+{y}")
-        self.pill.lift()
-
-    def flash_message(self, parts, ms: int, accent: Optional[str] = None) -> None:
+    def flash_note(self, note: str, ms: int, ring: str) -> None:
+        """Show *note* beside the × for *ms*, then back to the plain ×."""
         if self._msg_job is not None:
             self.root.after_cancel(self._msg_job)
-        self.set_pill(parts, accent)
+        self.mark.set_state(ring, note)
         self._msg_job = self.root.after(ms, self._back_to_idle)
 
     def _back_to_idle(self) -> None:
         self._msg_job = None
         if not self.busy:
-            self.set_pill(MSG_IDLE)
+            self.mark.set_state(ACCENT, "")
 
     # ── mouse ───────────────────────────────────────────────────────────────
-    def _on_move(self, e) -> None:
-        self._place_pill(at=(e.x_root, e.y_root))
-
     def _on_press(self, e) -> None:
         if self.busy:
             return
@@ -633,18 +619,20 @@ class PickOverlay:
             l, t = min(x0, e.x_root), min(y0, e.y_root)
             w, h = abs(e.x_root - x0), abs(e.y_root - y0)
             if w >= MIN_REGION and h >= MIN_REGION:
+                self.mark.show(e.x_root, e.y_root)
                 self.decode_region(l, t, w, h)
                 return
             self.sel.hide()
+        self.mark.show(e.x_root, e.y_root)
         self.pick_at(e.x_root, e.y_root)
 
     # ── decoding ────────────────────────────────────────────────────────────
     def _windows(self) -> list:
-        return [self.root, self.pill, self.sel.win, self.hit.win]
+        return [self.root, self.mark.win, self.sel.win, self.hit.win]
 
     def _grab(self):
         """Screenshot with every overlay window made fully transparent first,
-        so the tint / pill / outline never end up in the decoded pixels."""
+        so the tint / × marker / outline never end up in the decoded pixels."""
         alphas = []
         for w in self._windows():
             try:
@@ -678,7 +666,7 @@ class PickOverlay:
         if self._msg_job is not None:
             self.root.after_cancel(self._msg_job)
             self._msg_job = None
-        self.set_pill(MSG_SCAN, ACCENT)
+        self.mark.set_state(ACCENT, "Scanning…")
         try:
             img, origin = self._grab()
         except Exception as exc:
@@ -704,20 +692,16 @@ class PickOverlay:
         hit = box.get("hit")
         if box.get("error"):
             self.busy = False
-            self.flash_message([("dot:" + AMBER, ""), ("title", "Could not decode"), ("sep", ""),
-                                ("muted", box["error"][:80])], 2500, AMBER)
+            self.flash_note("Could not decode: " + box["error"][:60], 2500, AMBER)
             return
         if not hit:
             self.busy = False
-            self.flash_message(MSG_MISS, 2000, AMBER)
+            self.flash_note("No QR code here", 2000, AMBER)
             return
         payload = success_payload(hit, origin, mode)
         l, t, w, h = payload["rect"]
         self.hit.show(l, t, w, h, pad=int(6 * self.scale))
-        self.set_pill([("dot:" + GREEN, ""),
-                       ("title", "QR code found"), ("sep", ""),
-                       ("muted", "Opening link…" if payload["is_url"] else "Showing the text…")],
-                      GREEN)
+        self.mark.set_state(GREEN, "Opening link…" if payload["is_url"] else "QR code found")
         self.root.after(420, lambda: self.finish(payload))
 
     # ── lifecycle ───────────────────────────────────────────────────────────
@@ -750,9 +734,6 @@ class PickOverlay:
     def run(self) -> dict:
         self.root.deiconify()
         self.root.lift()
-        self.set_pill(MSG_IDLE)
-        self.pill.deiconify()
-        self.pill.lift()
         self.root.after(50, self._focus)
         if sys.platform == "win32":
             self.root.after(250, self._poll_escape)
