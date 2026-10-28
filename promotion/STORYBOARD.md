@@ -1,43 +1,51 @@
-﻿# Office Axe — product demo storyboard (final: 80.7 s, 1920×1080, 30 fps)
+﻿# Office Axe — full product demo storyboard
 
-Approved plan: opening, four feature steps, closing. The Recycle Bin shot
-from the first draft was left out (it would really delete a file, which the
-project's CLAUDE.md does not allow the assistant to do).
+Every feature of the app in 17 chapters, filmed live from the real desktop app
+(Python + pywebview / Edge WebView2, entry point `main_webview.py`). Output
+2560×1440 (and a 1080p copy), 30 fps, neural-voice narration, captions, UI
+sounds and a quiet music bed. Exact timings: `NARRATION.md`.
 
-## What the app is (from inspecting the repo)
+**Structure:** opening card → (chapter card → chapter) × 17 → closing card.
+Chapter cards (number, title, tagline, progress dots, whoosh) sit *between*
+features, never over the app. During each chapter a small label (e.g.
+"06 Convert to PDF") sits in the bottom-left corner, the camera follows the
+action, and callouts point at what matters.
 
-- **A Windows desktop app, not a website.** Python + **pywebview** (Microsoft
-  Edge WebView2 window); entry point `main_webview.py` (launcher
-  `start_office_axe.bat`). The UI is HTML/JS in `ui/`; all file work happens
-  in Python behind the `SFMBridge` JS API (`sfm_bridge.py` + `*_bridge.py`).
-  Some tools open native helper windows (e.g. the QR picker).
-- Audience: an office that prepares students' application documents.
+| # | Chapter | What the viewer sees (real app, real input) | Motion graphics |
+|---|---------|---------------------------------------------|-----------------|
+| — | Opening | — | Logo, "Office Axe", "Every student document task, in one desktop app" |
+| 1 | The workspace | Open a folder · thumbnail view · list view · sort by size / name · search "photo" · select a file → details · dark theme → light | Callouts: Thumbnail view, Search as you type, File details |
+| 2 | A folder for every student | New folder ▾ → *Folders from a list* · type 6 names · live preview · numbering "01 Name" · Create | Zoom on the dialog; callouts: Live preview, Optional numbering |
+| 3 | Instant preview | Word, Excel, photo and PDF previews · zoom in / out | Camera on the preview pane |
+| 4 | Smart rename | F2 · "bachelor cert" · pick 학사 학위증명서 (아포스티유 포함) template · More → template manager | Callouts: English + Korean templates, Edit your own templates; templates file path blurred |
+| 5 | Organise with undo | Ctrl+click two photos · Ctrl+X · into "Minji Park" · Ctrl+V · Ctrl+Z · Ctrl+Y | Key caps; callout Ctrl+Z undoes · Ctrl+Y redoes |
+| 6 | Convert to PDF | 2 Word files → PDF (progress card) · 2 page photos → one PDF · PDF pages → JPG | Word start-up wait at ×N speed with badge; callouts |
+| 7 | Compress | Bank statement (5.6 MB) → target "1 MB" with live estimates → compressed copy | Callout: Estimated size for each setting |
+| 8 | Merge, split, extract | Merge 2 PDFs · split transcript every 2 pages · extract pages by clicking them | Callouts on the dialogs |
+| 9 | Arrange pages | Del blank page · Ctrl+Z · Del · L rotates a sideways scan · drag cover letter to front · Save | Zoom on thumbnails, key caps, drag trail |
+| 10 | Fill, sign, add a photo | PDF editor: type into 4 real form fields + checkbox · draw a signature · place it on the line · Photo → Windows file dialog → fit into the photo box · Save | Callouts: Real form fields, Draw with a mouse or pen, Signature and photo placed |
+| 11 | Mark up images | Annotate a page photo: highlight, box, arrow · Save | Camera on the page |
+| 12 | Passport & visa photos | Crop to photo size: Korea 35×45 mm preset, face guide, zoom, max 100 KB, 4×6 print sheet · Save | Callout: Face guide · exact size |
+| 13 | AI suit & tie | Casual portrait (fictional illustration) → suit colour → *Wear suit & tie* (real OpenAI call, gpt-image-1.5) → before/after compare slider | AI wait at ×N speed with badge |
+| 14 | Read QR codes | Payment receipt PDF → QR → click the code on screen (× appears at the click) → decoded text | Callout: Read instantly |
+| 15 | ZIP & passwords | 3 files → password ZIP · Protect a PDF with an open password | Callouts on the dialogs |
+| 16 | Screen recorder | Recorder panel (screen / window / app, audio, quality) · region screenshot | Callout: Screen, window or this app |
+| 17 | Subscription & settings | Subscription page (plan, devices, payments) · plans · Settings | OpenAI key field blurred |
+| — | Closing | — | "Student documents, sorted." + all 17 feature names |
+
+Filming this chapter found that OpenAI had retired the app's image model
+(gpt-image-1); the app was fixed (commit d2e4c2b) before the take.
+
+Not shown: deleting to the Recycle Bin (the project's CLAUDE.md does not
+allow the assistant to delete files).
 
 ## How it is recorded safely
 
-- `record_demo.py` starts a **separate app instance**, never the owner's
-  window, with a demo **test-mode subscription** file inside the take folder
-  and Chromium remote debugging on a private port. The debugging port is only
-  used to *find* controls and wait for the UI; every click, drag and keystroke
-  is real OS input, so the real cursor is filmed.
-- **Fictional demo data** only (`make_demo_data.py`): six made-up students,
-  a made-up university's certificate and transcript, two synthetic Word files.
-  It is written to a new `Documents\Office Axe Demo N` folder so the paths on
-  screen stay short and nothing existing is ever touched.
-- The app's shared `sfm_settings.json` is backed up and restored afterwards.
-- FFmpeg `gdigrab` films the window, which is placed at exactly 1920×1080.
-  A 0.4 s magenta marker (before step 1, cut from the video) lets the editor
-  line the event log up with the frames.
-
-## Shots as filmed (times in the final video)
-
-| # | Time | Real app on screen | Motion graphics |
-|---|------|--------------------|-----------------|
-| 0 | 0:00–0:07 | — | Opening card: logo, "Office Axe", "Student documents, done in minutes", accent rule, fade into the app. |
-| 1 | 0:07–0:21 | New folder ▾ → *New folders from a list*, six names typed, live preview "6 to create", **Create 6 folders** → folders appear. | "Step 1 of 4 — A folder for every student"; zoom on the dialog; highlight + callout on the preview ("duplicates and invalid names are flagged"); callout "Six folders, one click"; click ripples. |
-| 2 | 0:21–0:38 | Open *Documents received*; preview *Study plan.docx* and *scan_0012.pdf*; **F2**, type "bachelor cert", pick **학사 학위증명서 (아포스티유 포함) — bachelor certificate with apostille**. | "Step 2 — Preview and smart rename"; callouts on the Word preview and the name suggestions; zoom on the rename dropdown; key cap F2. |
-| 3 | 0:38–0:51 | Ctrl+click two Word files → right-click → **Convert 2 to PDF** → progress card ("File 2 of 2", timer) → "2 PDFs created". | "Step 3 — Word to PDF"; zoom on the progress card with callouts; key cap "Ctrl + click"; the Word start-up wait is shown at **×4 speed** with an on-screen badge. |
-| 4 | 0:51–1:14 | *Transcript.pdf* → **Arrange**: select the blank page, **Del**, **Ctrl+Z** brings it back, Del again; select the sideways page, **L** rotates it; drag the cover letter to the front; **Save** as a new file. | "Step 4 — Arrange pages"; zoom on the page thumbnails; key caps Del / Ctrl+Z / L; drag trail; callout "Saved as a new PDF — the original stays as it was". |
-| 5 | 1:14–1:21 | — | Closing card: logo, "Student documents, sorted.", four feature bullets. |
-
-Narration and exact line timings: `NARRATION.md` / `narration.srt`.
+- A separate Office Axe instance (never the owner's window), demo test-mode
+  subscription, private debugging port used only to locate controls and to do
+  invisible setup; all visible actions are real mouse / keyboard input.
+- Fictional demo data in a new `Documents\Office Axe Demo N` folder.
+- The owner's settings are backed up; while filming, saved signatures are
+  hidden and recordings go to the demo folder; the backup is restored after.
+- Window placed topmost at 2474×1392; a take where the window moved is
+  discarded and re-filmed. Sensitive fields are blurred in the edit.
