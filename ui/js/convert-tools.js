@@ -30,7 +30,8 @@ const ConvertTools = (() => {
   const isImage = p => IMAGE_EXTS.includes(_ext(p));
   const isPdf   = p => _ext(p) === '.pdf';
   // Word and 한글 documents → PDF (Microsoft Word / Hancom 한글 on this PC)
-  const DOC_EXTS = ['.docx', '.doc', '.docm', '.dotx', '.dot', '.dotm', '.rtf', '.odt', '.hwp', '.hwpx'];
+  const DOC_EXTS = ['.docx', '.doc', '.docm', '.dotx', '.dot', '.dotm', '.rtf', '.odt', '.hwp', '.hwpx',
+                    '.xlsx', '.xlsm', '.xls', '.xlsb', '.ods', '.pptx', '.ppt', '.pptm', '.pps', '.ppsx', '.odp'];
   const isDoc   = p => DOC_EXTS.includes(_ext(p));
 
   function _fmtBytes(n) {

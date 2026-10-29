@@ -119,6 +119,22 @@ def main() -> None:
         import screen_pick
         sys.exit(screen_pick.main(sys.argv[1:]))
 
+    # File Explorer right-click actions (shell_menu.py): if Office Axe is
+    # already open, hand the file(s) to it and quit; otherwise this process
+    # becomes the app and handles them once its page is ready.
+    import shell_ipc
+    bridge_box: list = []
+    early: list = []
+
+    def _deliver(groups):
+        if bridge_box:
+            bridge_box[0].shell_deliver(groups)
+        else:
+            early.extend(groups)
+    _shell_server, forwarded = shell_ipc.start_or_forward(sys.argv[1:], _deliver)
+    if forwarded:
+        sys.exit(0)
+
     try:
         import webview  # type: ignore
     except ImportError:
@@ -134,6 +150,9 @@ def main() -> None:
     # The app's tools only answer once the subscription is active on this PC
     # (subscription_bridge.py); the UI shows the plans / checkout until then.
     bridge.enforce_subscription = True
+    bridge_box.append(bridge)
+    if early:
+        bridge.shell_deliver(shell_ipc.group(early))
 
     # ── create window ─────────────────────────────────────────────────────────
     window = webview.create_window(

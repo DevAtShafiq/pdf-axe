@@ -61,6 +61,9 @@ datas = [
     ("subscription.py",      "."),   # plans, devices, payments (gateway seam)
     ("subscription_bridge.py", "."), # subscription JS API + access gate
     ("recycle_bin.py",       "."),   # Delete → Recycle Bin, Ctrl+Z restore
+    ("shell_menu.py",        "."),   # File Explorer right-click menu (HKCU)
+    ("shell_ipc.py",         "."),   # hand files from Explorer to the running app
+    ("shell_bridge.py",      "."),
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
     ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
@@ -111,6 +114,9 @@ hiddenimports = [
     "subscription",
     "subscription_bridge",
     "recycle_bin",
+    "shell_menu",
+    "shell_ipc",
+    "shell_bridge",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
