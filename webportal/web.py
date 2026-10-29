@@ -153,8 +153,8 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "") ->
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(title)} · Office Axe</title>
-<link rel="stylesheet" href="/static/portal.css">
-<script src="/static/portal.js" defer></script>
+<link rel="stylesheet" href="/static/portal.css?v=2">
+<script src="/static/portal.js?v=2" defer></script>
 </head><body class="{'admin' if admin else 'public'}">
 <header class="top">
   <a class="brand" href="{'/admin' if admin else '/'}"><span class="logo">OA</span>Office Axe{' <small>Admin</small>' if admin else ''}</a>
