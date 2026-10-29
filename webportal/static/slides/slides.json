@@ -1,0 +1,46 @@
+[
+ {
+  "name": "folders",
+  "caption": "Make a folder for every student from a list of names"
+ },
+ {
+  "name": "preview",
+  "caption": "Preview documents, PDFs and photos instantly"
+ },
+ {
+  "name": "convert",
+  "caption": "Turn Word, Excel, PowerPoint and photos into PDFs"
+ },
+ {
+  "name": "compress",
+  "caption": "Compress a PDF to the size a portal accepts"
+ },
+ {
+  "name": "split",
+  "caption": "Merge, split and extract pages"
+ },
+ {
+  "name": "fill-sign",
+  "caption": "Fill forms, sign and add a passport photo"
+ },
+ {
+  "name": "markup",
+  "caption": "Highlight and mark up scans"
+ },
+ {
+  "name": "passport",
+  "caption": "Crop passport and visa photos to the exact size"
+ },
+ {
+  "name": "ai-suit",
+  "caption": "Put a suit and tie on a photo with AI"
+ },
+ {
+  "name": "qr",
+  "caption": "Read QR codes on certificates and receipts"
+ },
+ {
+  "name": "zip",
+  "caption": "Zip folders and protect them with a password"
+ }
+]

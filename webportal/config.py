@@ -15,6 +15,8 @@ config.py — portal settings, all from environment variables (see README).
     OFFICEAXE_DOWNLOAD_URL       where the Download button goes, or
     OFFICEAXE_DOWNLOAD_FILE      a file the portal serves itself
                                  default: <data>/downloads/OfficeAxe.zip if present
+    OFFICEAXE_VIDEO_FILE         the demo video on the landing page
+                                 default: promotion/office-axe-demo.mp4
 """
 from __future__ import annotations
 
@@ -51,6 +53,8 @@ class Config:
     trust_proxy: bool = field(default_factory=lambda: _flag("OFFICEAXE_TRUST_PROXY"))
     download_url: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_DOWNLOAD_URL") or "")
     download_file: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_DOWNLOAD_FILE") or "")
+    video_file: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_VIDEO_FILE") or os.path.join(
+        os.path.dirname(HERE), "promotion", "office-axe-demo.mp4"))
     seed: bytes = b""
 
     def __post_init__(self):
