@@ -104,6 +104,52 @@ class Response:
         return [self.body]
 
 
+class FileResponse:
+    """A large file, streamed in chunks, with HTTP Range support (video seeking)."""
+    CHUNK = 256 * 1024
+
+    def __init__(self, path: str, ctype: str, range_header: str = ""):
+        self.path, self.ctype = path, ctype
+        self.size = os.path.getsize(path)
+        self.start, self.end, self.status = 0, self.size - 1, "200 OK"
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", (range_header or "").strip())
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else self.size - 1
+            else:                                   # last N bytes
+                start, end = max(0, self.size - int(m.group(2))), self.size - 1
+            end = min(end, self.size - 1)
+            if start > end or start >= self.size:
+                self.status = "416 Range Not Satisfiable"
+            else:
+                self.start, self.end, self.status = start, end, "206 Partial Content"
+
+    def __call__(self, start_response):
+        if self.status.startswith("416"):
+            start_response(self.status, [("Content-Range", f"bytes */{self.size}"), ("Content-Length", "0")]
+                           + SECURITY_HEADERS)
+            return [b""]
+        length = self.end - self.start + 1
+        headers = [("Content-Type", self.ctype), ("Content-Length", str(length)), ("Accept-Ranges", "bytes"),
+                   ("Cache-Control", "public, max-age=86400")]
+        if self.status.startswith("206"):
+            headers.append(("Content-Range", f"bytes {self.start}-{self.end}/{self.size}"))
+        start_response(self.status, headers + SECURITY_HEADERS)
+        return self._iter(length)
+
+    def _iter(self, length):
+        with open(self.path, "rb") as fh:
+            fh.seek(self.start)
+            left = length
+            while left > 0:
+                chunk = fh.read(min(self.CHUNK, left))
+                if not chunk:
+                    break
+                left -= len(chunk)
+                yield chunk
+
+
 def redirect(location: str, headers: Optional[list] = None) -> Response:
     return Response(b"", "303 See Other", headers=[("Location", location)] + (headers or []))
 
@@ -153,12 +199,12 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "") ->
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(title)} · Office Axe</title>
-<link rel="stylesheet" href="/static/portal.css?v=2">
-<script src="/static/portal.js?v=2" defer></script>
+<link rel="stylesheet" href="/static/portal.css?v=3">
+<script src="/static/portal.js?v=3" defer></script>
 </head><body class="{'admin' if admin else 'public'}">
 <header class="top">
   <a class="brand" href="{'/admin' if admin else '/'}"><span class="logo">OA</span>Office Axe{' <small>Admin</small>' if admin else ''}</a>
-  {nav or '<nav class="pub-nav"><a href="/#features">Features</a><a href="/#pricing">Pricing</a><a class="btn primary sm" href="/download">Download</a></nav>'}
+  {nav or '<nav class="pub-nav"><a href="/#tour">Tour</a><a href="/#features">Features</a><a href="/#pricing">Pricing</a><a class="btn primary sm" href="/download">Download</a></nav>'}
 </header>
 <main>{body}</main>
 <footer class="foot">© Office Axe</footer>
@@ -197,6 +243,10 @@ class Portal:
             return self.landing()
         if p == "/download":
             return self.download()
+        if p == "/media/office-axe-demo.mp4" and m in ("GET", "HEAD"):
+            if not os.path.isfile(self.cfg.video_file):
+                return not_found()
+            return FileResponse(self.cfg.video_file, "video/mp4", req.environ.get("HTTP_RANGE", ""))
         if p.startswith("/static/"):
             return self.static(p[len("/static/"):])
         if p == "/healthz":
@@ -235,6 +285,8 @@ class Portal:
   </div>
   <img class="hero-shot" src="/static/img/workspace.jpg" alt="The Office Axe workspace" width="1200" height="567">
 </section>
+{self._tour_html()}
+{self._slider_html()}
 <section id="features" class="features">{cards}</section>
 <section id="pricing" class="pricing">
   <h2>Simple plans</h2>
@@ -253,6 +305,61 @@ class Portal:
 </section>"""
         return Response(page("Every office file job, in one app", body))
 
+    def _tour_html(self) -> str:
+        try:
+            with open(os.path.join(STATIC, "video", "chapters.json"), encoding="utf-8") as fh:
+                chapters = json.load(fh)
+        except (OSError, ValueError):
+            chapters = []
+        if not os.path.isfile(self.cfg.video_file):
+            return ""
+        mmss = lambda t: f"{int(t) // 60}:{int(t) % 60:02d}"
+        items = "".join(f'<li><button type="button" data-seek="{c["t"]}"><span class="ch-n">{c["n"]:02d}</span>'
+                        f'<span class="ch-title">{e(c["title"])}</span><span class="ch-time">{mmss(c["t"])}</span>'
+                        f'</button></li>' for c in chapters)
+        return f"""
+<section id="tour" class="tour">
+  <h2>Watch the 8-minute tour</h2>
+  <p class="muted">Every feature, filmed in the real app. Jump to any chapter.</p>
+  <div class="tour-grid">
+    <div class="video-wrap">
+      <video id="tour-video" controls preload="metadata" playsinline poster="/static/video/poster.jpg">
+        <source src="/media/office-axe-demo.mp4" type="video/mp4">
+        <track kind="captions" src="/static/video/captions.vtt" srclang="en" label="English">
+        <track kind="chapters" src="/static/video/chapters.vtt" srclang="en" label="Chapters">
+        Your browser can't play this video. <a href="/media/office-axe-demo.mp4">Download it</a> instead.
+      </video>
+    </div>
+    <ol class="chapters" aria-label="Chapters">{items}</ol>
+  </div>
+</section>"""
+
+    def _slider_html(self) -> str:
+        try:
+            with open(os.path.join(STATIC, "slides", "slides.json"), encoding="utf-8") as fh:
+                slides = json.load(fh)
+        except (OSError, ValueError):
+            return ""
+        n = len(slides)
+        hidden, lazy, current = ' aria-hidden="true"', ' loading="lazy"', ' aria-current="true"'
+        figs = "".join(f'<figure class="slide" role="group" aria-roledescription="slide" '
+                       f'aria-label="{i + 1} of {n}"{hidden if i else ""}>'
+                       f'<img src="/static/slides/{e(s["name"])}.jpg" alt="{e(s["caption"])}" '
+                       f'width="1280" height="605"{lazy if i else ""}>'
+                       f'<figcaption>{e(s["caption"])}</figcaption></figure>' for i, s in enumerate(slides))
+        dots = "".join(f'<button type="button" class="dot" aria-label="Show slide {i + 1}"'
+                       f'{"" if i else current} data-go="{i}"></button>' for i in range(n))
+        return f"""
+<section class="showcase" aria-labelledby="showcase-title">
+  <h2 id="showcase-title">A closer look</h2>
+  <div class="slider" id="slider" role="region" aria-roledescription="carousel" aria-label="App screenshots" tabindex="0">
+    <div class="slides" aria-live="polite">{figs}</div>
+    <button type="button" class="slider-btn prev" aria-label="Previous slide">&#8249;</button>
+    <button type="button" class="slider-btn next" aria-label="Next slide">&#8250;</button>
+    <div class="dots">{dots}</div>
+  </div>
+</section>"""
+
     def download(self) -> Response:
         if self.cfg.download_url:
             self.store.count_download(iso(self.lic._now()))
@@ -269,15 +376,16 @@ class Portal:
                              "<p>The installer will be available here shortly.</p></section>"))
 
     def static(self, name: str) -> Response:
-        if not re.fullmatch(r"[A-Za-z0-9_\-/]+\.(css|js|jpg|png|svg|ico)", name) or ".." in name:
+        if not re.fullmatch(r"[A-Za-z0-9_\-/]+\.(css|js|jpg|png|svg|ico|vtt|json)", name) or ".." in name:
             return not_found()
         path = os.path.join(STATIC, *name.split("/"))
         if not os.path.isfile(path):
             return not_found()
         with open(path, "rb") as fh:
             data = fh.read()
-        return Response(data, ctype=mimetypes.guess_type(path)[0] or "application/octet-stream",
-                        headers=[("Cache-Control", "public, max-age=3600")])
+        ctype = "text/vtt; charset=utf-8" if path.endswith(".vtt") else \
+            (mimetypes.guess_type(path)[0] or "application/octet-stream")
+        return Response(data, ctype=ctype, headers=[("Cache-Control", "public, max-age=3600")])
 
     # ── license API ──────────────────────────────────────────────────────────
     def api(self, req: Request, action: str) -> Response:

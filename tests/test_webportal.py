@@ -105,6 +105,35 @@ def test_landing_page_and_download_placeholder(portal):
     assert c.get("/static/../config.py")["status"] == 404
 
 
+def test_tour_video_streams_with_ranges(tmp_path):
+    video = tmp_path / "demo.mp4"
+    video.write_bytes(bytes(range(256)) * 40)          # 10 240 bytes stand-in
+    cfg = Config(data_dir=str(tmp_path / "d"), video_file=str(video), seed=secrets.token_bytes(32))
+    app = make_app(cfg)
+    c = Client(app)
+    page = c.get("/")["body"]
+    assert 'id="tour-video"' in page and "/static/video/captions.vtt" in page and 'data-seek="' in page
+    assert page.count('class="slide"') >= 5 and 'aria-roledescription="carousel"' in page
+    full = c.get("/media/office-axe-demo.mp4")
+    assert full["status"] == 200 and len(full["body"].encode("latin-1", "replace")) > 0
+    assert dict(full["headers"])["Accept-Ranges"] == "bytes"
+    part = c.get("/media/office-axe-demo.mp4", headers={"HTTP_RANGE": "bytes=100-199"})
+    h = dict(part["headers"])
+    assert part["status"] == 206 and h["Content-Range"] == "bytes 100-199/10240" and h["Content-Length"] == "100"
+    tail = c.get("/media/office-axe-demo.mp4", headers={"HTTP_RANGE": "bytes=-40"})
+    assert dict(tail["headers"])["Content-Range"] == "bytes 10200-10239/10240"
+    assert c.get("/media/office-axe-demo.mp4", headers={"HTTP_RANGE": "bytes=99999-"})["status"] == 416
+    assert c.get("/static/video/captions.vtt")["body"].startswith("WEBVTT")
+    assert "text/vtt" in dict(c.get("/static/video/chapters.vtt")["headers"])["Content-Type"]
+
+
+def test_no_video_section_without_the_file(tmp_path):
+    cfg = Config(data_dir=str(tmp_path / "d"), video_file=str(tmp_path / "none.mp4"), seed=secrets.token_bytes(32))
+    c = Client(make_app(cfg))
+    assert 'id="tour-video"' not in c.get("/")["body"]
+    assert c.get("/media/office-axe-demo.mp4")["status"] == 404
+
+
 def test_download_redirects_and_is_counted(tmp_path):
     cfg = Config(data_dir=str(tmp_path / "d"), download_url="https://example.com/OfficeAxe.zip",
                  seed=secrets.token_bytes(32))

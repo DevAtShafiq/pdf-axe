@@ -35,3 +35,67 @@
     if (n) n.value = DEVICES[e.target.value] || 1;
   });
 })();
+
+// Landing page: tour video chapters and the screenshot slider.
+(() => {
+  const video = document.getElementById('tour-video');
+  if (video) {
+    const btns = [...document.querySelectorAll('.chapters [data-seek]')];
+    btns.forEach(b => b.addEventListener('click', () => {
+      video.currentTime = parseFloat(b.dataset.seek) + 0.05;
+      video.play().catch(() => {});
+      video.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }));
+    video.addEventListener('timeupdate', () => {
+      let cur = -1;
+      btns.forEach((b, i) => { if (video.currentTime >= parseFloat(b.dataset.seek)) cur = i; });
+      btns.forEach((b, i) => b.classList.toggle('is-current', i === cur));
+    });
+  }
+
+  const slider = document.getElementById('slider');
+  if (!slider) return;
+  const track = slider.querySelector('.slides');
+  const slides = [...slider.querySelectorAll('.slide')];
+  const dots = [...slider.querySelectorAll('.dot')];
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let index = 0, timer = null, paused = false;
+
+  function go(i) {
+    index = (i + slides.length) % slides.length;
+    track.style.transform = `translateX(${-index * 100}%)`;
+    slides.forEach((s, k) => s.setAttribute('aria-hidden', k === index ? 'false' : 'true'));
+    dots.forEach((d, k) => d.setAttribute('aria-current', k === index ? 'true' : 'false'));
+  }
+  function schedule() {
+    clearInterval(timer);
+    if (!reduce && !paused) timer = setInterval(() => go(index + 1), 5000);
+  }
+  function pause(on) { paused = on; schedule(); }
+
+  slider.querySelector('.prev').addEventListener('click', () => { go(index - 1); schedule(); });
+  slider.querySelector('.next').addEventListener('click', () => { go(index + 1); schedule(); });
+  dots.forEach(d => d.addEventListener('click', () => { go(+d.dataset.go); schedule(); }));
+  slider.addEventListener('mouseenter', () => pause(true));
+  slider.addEventListener('mouseleave', () => pause(false));
+  slider.addEventListener('focusin', () => pause(true));
+  slider.addEventListener('focusout', e => { if (!slider.contains(e.relatedTarget)) pause(false); });
+  slider.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') { go(index - 1); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { go(index + 1); e.preventDefault(); }
+  });
+  // swipe on phones
+  let x0 = null, y0 = null;
+  slider.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; pause(true); }, { passive: true });
+  slider.addEventListener('touchend', e => {
+    if (x0 !== null) {
+      const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(index + (dx < 0 ? 1 : -1));
+    }
+    x0 = null;
+    pause(false);
+  });
+  document.addEventListener('visibilitychange', () => pause(document.hidden));
+  go(0);
+  schedule();
+})();

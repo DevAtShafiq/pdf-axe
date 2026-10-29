@@ -164,6 +164,29 @@ def test_pdf_all_pages(tmp_path):
     assert 370 < r["results"][0]["bbox_pt"][0] < 390
 
 
+def _three_page_pdf(path):
+    import fitz
+    doc = fitz.open()
+    doc.new_page()                       # page 1: nothing
+    for txt in ("https://p2.example.com/", "PAGE-THREE"):
+        page = doc.new_page()
+        buf = io.BytesIO()
+        qr_image(txt, 4).save(buf, "PNG")
+        page.insert_image(fitz.Rect(380, 680, 440, 740), stream=buf.getvalue())
+    doc.save(path)
+
+
+@needs_decoder
+def test_pdf_only_chosen_pages(tmp_path):
+    """Arrange pages → QR → Scan selected pages."""
+    pytest.importorskip("fitz")
+    p = str(tmp_path / "doc.pdf")
+    _three_page_pdf(p)
+    r = qr_scan.scan_file(p, pages=[2, 0, 99])
+    assert r["ok"] and r["pages_scanned"] == 2 and not r["truncated"]
+    assert [(x["text"], x["page"]) for x in r["results"]] == [("PAGE-THREE", 3)]
+
+
 @needs_decoder
 def test_blank_image_has_no_results(tmp_path):
     p = str(tmp_path / "blank.png")
@@ -197,6 +220,17 @@ def test_bridge_batch_scan(tmp_path, monkeypatch):
     done = [p for e, p in events if e == "qr_scan_done"][0]
     assert done["ok"] and not done["cancelled"]
     assert len(done["files"][0]["results"]) == 2 and done["files"][1]["results"] == []
+
+
+@needs_decoder
+def test_bridge_scans_chosen_pdf_pages(tmp_path, monkeypatch):
+    pytest.importorskip("fitz")
+    b, events = _bridge(monkeypatch)
+    p = str(tmp_path / "doc.pdf")
+    _three_page_pdf(p)
+    assert b.scan_qr_files([{"path": p, "pages": [1]}], "job2")["ok"]
+    done = [x for e, x in events if e == "qr_scan_done"][0]
+    assert [r["text"] for r in done["files"][0]["results"]] == ["https://p2.example.com/"]
 
 
 @needs_decoder
