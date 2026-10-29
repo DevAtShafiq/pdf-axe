@@ -85,6 +85,16 @@ class PdfToolsBridgeMixin:
             out.append(r)
         return _ok(items=out)
 
+    def pdf_page_view(self, path: str, page: int, width: int = 1600) -> dict:
+        """One page, sharp, for the Arrange zoom viewer."""
+        try:
+            return _ok(**_pt.page_view(path, page, width))
+        except _pt.PdfToolsError as exc:
+            return _err(str(exc))
+        except Exception as exc:
+            _log.error("pdf_page_view failed: %s", exc)
+            return _err(str(exc))
+
     def pdf_thumbnails(self, path: str, pages: list, width: int = 160) -> dict:
         """Batch-render page thumbnails → {thumbs: {"0": data_url, ...}}."""
         try:

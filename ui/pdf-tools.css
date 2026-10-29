@@ -45,7 +45,7 @@
 /* ── Arrange page-grid editor ──────────────────────────────── */
 .pt-org {
   width: calc(100vw - 24px); height: calc(100vh - 24px);
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; position: relative;
   background: var(--bg-surface); border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-popup);
   animation: modal-in .16s var(--ease);
@@ -110,7 +110,8 @@
   opacity: 0; transform: translateY(-2px); pointer-events: none;
   transition: opacity var(--transition), transform var(--transition);
 }
-.pt-tile:hover .pt-tile-tools { opacity: 1; transform: none; pointer-events: auto; }
+.pt-tile:hover .pt-tile-tools,
+.pt-grid:focus-visible .pt-tile.focus .pt-tile-tools { opacity: 1; transform: none; pointer-events: auto; }
 .pt-tile-tools button {
   border: none; border-radius: var(--radius-sm); width: 24px; height: 24px; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -192,3 +193,24 @@
 .pt-foot-dir .input-text { width: 280px; }
 .pt-foot-fields.is-dim { opacity: .5; }
 .pt-org-foot .pt-progress { flex: 1; min-width: 160px; }
+
+/* ── Page zoom viewer (Arrange) ────────────────────────────── */
+.pt-zoom {
+  position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column;
+  background: var(--bg-surface); animation: modal-in .12s var(--ease);
+}
+.pt-zoom-bar {
+  display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border);
+}
+.pt-zoom-title { font-weight: var(--fw-medium); padding: 0 var(--space-2); white-space: nowrap; }
+.pt-zoom-pct { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: var(--fs-sm); }
+.pt-zoom-bar .icon-btn.active { background: var(--accent-subtle, var(--bg-hover)); color: var(--accent-text, var(--accent)); }
+.pt-zoom-stage { flex: 1; overflow: auto; background: var(--bg-sunken, var(--bg-hover)); cursor: grab; outline: none; }
+.pt-zoom-stage.is-panning { cursor: grabbing; user-select: none; }
+.pt-zoom-pad { min-width: 100%; min-height: 100%; width: max-content; padding: 24px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; }
+.pt-zoom-box { position: relative; flex: none; background: #fff; box-shadow: var(--shadow-popup); }
+.pt-zoom-box img { position: absolute; transform-origin: center center; user-select: none; -webkit-user-drag: none; }
+.pt-zoom-load { position: absolute; inset: 0; display: grid; place-items: center; }
+.pt-zoom-load[hidden] { display: none; }

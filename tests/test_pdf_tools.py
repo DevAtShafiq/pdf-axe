@@ -320,3 +320,21 @@ def test_bridge_ok_and_error_shapes(a5, b3, tmp_path):
     assert th["ok"] and "1" in th["thumbs"]
     infos = b.pdf_infos([a5, str(tmp_path / "nope.pdf")])
     assert [i["ok"] for i in infos["items"]] == [True, False]
+
+
+def test_page_view_renders_one_page_sharp_with_its_size(tmp_path):
+    """Arrange pages → zoom viewer: a large render plus the page size in points."""
+    import fitz
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.new_page(width=842, height=595)
+    p = str(tmp_path / "two.pdf")
+    doc.save(p)
+    import pdf_tools as pt
+    r = pt.page_view(p, 1, 2400)
+    assert r["width"] == 2400 and (r["width_pt"], r["height_pt"]) == (842, 595)
+    assert r["data_url"].startswith("data:image/")
+    assert pt.page_view(p, 1, 2400) is r                    # cached
+    assert pt.page_view(p, 0, 99999)["width"] == 3200       # capped
+    with pytest.raises(pt.PdfToolsError):
+        pt.page_view(p, 5, 800)

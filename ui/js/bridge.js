@@ -169,6 +169,7 @@ const SFM = (() => {
     pdfInfo:             (path)                    => call('pdf_info', path),
     pdfInfos:            (paths)                   => call('pdf_infos', paths),
     pdfThumbs:           (path, pages, width=160)  => call('pdf_thumbnails', path, pages, width),
+    pdfPageView:         (path, page, width=1600)  => call('pdf_page_view', path, page, width),
     pdfParseRanges:      (spec, count, mode='ranges', every=1) => call('pdf_parse_ranges', spec, count, mode, every),
     pdfMerge:            (inputs, out='', bookmarks=true, job='') => call('pdf_merge', inputs, out, bookmarks, job),
     pdfSplit:            (path, mode='each', every=1, ranges='', outDir='', job='') => call('pdf_split', path, mode, every, ranges, outDir, job),
