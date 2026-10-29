@@ -35,6 +35,8 @@ const Subscription = (() => {
     const d = new Date(iso);
     return isNaN(d) ? '—' : `${fmtDate(iso)}, ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
   };
+  // devices included with a paid plan (a key may allow fewer)
+  const planDevices = () => (st && st.plan_devices) || 5;
   const planById = id => (st && st.plans || []).find(p => p.id === id) || null;
   const isActive = () => !!(st && (st.status === 'active' || st.status === 'expiring'));
 
@@ -170,7 +172,7 @@ const Subscription = (() => {
   function viewPlans() {
     const r = st.reason;
     let title = 'Choose your plan';
-    let sub = `Subscribe to start using Office Axe. Every plan includes all tools on up to ${st.max_devices} devices.`;
+    let sub = `Subscribe to start using Office Axe. Every plan includes all tools on up to ${planDevices()} devices.`;
     if (gateDismissable && isActive()) {
       title = 'Extend your subscription';
       sub = `The new period starts when your current plan ends on ${fmtDate(st.expires_at)}. Nothing is lost.`;
@@ -180,6 +182,7 @@ const Subscription = (() => {
     }
     const sel = planById(plan) || st.plans[0];
     return `
+      ${r === 'revoked' ? `<div class="callout warning sub-callout">${ic('alert-triangle', 16)}<span>${esc(st.problem)}</span></div>` : ''}
       ${r === 'invalid' ? `<div class="callout warning sub-callout">${ic('alert-triangle', 16)}<span>${esc(st.problem)} Buy a plan or activate your license key again.</span></div>` : ''}
       <div class="sub-hero">
         <h1 class="sub-title">${esc(title)}</h1>
@@ -190,7 +193,7 @@ const Subscription = (() => {
       </div>
       <ul class="sub-features">
         <li>${ic('check', 14)}All PDF, document, image, QR and folder tools</li>
-        <li>${ic('check', 14)}Use on up to ${st.max_devices} devices with one subscription</li>
+        <li>${ic('check', 14)}Use on up to ${planDevices()} devices with one subscription</li>
         <li>${ic('check', 14)}All updates included while your plan is active</li>
         <li>${ic('check', 14)}Pay with bKash, Nagad or card</li>
       </ul>
@@ -223,7 +226,7 @@ const Subscription = (() => {
             ? `<s class="sub-compare">${esc(p.compare_at_label)}</s><span class="sub-save">You save ${esc(p.save_label)} · ${esc(p.monthly_equiv_label)}/month</span>`
             : `<span>Pay month by month · no commitment</span>`}
         </span>
-        <span class="sub-plan-foot">${ic('calendar', 13)}${esc(p.duration_label)} access · ${st.max_devices} devices</span>
+        <span class="sub-plan-foot">${ic('calendar', 13)}${esc(p.duration_label)} access · ${planDevices()} devices</span>
       </button>`;
   }
 
@@ -286,7 +289,7 @@ const Subscription = (() => {
             <span class="sub-summary-icon">${ic('crown', 18)}</span>
             <div>
               <div class="sub-summary-name">Office Axe ${esc(p.name)}</div>
-              <div class="sub-summary-sub">${esc(p.duration_label)} · up to ${st.max_devices} devices</div>
+              <div class="sub-summary-sub">${esc(p.duration_label)} · up to ${planDevices()} devices</div>
             </div>
           </div>
           <dl class="sub-lines">
@@ -472,7 +475,7 @@ const Subscription = (() => {
             </div>
             <button class="btn btn-sm" data-act="copy-key" data-key="${esc(r.license_key)}">${ic('copy', 14)}Copy</button>
           </div>
-          <p class="sub-fineprint">${ic('info', 13)}Keep this key. Use it to activate Office Axe on up to ${st.max_devices} devices.</p>
+          <p class="sub-fineprint">${ic('info', 13)}Keep this key. Use it to activate Office Axe on up to ${planDevices()} devices.</p>
         </div>
         <button class="btn btn-primary btn-lg" data-act="done" data-autofocus>
           ${unlockOnClose ? 'Start using Office Axe' : 'Done'}${ic('arrow-right', 16)}
@@ -489,13 +492,13 @@ const Subscription = (() => {
       <div class="sub-narrow">
         <div class="sub-hero sub-hero-left">
           <h1 class="sub-title">Activate with license key</h1>
-          <p class="sub-subtitle">Use your subscription on this PC. One subscription works on up to ${st.max_devices} devices.</p>
+          <p class="sub-subtitle">Use your subscription on this PC. One subscription works on up to ${planDevices()} devices.</p>
         </div>
         <div class="field">
           <label class="field-label" for="sub-key-input">License key</label>
-          <input id="sub-key-input" class="input-text mono sub-key-input" placeholder="OAXE-XXXX-XXXX-XXXX-XXXX"
+          <input id="sub-key-input" class="input-text mono sub-key-input" placeholder="OAXE-…"
                  autocomplete="off" spellcheck="false" data-autofocus>
-          <div class="field-hint">You’ll find it on your payment receipt and on the Subscription page of a PC that already uses it.</div>
+          <div class="field-hint">Paste the whole key — from your receipt, the message it came in, or the Subscription page of a PC that already uses it.</div>
         </div>
         <div class="sub-form-error" id="sub-key-error" role="alert"></div>
         <button class="btn btn-primary btn-lg btn-block" data-act="activate-key">${ic('key', 16)}Activate on this PC</button>
@@ -645,7 +648,7 @@ const Subscription = (() => {
     const active = isActive();
     const p = st.plan;
     const pill = { active: ['green', 'Active'], expiring: ['yellow', 'Expiring soon'],
-                   expired: ['red', 'Expired'], none: ['neutral', 'No plan'] }[st.status] || ['neutral', st.status];
+                   expired: ['red', 'Expired'], revoked: ['red', 'Withdrawn'], none: ['neutral', 'No plan'] }[st.status] || ['neutral', st.status];
     const used = st.period_days ? Math.max(0, Math.min(100, Math.round(st.days_left * 100 / st.period_days))) : 0;
     const g = st.gateway || {};
 
@@ -658,8 +661,9 @@ const Subscription = (() => {
               <div class="section-title">Current plan</div>
               <div class="sub-plan-title">${p ? `Office Axe ${esc(p.name)}` : 'No subscription'}
                 <span class="pill pill-${pill[0]} pill-dot">${esc(pill[1])}</span></div>
+              ${st.key ? `<div class="sub-card-sub">${esc(st.key.type_label)} key${st.key.holder ? ` for ${esc(st.key.holder)}` : ''}</div>` : ''}
             </div>
-            ${p ? `<div class="sub-plan-amount">${esc(planById(p.id).price_label)}<span>/ ${esc(p.period_label)}</span></div>` : ''}
+            ${p && planById(p.id) ? `<div class="sub-plan-amount">${esc(planById(p.id).price_label)}<span>/ ${esc(p.period_label)}</span></div>` : ''}
           </div>
           ${p ? `
           <div class="sub-expiry">

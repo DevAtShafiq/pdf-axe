@@ -64,6 +64,9 @@ datas = [
     ("shell_menu.py",        "."),   # File Explorer right-click menu (HKCU)
     ("shell_ipc.py",         "."),   # hand files from Explorer to the running app
     ("shell_bridge.py",      "."),
+    ("license_keys.py",      "."),   # signed offline license keys
+    ("ed25519_pure.py",      "."),
+    ("revoked_keys.json",    "."),   # withdrawn key ids (dashboard writes it)
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
     ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
@@ -117,6 +120,8 @@ hiddenimports = [
     "shell_menu",
     "shell_ipc",
     "shell_bridge",
+    "license_keys",
+    "ed25519_pure",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
