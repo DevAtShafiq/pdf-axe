@@ -48,6 +48,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
+import license_keys
+
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 CURRENCY = "BDT"
@@ -324,8 +326,13 @@ class SubscriptionManager:
     def __init__(self, backend: Optional[LicenseBackend] = None,
                  gateway: Optional[PaymentGateway] = None,
                  device: Optional[dict] = None,
-                 now: Optional[Callable[[], datetime]] = None):
+                 now: Optional[Callable[[], datetime]] = None,
+                 public_key: Optional[bytes] = None,
+                 revoked: Optional[set] = None):
         self.backend = backend or LocalLicenseBackend()
+        # signed keys (license_keys.py); tests pass their own key pair / list
+        self._public_key = public_key
+        self._revoked = revoked
         self.gateway = gateway or make_gateway()
         self.device = device or device_info()
         self._now = now or _utcnow
@@ -350,11 +357,24 @@ class SubscriptionManager:
             this_id = self.device["id"]
             registered = any(d.get("id") == this_id for d in devices)
 
+            limit = self._limit(rec)
             status, expires, days_left, plan = "none", None, 0, None
+            key_info, key_problem = None, ""
+            if sub and sub.get("source") == "key":
+                # re-checked every time: catches a key withdrawn in an app update
+                try:
+                    key_info = self._check_key(sub.get("license_key", ""), check_expiry=False)
+                except license_keys.KeyError_ as exc:
+                    key_problem = str(exc)
             if sub:
                 expires = _parse(sub.get("expires_at"))
                 plan = PLANS.get(sub.get("plan"))
-                if expires and expires > now:
+                if key_info and not plan:
+                    plan = {"id": "key", "name": key_info["type_label"] + " access",
+                            "period_label": "", "key": True}
+                if key_problem:
+                    status = "revoked"
+                elif expires and expires > now:
                     secs = (expires - now).total_seconds()
                     days_left = int(-(-secs // 86400))       # round up
                     status = "expiring" if days_left <= EXPIRING_SOON_DAYS else "active"
@@ -366,8 +386,8 @@ class SubscriptionManager:
             if problem:
                 reason = "invalid"
             elif status in ("active", "expiring") and not registered:
-                reason = "device_limit" if len(devices) >= MAX_DEVICES else "device_not_registered"
-            elif status in ("none", "expired"):
+                reason = "device_limit" if len(devices) >= limit else "device_not_registered"
+            elif status in ("none", "expired", "revoked"):
                 reason = status
 
             started = _parse(sub.get("period_start")) if sub else None
@@ -388,7 +408,7 @@ class SubscriptionManager:
                 "ok": True,
                 "access": access,
                 "reason": reason,
-                "problem": problem,
+                "problem": problem or key_problem,
                 "status": status,
                 "plan": dict(plan) if plan else None,
                 "expires_at": _iso(expires) if expires else "",
@@ -400,7 +420,11 @@ class SubscriptionManager:
                 "customer": (sub or {}).get("customer") or {},
                 "devices": dev_out,
                 "device_count": len(devices),
-                "max_devices": MAX_DEVICES,
+                "max_devices": limit,
+                "plan_devices": MAX_DEVICES,
+                "key": ({"type": key_info["type"], "type_label": key_info["type_label"],
+                         "holder": key_info["holder"], "key_id": key_info["key_id"]}
+                        if key_info else None),
                 "this_device": dict(self.device, registered=registered),
                 "payments": payments,
                 "plans": plan_list(),
@@ -424,6 +448,15 @@ class SubscriptionManager:
         ok = bool(self.state().get("access"))
         self._active_cache = (time.monotonic(), ok)
         return ok
+
+    def _check_key(self, key: str, check_expiry: bool = True) -> dict:
+        return license_keys.parse(key, self._public_key, now=self._now(),
+                                  revoked=self._revoked, check_expiry=check_expiry)
+
+    @staticmethod
+    def _limit(rec: dict) -> int:
+        sub = rec.get("subscription") or {}
+        return int(sub.get("max_devices") or MAX_DEVICES)
 
     def _invalidate(self) -> None:
         self._active_cache = (0.0, False)
@@ -542,7 +575,7 @@ class SubscriptionManager:
             if d.get("id") == self.device["id"]:
                 d.update(name=self.device["name"], os=self.device["os"], last_seen=now)
                 return True
-        if len(devices) >= MAX_DEVICES and not allow_over_limit:
+        if len(devices) >= self._limit(rec) and not allow_over_limit:
             return False
         devices.append({"id": self.device["id"], "name": self.device["name"],
                         "os": self.device["os"], "added_at": now, "last_seen": now})
@@ -555,7 +588,7 @@ class SubscriptionManager:
             except LicenseError as exc:
                 return {"ok": False, "error": str(exc)}
             if not self._register(rec):
-                return {"ok": False, "error": f"This subscription is already used on {MAX_DEVICES} "
+                return {"ok": False, "error": f"This subscription is already used on {self._limit(rec)} "
                         "devices. Remove one to use Office Axe here.", "device_limit": True}
             self.backend.save(rec)
             self._invalidate()
@@ -593,8 +626,10 @@ class SubscriptionManager:
 
     def activate_key(self, key: str) -> dict:
         """Use an existing subscription on this PC (license key from another PC)."""
+        if license_keys.looks_signed(key):
+            return self._activate_signed_key(key)
         if len(normalize_key(key)) < 16:
-            return {"ok": False, "error": "Enter the license key from your receipt (OAXE-XXXX-XXXX-XXXX-XXXX)."}
+            return {"ok": False, "error": "Enter the license key from your receipt (it starts with OAXE-)."}
         with self._lock:
             try:
                 rec = self.backend.load()
@@ -607,8 +642,45 @@ class SubscriptionManager:
                             "with online payments.", "server_needed": True}
                 return {"ok": False, "error": "That license key was not found."}
             if not self._register(rec):
-                return {"ok": False, "error": f"This subscription is already used on {MAX_DEVICES} "
+                return {"ok": False, "error": f"This subscription is already used on {self._limit(rec)} "
                         "devices. Remove one first.", "device_limit": True}
+            self.backend.save(rec)
+            self._invalidate()
+            return {"ok": True, "state": self.state()}
+
+    def _activate_signed_key(self, key: str) -> dict:
+        """A key made with the admin dashboard: checked offline, works on any PC."""
+        try:
+            info = self._check_key(key)
+        except license_keys.KeyError_ as exc:
+            return {"ok": False, "error": str(exc), "code": exc.code}
+        with self._lock:
+            try:
+                rec = self.backend.load()
+            except LicenseError as exc:
+                return {"ok": False, "error": str(exc)}
+            now = self._now()
+            sub = rec.get("subscription") or None
+            same = bool(sub) and sub.get("key_id") == info["key_id"]
+            cur_exp = _parse(sub.get("expires_at")) if sub else None
+            if sub and not same and cur_exp and cur_exp > now and cur_exp >= info["expires_at"]:
+                return {"ok": False, "error": "Your current subscription already lasts longer "
+                        f"(until {cur_exp:%d %b %Y}), so this key isn’t needed on this PC."}
+            if not same:
+                rec["subscription"] = {
+                    "id": "key_" + info["key_id"], "source": "key",
+                    "license_key": license_keys.canonical(key),
+                    "key_id": info["key_id"], "key_type": info["type"],
+                    "plan": info["plan"], "max_devices": info["max_devices"],
+                    "customer": {"name": info["holder"]},
+                    "created_at": _iso(now), "period_start": _iso(now),
+                    "expires_at": _iso(info["expires_at"]),
+                }
+                # devices of the previous subscription don't count against this key
+                rec["devices"] = []
+            if not self._register(rec):
+                return {"ok": False, "error": f"This key is already used on {self._limit(rec)} "
+                        "device(s) on this PC's list.", "device_limit": True}
             self.backend.save(rec)
             self._invalidate()
             return {"ok": True, "state": self.state()}

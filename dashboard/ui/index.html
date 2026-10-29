@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office Axe Admin</title>
+<style>
+  :root {
+    --bg: #0e1014; --panel: #161a21; --panel2: #1d222b; --line: #2a303b;
+    --text: #e8ebf0; --muted: #9aa3b2; --accent: #4f8cff; --accent2: #3b6fd6;
+    --green: #3ecf8e; --yellow: #f5b94a; --red: #ff6b6b;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; font-size: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 18px 24px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main { display: grid; grid-template-columns: 360px 1fr; gap: 20px; padding: 20px 24px; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .card h2 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 12px 0 4px; }
+  input, select, textarea { width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; font: inherit; }
+  textarea { resize: vertical; min-height: 54px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > * { flex: 1; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; font: inherit; cursor: pointer; white-space: nowrap; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: var(--accent2); }
+  button.sm { padding: 4px 9px; font-size: 12px; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  .wide { width: 100%; margin-top: 16px; }
+  .note { background: #1f1a10; border: 1px solid #4a3a17; color: #f0d9a8; border-radius: 10px; padding: 10px 12px;
+    font-size: 12.5px; line-height: 1.5; }
+  .note.err { background: #2a1416; border-color: #5a2a2e; color: #ffc9c9; }
+  .note.ok { background: #10241b; border-color: #1f4d39; color: #b9f0d6; }
+  .result { margin-top: 14px; display: none; }
+  .key { font-family: Consolas, monospace; font-size: 12px; word-break: break-all; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px; user-select: all; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .toolbar input { flex: 1; min-width: 180px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td .muted, .muted { color: var(--muted); font-size: 12px; }
+  .pill { display: inline-block; border-radius: 99px; padding: 2px 9px; font-size: 11.5px; font-weight: 600; }
+  .pill.active { background: #123426; color: var(--green); }
+  .pill.expired { background: #2c2512; color: var(--yellow); }
+  .pill.revoked { background: #351619; color: var(--red); }
+  .empty { color: var(--muted); padding: 30px 0; text-align: center; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #222936; border: 1px solid var(--line);
+    padding: 9px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  details { margin-top: 16px; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+  details summary { cursor: pointer; color: var(--text); }
+  code { font-family: Consolas, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Office Axe Admin</h1>
+    <div class="sub">License keys · this PC only</div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="card" id="setup" style="display:none">
+      <h2>Set up signing</h2>
+      <p class="muted">Create the private signing key on this PC. It stays here and is never shared. Back up the folder it's saved in.</p>
+      <button class="primary wide" id="btn-init">Create signing key</button>
+    </div>
+
+    <div class="card" id="maker" style="display:none">
+      <h2>New key</h2>
+      <label for="f-type">Type</label>
+      <select id="f-type">
+        <option value="review">Review (giveaway)</option>
+        <option value="trial">Trial</option>
+        <option value="full">Full licence</option>
+      </select>
+      <label for="f-name">For (name)</label>
+      <input id="f-name" maxlength="48" placeholder="e.g. Rahim, Acme Ltd" autocomplete="off">
+      <div class="row">
+        <div><label for="f-days">Days</label><input id="f-days" type="number" min="1" max="3660" value="30"></div>
+        <div><label for="f-devices">Devices</label><input id="f-devices" type="number" min="1" max="255" value="1"></div>
+      </div>
+      <label for="f-plan">Plan shown in the app</label>
+      <select id="f-plan">
+        <option value="">None (shows the key type)</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Yearly</option>
+      </select>
+      <label for="f-note">Note (only kept here)</label>
+      <textarea id="f-note" maxlength="300" placeholder="Why, where it was sent…"></textarea>
+      <button class="primary wide" id="btn-issue">Make key</button>
+      <div class="result" id="result">
+        <label>New key</label>
+        <div class="key" id="r-key"></div>
+        <div class="row" style="margin-top:10px">
+          <button id="r-copy">Copy key</button>
+          <button id="r-share">Copy message</button>
+        </div>
+      </div>
+      <div class="note err" id="issue-err" style="display:none;margin-top:12px"></div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <h2>Without a server</h2>
+      <div class="note">
+        Keys are checked offline on each PC. <strong>Device limits are only counted per PC</strong>, so a key
+        could be activated on several PCs. <strong>Withdrawing a key only takes effect after an app update</strong>
+        that includes the revoked list. Giveaway keys default to 30 days so they run out by themselves.
+      </div>
+      <div class="note err" id="pub-warn" style="display:none;margin-top:10px"></div>
+      <details>
+        <summary>Signing key details</summary>
+        <div>Folder: <code id="d-dir"></code></div>
+        <div>Public key: <code id="d-pub"></code></div>
+      </details>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar">
+      <h2 style="margin:0;flex:none;white-space:nowrap">Issued keys</h2>
+      <input id="q" placeholder="Search name, id, note…">
+      <select id="flt" style="width:auto">
+        <option value="">All</option><option value="active">Active</option>
+        <option value="expired">Expired</option><option value="revoked">Revoked</option>
+      </select>
+      <button id="btn-csv">Export CSV</button>
+      <button id="btn-rev">Write revoked list</button>
+    </div>
+    <table>
+      <thead><tr><th>For</th><th>Type</th><th>Status</th><th>Expires</th><th>Devices</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = iso => iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+let status = {}, rows = [], last = null;
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200); }
+
+async function copy(text, what) {
+  try { await navigator.clipboard.writeText(text); }
+  catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  toast(`${what} copied`);
+}
+
+function shareText(r) {
+  const label = { review: 'review', trial: 'trial', full: '' }[r.type];
+  return `Hi ${r.holder},\n\nHere is your Office Axe ${label ? label + ' ' : ''}key, valid until ${fmt(r.expires_at)}` +
+    `${r.max_devices > 1 ? ` on up to ${r.max_devices} PCs` : ''}:\n\n${r.key}\n\n` +
+    `To use it: open Office Axe → "Activate with license key" → paste the key → Activate on this PC.`;
+}
+
+async function api(name, ...args) {
+  await ready;
+  return window.pywebview.api[name](...args);
+}
+const ready = new Promise(res => window.addEventListener('pywebviewready', res));
+
+async function load() {
+  status = await api('status');
+  $('setup').style.display = status.has_key ? 'none' : '';
+  $('maker').style.display = status.has_key ? '' : 'none';
+  $('d-dir').textContent = status.admin_dir;
+  $('d-pub').textContent = status.public_key || '—';
+  const w = $('pub-warn');
+  w.style.display = status.has_key && !status.app_matches ? '' : 'none';
+  w.innerHTML = 'The app doesn’t carry this signing key’s public key yet, so keys made here won’t activate. ' +
+    'Put the public key above in <code>license_keys.py</code> (PUBLIC_KEY_HEX) and rebuild the app.';
+  await refresh();
+}
+
+async function refresh() {
+  const r = await api('list_keys');
+  rows = r.ok ? r.rows : [];
+  render();
+}
+
+function render() {
+  const q = $('q').value.trim().toLowerCase(), f = $('flt').value;
+  const list = rows.filter(r => (!f || r.status === f) &&
+    (!q || [r.holder, r.key_id, r.note, r.type].join(' ').toLowerCase().includes(q)));
+  $('rows').innerHTML = list.length ? list.map(r => `
+    <tr>
+      <td><div>${esc(r.holder)}</div><div class="muted">${esc(r.key_id)}${r.note ? ' · ' + esc(r.note) : ''}</div></td>
+      <td>${esc(r.type)}${r.plan ? `<div class="muted">${esc(r.plan)}</div>` : ''}</td>
+      <td><span class="pill ${r.status}">${r.status}</span></td>
+      <td>${fmt(r.expires_at)}<div class="muted">${r.status === 'active' ? r.days_left + ' days left' : 'issued ' + fmt(r.issued_at)}</div></td>
+      <td>${r.max_devices}</td>
+      <td><div class="actions">
+        <button class="sm" data-a="copy" data-id="${r.key_id}">Copy</button>
+        <button class="sm" data-a="share" data-id="${r.key_id}">Message</button>
+        <button class="sm ${r.revoked ? '' : 'danger'}" data-a="revoke" data-id="${r.key_id}">${r.revoked ? 'Restore' : 'Revoke'}</button>
+      </div></td>
+    </tr>`).join('') : `<tr><td colspan="6" class="empty">${rows.length ? 'No keys match.' : 'No keys yet.'}</td></tr>`;
+}
+
+$('rows').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const r = rows.find(x => x.key_id === b.dataset.id); if (!r) return;
+  if (b.dataset.a === 'copy') copy(r.key, 'Key');
+  else if (b.dataset.a === 'share') copy(shareText(r), 'Message');
+  else if (b.dataset.a === 'revoke') {
+    if (!r.revoked && !confirm(`Revoke the key for ${r.holder}?\n\nIt stops working after the next app update that includes the revoked list.`)) return;
+    const res = await api('set_revoked', r.key_id, !r.revoked);
+    if (res.ok) { toast(res.row.revoked ? 'Revoked — write the revoked list before the next build' : 'Restored'); refresh(); }
+  }
+});
+
+$('f-type').addEventListener('change', () => { $('f-devices').value = status.default_devices[$('f-type').value] || 1; });
+$('btn-init').addEventListener('click', async () => { const r = await api('init_key'); if (r.ok) load(); else toast(r.error); });
+$('btn-issue').addEventListener('click', async () => {
+  const err = $('issue-err'); err.style.display = 'none';
+  const r = await api('issue', $('f-type').value, $('f-name').value, $('f-days').value,
+                      $('f-devices').value, $('f-plan').value, $('f-note').value);
+  if (!r.ok) { err.textContent = r.error; err.style.display = ''; return; }
+  last = r.row;
+  $('r-key').textContent = last.key; $('result').style.display = 'block';
+  $('f-name').value = ''; $('f-note').value = '';
+  toast(`Key made for ${last.holder}`);
+  refresh();
+});
+$('r-copy').addEventListener('click', () => last && copy(last.key, 'Key'));
+$('r-share').addEventListener('click', () => last && copy(shareText(last), 'Message'));
+$('q').addEventListener('input', render);
+$('flt').addEventListener('change', render);
+$('btn-csv').addEventListener('click', async () => {
+  const r = await api('export_csv');
+  if (r.ok && !r.cancelled) toast(`${r.count} keys exported`); else if (!r.ok) toast(r.error);
+});
+$('btn-rev').addEventListener('click', async () => {
+  const r = await api('write_revoked_list');
+  toast(r.ok ? `${r.count} revoked id(s) saved — rebuild the app to ship them` : r.error);
+});
+load();
+</script>
+</body>
+</html>
