@@ -48,6 +48,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
+import license_client
 import license_keys
 
 # ── Plans ─────────────────────────────────────────────────────────────────────
@@ -328,11 +329,16 @@ class SubscriptionManager:
                  device: Optional[dict] = None,
                  now: Optional[Callable[[], datetime]] = None,
                  public_key: Optional[bytes] = None,
-                 revoked: Optional[set] = None):
+                 revoked: Optional[set] = None,
+                 online: Optional[dict] = None):
         self.backend = backend or LocalLicenseBackend()
         # signed keys (license_keys.py); tests pass their own key pair / list
         self._public_key = public_key
         self._revoked = revoked
+        # online checks against the portal (license_client.py); tests pass
+        # {"url": ..., "transport": ...} instead of using the network
+        self._online = online or {}
+        self._last_online_try = -1e9
         self.gateway = gateway or make_gateway()
         self.device = device or device_info()
         self._now = now or _utcnow
@@ -359,20 +365,33 @@ class SubscriptionManager:
 
             limit = self._limit(rec)
             status, expires, days_left, plan = "none", None, 0, None
-            key_info, key_problem = None, ""
+            key_info, key_problem, check_needed = None, "", False
             if sub and sub.get("source") == "key":
                 # re-checked every time: catches a key withdrawn in an app update
                 try:
                     key_info = self._check_key(sub.get("license_key", ""), check_expiry=False)
                 except license_keys.KeyError_ as exc:
                     key_problem = str(exc)
+                if key_info and self._online_enabled():
+                    self._maybe_check_online(rec, sub, now)
+                    block = sub.get("online_block") or {}
+                    grace = _parse((sub.get("online") or {}).get("grace_until"))
+                    if block:
+                        key_problem = block.get("message") or "This license key can’t be used any more."
+                    elif grace and grace <= now:
+                        check_needed = True
+                        key_problem = ("Office Axe couldn’t confirm your license key for "
+                                       f"{license_client.GRACE_DAYS} days. Connect to the internet "
+                                       "and click Check again.")
             if sub:
                 expires = _parse(sub.get("expires_at"))
                 plan = PLANS.get(sub.get("plan"))
                 if key_info and not plan:
                     plan = {"id": "key", "name": key_info["type_label"] + " access",
                             "period_label": "", "key": True}
-                if key_problem:
+                if check_needed:
+                    status = "check_needed"
+                elif key_problem:
                     status = "revoked"
                 elif expires and expires > now:
                     secs = (expires - now).total_seconds()
@@ -387,7 +406,7 @@ class SubscriptionManager:
                 reason = "invalid"
             elif status in ("active", "expiring") and not registered:
                 reason = "device_limit" if len(devices) >= limit else "device_not_registered"
-            elif status in ("none", "expired", "revoked"):
+            elif status in ("none", "expired", "revoked", "check_needed"):
                 reason = status
 
             started = _parse(sub.get("period_start")) if sub else None
@@ -448,6 +467,64 @@ class SubscriptionManager:
         ok = bool(self.state().get("access"))
         self._active_cache = (time.monotonic(), ok)
         return ok
+
+    # ── online checks (portal) ───────────────────────────────────────────────
+    def _online_enabled(self) -> bool:
+        return bool(self._online.get("url") or license_client.enabled())
+
+    def _online_call(self, action: str, key: str, timeout: float) -> dict:
+        return license_client.call(action, key, self.device, transport=self._online.get("transport"),
+                                   public_key=self._public_key, url=self._online.get("url"),
+                                   timeout=timeout)
+
+    def _good_check(self, now: datetime) -> dict:
+        return {"checked_at": _iso(now),
+                "grace_until": _iso(now + timedelta(days=license_client.GRACE_DAYS))}
+
+    def _maybe_check_online(self, rec: dict, sub: dict, now: datetime, force: bool = False) -> None:
+        """Ask the portal about this PC's key about once a day (more often while
+        blocked or out of grace), and save what it says. No answer = no change."""
+        on = sub.get("online")
+        if not on:                      # activated before the portal existed: start the grace now
+            sub["online"] = on = {"checked_at": "", "grace_until": self._good_check(now)["grace_until"]}
+            self.backend.save(rec)
+        checked = _parse(on.get("checked_at"))
+        grace = _parse(on.get("grace_until"))
+        urgent = bool(sub.get("online_block")) or not grace or grace <= now
+        due = force or urgent or not checked or \
+            (now - checked) >= timedelta(hours=license_client.CHECK_EVERY_HOURS)
+        backoff = 0 if force else (30 if urgent else 300)
+        if not due or time.monotonic() - self._last_online_try < backoff:
+            return
+        self._last_online_try = time.monotonic()
+        try:
+            # never confirmed online (activated offline, or before the portal) → register it now
+            action = "check" if checked or sub.get("online_block") else "activate"
+            res = self._online_call(action, sub.get("license_key", ""), timeout=4.0)
+        except license_client.Offline:
+            return
+        if res.get("ok"):
+            sub["online"] = self._good_check(now)
+            sub.pop("online_block", None)
+        else:
+            sub["online"] = dict(on, checked_at=_iso(now))
+            sub["online_block"] = {"status": res.get("status", ""), "message": res.get("message", "")}
+        self.backend.save(rec)
+        self._invalidate()
+
+    def recheck_online(self) -> dict:
+        """The "Check again" button."""
+        with self._lock:
+            try:
+                rec = self.backend.load()
+            except LicenseError as exc:
+                return {"ok": False, "error": str(exc)}
+            sub = rec.get("subscription") or {}
+            if sub.get("source") == "key" and self._online_enabled():
+                self._maybe_check_online(rec, sub, self._now(), force=True)
+            self._invalidate()
+            st = self.state()
+            return {"ok": True, "state": st, "access": st["access"]}
 
     def _check_key(self, key: str, check_expiry: bool = True) -> dict:
         return license_keys.parse(key, self._public_key, now=self._now(),
@@ -654,6 +731,19 @@ class SubscriptionManager:
             info = self._check_key(key)
         except license_keys.KeyError_ as exc:
             return {"ok": False, "error": str(exc), "code": exc.code}
+        online = None
+        if self._online_enabled():
+            # The portal counts PCs across all computers and knows withdrawn keys.
+            # No internet: allow it now and confirm within the grace period.
+            try:
+                res = self._online_call("activate", license_keys.canonical(key), timeout=8.0)
+            except license_client.Offline:
+                online = {"checked_at": "", "grace_until": self._good_check(self._now())["grace_until"]}
+            else:
+                if not res.get("ok"):
+                    return {"ok": False, "error": res.get("message") or "This key can’t be activated.",
+                            "code": res.get("status", "")}
+                online = self._good_check(self._now())
         with self._lock:
             try:
                 rec = self.backend.load()
@@ -678,6 +768,9 @@ class SubscriptionManager:
                 }
                 # devices of the previous subscription don't count against this key
                 rec["devices"] = []
+            if online:
+                rec["subscription"]["online"] = online
+                rec["subscription"].pop("online_block", None)
             if not self._register(rec):
                 return {"ok": False, "error": f"This key is already used on {self._limit(rec)} "
                         "device(s) on this PC's list.", "device_limit": True}
