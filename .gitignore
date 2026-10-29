@@ -22,3 +22,8 @@ qa/_scratch/
 # license signing material belongs in %USERPROFILE%\OfficeAxeAdmin, never here
 signing_key.json
 issued_keys.json
+
+# web portal: local data, server secrets
+webportal/data/
+webportal/deploy/.env
+webportal/deploy/secrets/

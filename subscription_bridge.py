@@ -101,6 +101,12 @@ class SubscriptionBridgeMixin:
     def subscription_rename_device(self, device_id: str, name: str) -> dict:
         return self._subscription().rename_device(device_id, name)
 
+    def subscription_recheck(self) -> dict:
+        res = self._subscription().recheck_online()
+        if res.get("ok"):
+            self._emit("subscription_changed", res.get("state"))
+        return res
+
     def subscription_activate_key(self, key: str) -> dict:
         res = self._subscription().activate_key(key)
         if res.get("ok"):

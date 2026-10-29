@@ -183,6 +183,8 @@ const Subscription = (() => {
     const sel = planById(plan) || st.plans[0];
     return `
       ${r === 'revoked' ? `<div class="callout warning sub-callout">${ic('alert-triangle', 16)}<span>${esc(st.problem)}</span></div>` : ''}
+      ${r === 'check_needed' ? `<div class="callout warning sub-callout">${ic('alert-triangle', 16)}<span>${esc(st.problem)}</span>
+        <button class="btn btn-sm" data-act="recheck">${ic('refresh-cw', 14)}Check again</button></div>` : ''}
       ${r === 'invalid' ? `<div class="callout warning sub-callout">${ic('alert-triangle', 16)}<span>${esc(st.problem)} Buy a plan or activate your license key again.</span></div>` : ''}
       <div class="sub-hero">
         <h1 class="sub-title">${esc(title)}</h1>
@@ -505,6 +507,15 @@ const Subscription = (() => {
       </div>`;
   }
 
+  async function recheck(btn) {
+    if (btn) btn.classList.add('is-loading');
+    const r = await SFM.call('subscription_recheck').catch(() => null);
+    if (btn) btn.classList.remove('is-loading');
+    if (r && r.ok) apply(r.state);
+    if (!(r && r.access) && typeof App !== 'undefined')
+      App.toast('Still couldn’t reach the license server. Check your internet connection.', 'warning');
+  }
+
   async function activateKey() {
     const inp = document.getElementById('sub-key-input');
     const box = document.getElementById('sub-key-error');
@@ -613,6 +624,7 @@ const Subscription = (() => {
       case 'pay': pay(); break;
       case 'cancel-payment': cancelPayment(); break;
       case 'activate-key': activateKey(); break;
+      case 'recheck': recheck(b); break;
       case 'activate-device': activateDevice(); break;
       case 'remove-device': removeDevice(b.dataset.id, b.dataset.name); break;
       case 'copy-key': copyKey(b.dataset.key, b); break;
@@ -648,7 +660,7 @@ const Subscription = (() => {
     const active = isActive();
     const p = st.plan;
     const pill = { active: ['green', 'Active'], expiring: ['yellow', 'Expiring soon'],
-                   expired: ['red', 'Expired'], revoked: ['red', 'Withdrawn'], none: ['neutral', 'No plan'] }[st.status] || ['neutral', st.status];
+                   expired: ['red', 'Expired'], revoked: ['red', 'Withdrawn'], check_needed: ['yellow', 'Needs a check'], none: ['neutral', 'No plan'] }[st.status] || ['neutral', st.status];
     const used = st.period_days ? Math.max(0, Math.min(100, Math.round(st.days_left * 100 / st.period_days))) : 0;
     const g = st.gateway || {};
 

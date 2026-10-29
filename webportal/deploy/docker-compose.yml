@@ -1,0 +1,48 @@
+# Office Axe portal on one small VPS, with free automatic HTTPS (Caddy).
+#
+#   cd webportal/deploy
+#   cp .env.example .env                 # set OFFICEAXE_DOMAIN
+#   mkdir secrets && copy your signing_key.json into secrets/   (never commit it)
+#   docker compose up -d --build
+#   docker compose exec portal python webportal/manage.py set-password
+#
+# Only Caddy is reachable from outside (ports 80/443).
+services:
+  portal:
+    build:
+      context: ../..
+      dockerfile: webportal/deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      OFFICEAXE_SIGNING_KEY_FILE: /run/secrets/signing_key
+    secrets:
+      - signing_key
+    volumes:
+      - portal-data:/data          # database, admin login, downloads: back this up
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - portal
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      OFFICEAXE_DOMAIN: ${OFFICEAXE_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+secrets:
+  signing_key:
+    file: ./secrets/signing_key.json
+
+volumes:
+  portal-data:
+  caddy-data:
+  caddy-config:
