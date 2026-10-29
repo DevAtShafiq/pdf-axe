@@ -58,6 +58,9 @@ datas = [
     ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
     ("image_crop.py",        "."),
     ("photo_size.py",        "."),   # Crop to photo size (passport / visa presets)
+    ("subscription.py",      "."),   # plans, devices, payments (gateway seam)
+    ("subscription_bridge.py", "."), # subscription JS API + access gate
+    ("recycle_bin.py",       "."),   # Delete → Recycle Bin, Ctrl+Z restore
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
     ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
@@ -105,6 +108,9 @@ hiddenimports = [
     "docx_edit",
     "doc_convert",
     "screen_pick",
+    "subscription",
+    "subscription_bridge",
+    "recycle_bin",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
