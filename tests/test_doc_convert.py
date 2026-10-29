@@ -57,3 +57,18 @@ def test_a_failed_hangul_run_leaves_no_file_next_to_the_document(tmp_path, monke
     with pytest.raises(dc.ConvertError):
         dc.to_pdf(str(hw), _hwp=boom)
     assert sorted(os.listdir(tmp_path)) == ["c.hwpx", "cache"]
+
+
+def test_excel_and_powerpoint_are_converted_next_to_the_file(tmp_path):
+    import pymupdf
+    import doc_convert as dc
+
+    def fake(src, dst):                           # stands in for Office's exporter
+        d = pymupdf.open(); d.new_page(); d.save(dst); d.close()
+    for name in ("fees.xlsx", "slides.pptx"):
+        src = tmp_path / name
+        src.write_bytes(b"office file")
+        r = dc.to_pdf(str(src), _word=fake)
+        assert r["out_path"] == str(tmp_path / (src.stem + ".pdf")) and r["pages"] == 1
+        assert r["app"] == ("Excel" if name.endswith("xlsx") else "PowerPoint")
+        assert src.read_bytes() == b"office file"  # original untouched

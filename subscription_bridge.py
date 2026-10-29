@@ -18,7 +18,8 @@ import webbrowser
 import subscription as _sub
 
 # Callable from JS without an active subscription.
-_OPEN_METHODS = {"log_js", "get_settings", "save_settings", "set_window"}
+_OPEN_METHODS = {"log_js", "get_settings", "save_settings", "set_window",
+                 "shell_deliver", "shell_take_pending"}   # hand-over only; the tools stay gated
 
 
 def _gated(name, fn):

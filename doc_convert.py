@@ -1,5 +1,5 @@
 """
-doc_convert.py — Word and Hangul (HWP / HWPX) documents → PDF.
+doc_convert.py — Word, Excel, PowerPoint and Hangul (HWP / HWPX) documents → PDF.
 
     to_pdf(path, out_path="") → {out_path, pages, app}
 
@@ -8,6 +8,8 @@ taken); the original is opened read-only and never changed or moved.
 
   * Word (.docx .doc .rtf .odt …): Microsoft Word, through the same converter
     the Word preview uses (doc_preview.office_to_pdf), then copied out.
+  * Excel (.xlsx .xls …) and PowerPoint (.pptx .ppt …): Microsoft Office,
+    with the same exporter.
   * Hangul (.hwp .hwpx): Hancom Office 한글 (HWPFrame.HwpObject automation).
 
 Both need the program installed on the PC (Windows); without it the error says
@@ -22,7 +24,10 @@ import time
 
 WORD_EXT = {".docx", ".doc", ".docm", ".dotx", ".dot", ".dotm", ".rtf", ".odt"}
 HWP_EXT = {".hwp", ".hwpx"}
-DOC_EXT = WORD_EXT | HWP_EXT
+# Excel / PowerPoint go through Microsoft Office too (same exporter as the preview)
+SHEET_EXT = {".xlsx", ".xlsm", ".xls", ".xlsb", ".ods"}
+SLIDE_EXT = {".pptx", ".ppt", ".pptm", ".pps", ".ppsx", ".odp"}
+DOC_EXT = WORD_EXT | HWP_EXT | SHEET_EXT | SLIDE_EXT
 TIMEOUT = 180
 
 
@@ -134,13 +139,22 @@ def to_pdf(path: str, out_path: str = "", timeout: float = TIMEOUT, *, _word=Non
         raise ConvertError(f"File not found: {os.path.basename(str(path or ''))}", "not_found")
     ext = os.path.splitext(path)[1].lower()
     if ext not in DOC_EXT:
-        raise ConvertError(f"Only Word and 한글 (HWP/HWPX) files can be converted here (got '{ext or 'no extension'}')",
-                           "unsupported")
+        raise ConvertError(f"Only Word, Excel, PowerPoint and 한글 (HWP/HWPX) files can be converted here "
+                           f"(got '{ext or 'no extension'}')", "unsupported")
     out = os.path.abspath(out_path) if out_path else free_pdf_path(path)
     if os.path.exists(out):
         raise ConvertError(f"{os.path.basename(out)} already exists", "exists")
     t0 = time.time()
-    if ext in WORD_EXT:
+    if ext in SHEET_EXT or ext in SLIDE_EXT:
+        app = "Excel" if ext in SHEET_EXT else "PowerPoint"
+        import doc_preview as _dp
+        try:
+            conv = (lambda _app, src, dst: _word(src, dst)) if _word is not None else None   # tests
+            r = _dp.office_to_pdf(path, timeout, app=app, _converter=conv)
+        except _dp.PreviewError as exc:
+            raise ConvertError(str(exc), exc.code) from exc
+        shutil.copyfile(r["pdf_path"], out)
+    elif ext in WORD_EXT:
         if _word is not None:
             _word(os.path.abspath(path), out)
             app = "Word"

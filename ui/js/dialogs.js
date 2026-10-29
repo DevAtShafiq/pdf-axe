@@ -653,6 +653,17 @@ const Dialogs = (() => {
             </div>
           </div>
         </section>
+
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('app-window', 16)}Windows</div>
+          <div class="settings-row">
+            <span class="field-label">File Explorer menu</span>
+            <div>
+              <label class="switch" title="Adds Open, Convert to PDF, Compress and Merge to the right-click menu of files and folders"><input type="checkbox" id="s-shellmenu"><span class="switch-track"></span>Show Office Axe in the right-click menu</label>
+              <div class="field-hint" id="s-shellmenu-hint">Open in Office Axe · Convert to PDF · Compress · Merge PDFs. On Windows 11 they are under “Show more options”. Only for your Windows user; switch off to remove them.</div>
+            </div>
+          </div>
+        </section>
       </div>`;
 
     _openModal('settings', 'Settings', body, [
@@ -683,6 +694,29 @@ const Dialogs = (() => {
       const sel = document.getElementById('s-theme');
       if (sel) sel.value = b.dataset.themeVal;
     }));
+    // File Explorer right-click menu: applied right away (not on Save)
+    const shellBox = document.getElementById('s-shellmenu');
+    if (shellBox) {
+      SFM.call('shell_menu_status').then(st => {
+        if (st && st.ok) shellBox.checked = !!st.installed;
+        if (st && st.ok && st.installed && !st.command_ok) {
+          const h = document.getElementById('s-shellmenu-hint');
+          if (h) h.textContent = 'The menu points to another copy of Office Axe. Switch off and on to use this one.';
+        }
+      }).catch(() => {});
+      shellBox.addEventListener('change', async () => {
+        shellBox.disabled = true;
+        const r = await SFM.call('shell_menu_set', shellBox.checked).catch(e => ({ ok: false, error: String(e) }));
+        shellBox.disabled = false;
+        if (r && r.ok) {
+          shellBox.checked = !!r.installed;
+          App.toast(r.installed ? 'Added to the File Explorer right-click menu' : 'Removed from the right-click menu', 'success');
+        } else {
+          shellBox.checked = !shellBox.checked;
+          App.toast('Could not change the right-click menu: ' + _esc((r && r.error) || 'unknown error'), 'error', 6000);
+        }
+      });
+    }
     // Show / hide the API key
     document.getElementById('s-apikey-toggle')?.addEventListener('click', () => {
       const inp = document.getElementById('s-apikey');
