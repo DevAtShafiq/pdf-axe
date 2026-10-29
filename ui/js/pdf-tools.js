@@ -561,6 +561,13 @@ const PdfTools = (() => {
             </span>
             <button class="btn btn-sm btn-ghost pt-panel-btn" data-a="panel-extract" title="Pick pages and save them as a new PDF">${ic('extract', 14)}Extract</button>
             <button class="btn btn-sm btn-ghost pt-panel-btn" data-a="panel-split" title="Split this PDF into several files">${ic('scissors', 14)}Split</button>
+            <span class="pt-menu-wrap">
+              <button class="btn btn-sm btn-ghost" data-a="qr-menu" title="Read QR codes" aria-haspopup="menu">${ic('qr-code', 14)}QR${ic('chevron-down', 12)}</button>
+              <div class="pt-menu hidden" role="menu" id="pt-a-qrmenu">
+                <button role="menuitem" data-a="qr-pages">${ic('layers', 14)}Scan selected pages</button>
+                <button role="menuitem" data-a="qr-screen">${ic('scan', 14)}Pick a QR code on screen</button>
+              </div>
+            </span>
             <button class="btn btn-sm btn-ghost" data-a="all" title="Select all (Ctrl+A)">${ic('list-checks', 14)}<span class="pt-all-label">Select all</span></button>
           </div>
           <span class="pt-spacer"></span>
@@ -972,6 +979,18 @@ const PdfTools = (() => {
       forceClose();
     }
 
+    // QR codes on the selected pages (all pages when nothing is selected)
+    function scanQrPages() {
+      const ix = selIdx();
+      const chosen = (ix.length ? ix.map(i => slots[i]) : slots).filter(s => !s.blank);
+      if (!chosen.length) { App.toast('There are no pages to scan', 'warning'); return; }
+      const pages = {};
+      chosen.forEach(s => { (pages[s.path] = pages[s.path] || []).push(s.page); });
+      const n = chosen.length;
+      QrScan.scanPaths(Object.keys(pages), {
+        pages, subtitle: ix.length ? `${n} selected page${n === 1 ? '' : 's'}` : `All ${n} page${n === 1 ? '' : 's'}` });
+    }
+
     // ── toolbar ─────────────────────────────────────────────────────────────
     ov.querySelector('.pt-org-bar').addEventListener('click', e => {
       const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
@@ -980,7 +999,10 @@ const PdfTools = (() => {
       else if (a === 'rotr') rotate(targets(), 90);
       else if (a === 'dup') duplicate(targets());
       else if (a === 'del') remove(targets());
-      else if (a === 'insert-menu') { $('#pt-a-insmenu').classList.toggle('hidden'); return; }
+      else if (a === 'insert-menu') { $('#pt-a-qrmenu').classList.add('hidden'); $('#pt-a-insmenu').classList.toggle('hidden'); return; }
+      else if (a === 'qr-menu') { $('#pt-a-insmenu').classList.add('hidden'); $('#pt-a-qrmenu').classList.toggle('hidden'); return; }
+      else if (a === 'qr-pages') { $('#pt-a-qrmenu').classList.add('hidden'); scanQrPages(); }
+      else if (a === 'qr-screen') { $('#pt-a-qrmenu').classList.add('hidden'); QrScan.pick(); }
       else if (a === 'insert') { $('#pt-a-insmenu').classList.add('hidden'); insertPages(); }
       else if (a === 'blank') { $('#pt-a-insmenu').classList.add('hidden'); insertBlank(); }
       else if (a === 'panel-extract') setPanel('extract');
@@ -992,7 +1014,10 @@ const PdfTools = (() => {
       grid.focus();
     });
     ov.addEventListener('mousedown', e => {                // close the Insert menu on an outside click
-      if (!e.target.closest || !e.target.closest('.pt-menu-wrap')) $('#pt-a-insmenu')?.classList.add('hidden');
+      if (!e.target.closest || !e.target.closest('.pt-menu-wrap')) {
+        $('#pt-a-insmenu')?.classList.add('hidden');
+        $('#pt-a-qrmenu')?.classList.add('hidden');
+      }
     }, true);
     // second bars (Extract / Split)
     ov.querySelectorAll('[data-a="panel-close"]').forEach(b => b.addEventListener('click', () => { setPanel(null); grid.focus(); }));

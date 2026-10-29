@@ -473,8 +473,10 @@ def _open_oriented(path: str):
 
 def scan_file(path: str, *, max_pages: int = MAX_PAGES, thumbs: bool = True,
               cancelled: Optional[Callable[[], bool]] = None,
-              progress: Optional[Callable[[int, int], None]] = None) -> dict:
-    """Scan one image / PDF for QR codes.
+              progress: Optional[Callable[[int, int], None]] = None,
+              pages: Optional[list] = None) -> dict:
+    """Scan one image / PDF for QR codes. *pages* (0-based) limits a PDF scan
+    to those pages (Arrange pages: "Scan selected pages").
 
     Returns {ok, path, name, kind, results:[...], page_count, pages_scanned,
     truncated, error?}. Never raises for per-file problems.
@@ -493,7 +495,7 @@ def scan_file(path: str, *, max_pages: int = MAX_PAGES, thumbs: bool = True,
 
         if ext in PDF_EXTS:
             out["kind"] = "pdf"
-            _scan_pdf(path, out, max_pages, thumbs, cancelled, progress)
+            _scan_pdf(path, out, max_pages, thumbs, cancelled, progress, pages)
         else:
             out["kind"] = "image"
             _scan_image(path, out, max_pages, thumbs, cancelled, progress)
@@ -541,7 +543,7 @@ def _render_page(page, dpi: int):
     return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
-def _scan_pdf(path, out, max_pages, thumbs, cancelled, progress):
+def _scan_pdf(path, out, max_pages, thumbs, cancelled, progress, only=None):
     try:
         fitz = _fitz()
     except ImportError:
@@ -552,9 +554,14 @@ def _scan_pdf(path, out, max_pages, thumbs, cancelled, progress):
             raise RuntimeError("PDF is password-protected")
         n = doc.page_count
         out["page_count"] = n
-        pages = min(n, max_pages)
-        out["truncated"] = n > pages
-        for i in range(pages):
+        if only is not None:
+            todo = sorted({int(i) for i in only if 0 <= int(i) < n})[:max_pages]
+            out["truncated"] = False
+        else:
+            todo = list(range(min(n, max_pages)))
+            out["truncated"] = n > len(todo)
+        pages = len(todo)
+        for k, i in enumerate(todo):
             if cancelled and cancelled():
                 break
             page = doc.load_page(i)
@@ -568,9 +575,9 @@ def _scan_pdf(path, out, max_pages, thumbs, cancelled, progress):
                 scale = PDF_RETRY_DPI / 72.0
             for hit in hits:
                 out["results"].append(_result_entry(hit, img, i + 1, scale, thumbs))
-            out["pages_scanned"] = i + 1
+            out["pages_scanned"] = k + 1
             if progress:
-                progress(i + 1, pages)
+                progress(k + 1, pages)
     finally:
         doc.close()
 

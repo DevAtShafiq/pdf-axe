@@ -99,15 +99,18 @@ const QrScan = (() => {
   }
 
   // ── Files → results dialog ───────────────────────────────────────────────
-  async function scanPaths(paths) {
+  // opts.pages: {path: [0-based page numbers]} — scan only those PDF pages
+  async function scanPaths(paths, opts = {}) {
     paths = (paths || []).filter(isScannable);
     if (!paths.length) { App.toast('Select an image or PDF to scan for QR codes', 'warning'); return; }
     const batch = paths.length > 1;
     const jobId = 'qr' + Date.now();
+    const pagesOf = opts.pages || {};
+    const items = paths.map(p => (pagesOf[p] ? { path: p, pages: pagesOf[p] } : p));
     const id = Dialogs.modal('qr-results', {
       title: 'QR code check',
       icon: 'qr-code',
-      subtitle: batch ? `${paths.length} files` : _base(paths[0]),
+      subtitle: opts.subtitle || (batch ? `${paths.length} files` : _base(paths[0])),
       width: '680px',
       body: `<div class="progress-block">
                <div class="progress-label qr-summary" id="qrr-sum-__ID__"><span class="mt-spinner"></span>
@@ -206,7 +209,7 @@ const QrScan = (() => {
     App.setStatus('Scanning for QR codes…', true);
     summary(false);
     let r;
-    try { r = await SFM.scanQrFiles(paths, jobId); }
+    try { r = await SFM.scanQrFiles(items, jobId); }
     catch (e) { r = { ok: false, error: String(e) }; }
     if (!r || !r.ok) {
       offP(); offD(); finished = true;

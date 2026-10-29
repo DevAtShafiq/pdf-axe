@@ -1594,7 +1594,15 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         file and ``qr_scan_done`` {job_id, ok, files:[...], cancelled}.
         """
         import qr_scan
-        paths = [p for p in (paths or []) if isinstance(p, str) and p]
+        # an item is a path, or {"path", "pages": [0-based]} for chosen PDF pages
+        items = []
+        for p in paths or []:
+            if isinstance(p, str) and p:
+                items.append((p, None))
+            elif isinstance(p, dict) and isinstance(p.get("path"), str) and p["path"]:
+                pages = [int(i) for i in p.get("pages") or [] if isinstance(i, (int, float))]
+                items.append((p["path"], pages or None))
+        paths = [p for p, _ in items]
         if not paths:
             return _err("No files selected")
         if not qr_scan.decoder_available():
@@ -1608,11 +1616,12 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             files = []
             cancelled = False
             try:
-                for i, p in enumerate(paths):
+                for i, (p, pages) in enumerate(items):
                     if job_id in self._qr_cancel:
                         cancelled = True
                         break
-                    res = qr_scan.scan_file(p, cancelled=lambda: job_id in self._qr_cancel)
+                    res = qr_scan.scan_file(p, cancelled=lambda: job_id in self._qr_cancel,
+                                            pages=pages)
                     files.append(res)
                     self._emit("qr_scan_progress", {"job_id": job_id, "index": i + 1,
                                                     "total": len(paths), "path": p,

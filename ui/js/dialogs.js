@@ -217,6 +217,8 @@ const Dialogs = (() => {
   ${o.footer ? `<div class="modal-footer">${o.footer}</div>` : ''}
 </div></div>`;
     document.body.insertAdjacentHTML('beforeend', html);
+    // opened from a full-window editor (Arrange pages, PDF Studio) → on top of it
+    if (document.querySelector('.pt-overlay')) _raise(document.getElementById('mo-' + id));
     _attachClose(id);
     document.querySelector('#mo-' + id + ' .modal-close')
       ?.addEventListener('click', () => closeModal(id));
