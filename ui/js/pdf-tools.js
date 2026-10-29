@@ -624,6 +624,7 @@ const PdfTools = (() => {
     const self = {
       busy: false,
       close() {                          // Escape (via the shared modal stack)
+        if (viewer) { viewer.close(); return; }
         if (drag) { cancelDrag(); return; }
         if (!$('#pt-a-insmenu').classList.contains('hidden')) { $('#pt-a-insmenu').classList.add('hidden'); return; }
         if (panel) { setPanel(null); grid.focus(); return; }
@@ -711,6 +712,7 @@ const PdfTools = (() => {
             <span class="pt-check-badge">${ic('check', 12)}</span>
             ${s.rotate ? `<span class="pt-rot-badge" title="Rotated ${s.rotate}°">${ic('rotate-cw', 11)}${s.rotate}°</span>` : ''}
             <div class="pt-tile-tools">
+              <button data-t="zoom" title="Zoom in on this page (Enter)" aria-label="Zoom in on this page">${ic('zoom-in', 14)}</button>
               <button data-t="rotl" title="Rotate left" aria-label="Rotate left">${ic('rotate-ccw', 14)}</button>
               <button data-t="rotr" title="Rotate right" aria-label="Rotate right">${ic('rotate-cw', 14)}</button>
               <button data-t="dup" title="Duplicate" aria-label="Duplicate">${ic('copy', 14)}</button>
@@ -1067,6 +1069,7 @@ const PdfTools = (() => {
 
     // ── selection (click / ctrl / shift) + per-tile tools ───────────────────
     let suppressClick = false;
+    let lastClick = { id: null, t: 0 };
     grid.addEventListener('click', e => {
       if (suppressClick) { suppressClick = false; return; }
       const tool = e.target.closest('[data-t]');
@@ -1074,12 +1077,21 @@ const PdfTools = (() => {
       if (!tile) { if (!e.ctrlKey && !e.shiftKey && sel.size) { sel.clear(); render(); } return; }
       const id = +tile.dataset.id, i = idx(id);
       if (tool) {
+        if (tool.dataset.t === 'zoom') { focusId = id; openViewer(id); return; }
         const ix = sel.has(id) ? selIdx() : [i];
         const t = tool.dataset.t;
         if (t === 'rotl') rotate(ix, -90); else if (t === 'rotr') rotate(ix, 90);
         else if (t === 'dup') duplicate(ix); else if (t === 'del') remove(ix);
         return;
       }
+      // double-click opens the zoom viewer (tracked by hand: render() replaces the tile between clicks)
+      const now = Date.now();
+      if (!panel && !e.shiftKey && !e.ctrlKey && !e.metaKey && lastClick.id === id && now - lastClick.t < 450) {
+        lastClick = { id: null, t: 0 };
+        focusId = id; sel = new Set([id]); anchor = id;
+        render(); openViewer(id); return;
+      }
+      lastClick = { id, t: now };
       if (e.shiftKey && anchor !== null && idx(anchor) >= 0) {
         const [a, b] = [Math.min(idx(anchor), i), Math.max(idx(anchor), i)];
         if (!e.ctrlKey) sel.clear();
@@ -1094,6 +1106,246 @@ const PdfTools = (() => {
       grid.focus();
       render();
     });
+
+
+    // ── page zoom viewer (one page, large and sharp) ─────────────────────────
+    // Opens from a tile's magnifier, a double-click, or Enter / Space on the
+    // focused tile. Rotate / delete / select here use the same undoable actions.
+    let viewer = null;
+    const viewMeta = new Map();          // "path|page" -> {w_pt, h_pt}
+    const viewImg = new Map();           // "path|page|width" -> data_url
+    const VIEW_STEPS = [800, 1200, 1600, 2400, 3200];
+
+    function openViewer(id) {
+      if (viewer) { viewer.show(id); return; }
+      const z = document.createElement('div');
+      z.className = 'pt-zoom';
+      z.setAttribute('role', 'dialog');
+      z.setAttribute('aria-label', 'Page view');
+      z.innerHTML = `
+        <div class="pt-zoom-bar" role="toolbar">
+          <button class="icon-btn" data-z="prev" data-tooltip="Previous page · ←" aria-label="Previous page">${ic('chevron-left')}</button>
+          <span class="pt-zoom-title" aria-live="polite"></span>
+          <button class="icon-btn" data-z="next" data-tooltip="Next page · →" aria-label="Next page">${ic('chevron-right')}</button>
+          <span class="toolbar-sep"></span>
+          <button class="icon-btn" data-z="rotl" data-tooltip="Rotate left · L" aria-label="Rotate left">${ic('rotate-ccw')}</button>
+          <button class="icon-btn" data-z="rotr" data-tooltip="Rotate right · R" aria-label="Rotate right">${ic('rotate-cw')}</button>
+          <button class="icon-btn" data-z="select" data-tooltip="Select this page · S" aria-label="Select this page" aria-pressed="false">${ic('check-circle')}</button>
+          <button class="icon-btn icon-btn-danger" data-z="del" data-tooltip="Delete this page · Del" aria-label="Delete this page">${ic('trash')}</button>
+          <span class="pt-spacer"></span>
+          <button class="icon-btn" data-z="out" data-tooltip="Zoom out · −" aria-label="Zoom out">${ic('zoom-out')}</button>
+          <span class="pt-zoom-pct" title="Zoom">100%</span>
+          <button class="icon-btn" data-z="in" data-tooltip="Zoom in · +" aria-label="Zoom in">${ic('zoom-in')}</button>
+          <button class="btn btn-sm btn-ghost" data-z="fit" title="Fit the whole page (0)">Fit page</button>
+          <button class="btn btn-sm btn-ghost" data-z="width" title="Fit the page width (W)">Fit width</button>
+          <button class="btn btn-sm btn-ghost" data-z="actual" title="Actual size (1)">100%</button>
+          <span class="toolbar-sep"></span>
+          <button class="modal-close" data-z="close" aria-label="Close page view" title="Close (Esc)">${ic('x')}</button>
+        </div>
+        <div class="pt-zoom-stage" tabindex="0">
+          <div class="pt-zoom-pad"><div class="pt-zoom-box"><img alt="" draggable="false"><span class="pt-zoom-load"><span class="spinner"></span></span></div></div>
+        </div>`;
+      ov.querySelector('.pt-org').appendChild(z);
+      const stage = z.querySelector('.pt-zoom-stage'), box = z.querySelector('.pt-zoom-box');
+      const img = z.querySelector('img'), load = z.querySelector('.pt-zoom-load');
+      let cur = null, zoom = 1, mode = 'fit', timer = 0, token = 0;
+
+      const slot = () => slots.find(s => s.id === cur);
+      const metaOf = s => (s.blank ? { w_pt: 595, h_pt: 842 } : viewMeta.get(`${s.path}|${s.page}`) || null);
+      const base = m => ({ w: m.w_pt * 96 / 72, h: m.h_pt * 96 / 72 });     // CSS px at 100%
+      function dims(s, m, zm) {
+        const b = base(m), odd = s.rotate === 90 || s.rotate === 270;
+        const w = b.w * zm, h = b.h * zm;
+        return { w, h, bw: odd ? h : w, bh: odd ? w : h };
+      }
+      function fitZoom(s, m, which) {
+        const d = dims(s, m, 1), sw = stage.clientWidth - 48, sh = stage.clientHeight - 48;
+        return Math.max(0.05, which === 'width' ? sw / d.bw : Math.min(sw / d.bw, sh / d.bh));
+      }
+      function layout(anchor) {
+        const s = slot(); if (!s) return;
+        const m = metaOf(s); if (!m) return;
+        if (mode) zoom = fitZoom(s, m, mode);
+        zoom = Math.min(8, Math.max(0.05, zoom));
+        const fx = anchor ? (stage.scrollLeft + anchor.x) / Math.max(1, stage.scrollWidth) : 0;
+        const fy = anchor ? (stage.scrollTop + anchor.y) / Math.max(1, stage.scrollHeight) : 0;
+        const d = dims(s, m, zoom);
+        box.style.width = d.bw + 'px'; box.style.height = d.bh + 'px';
+        img.style.width = d.w + 'px'; img.style.height = d.h + 'px';
+        img.style.left = (d.bw - d.w) / 2 + 'px'; img.style.top = (d.bh - d.h) / 2 + 'px';
+        img.style.transform = s.rotate ? `rotate(${s.rotate}deg)` : '';
+        z.querySelector('.pt-zoom-pct').textContent = Math.round(zoom * 100) + '%';
+        if (anchor) {
+          stage.scrollLeft = fx * stage.scrollWidth - anchor.x;
+          stage.scrollTop = fy * stage.scrollHeight - anchor.y;
+        }
+        clearTimeout(timer);
+        timer = setTimeout(() => sharpen(s, d.w), 120);       // re-render at the new size
+      }
+      async function sharpen(s, cssW) {
+        if (s.blank) { img.removeAttribute('src'); img.style.visibility = 'hidden'; load.hidden = true; return; }
+        const want = cssW * (window.devicePixelRatio || 1);
+        const w = VIEW_STEPS.find(x => x >= want) || VIEW_STEPS[VIEW_STEPS.length - 1];
+        const key = `${s.path}|${s.page}|${w}`;
+        if (viewImg.has(key)) { setSrc(viewImg.get(key)); return; }
+        const my = ++token;
+        const r = await SFM.pdfPageView(s.path, s.page, w).catch(() => null);
+        if (!r || !r.ok) { if (my === token) { load.hidden = true; App.toast('Could not show this page', 'error'); } return; }
+        viewImg.set(key, r.data_url);
+        viewMeta.set(`${s.path}|${s.page}`, { w_pt: r.width_pt, h_pt: r.height_pt });
+        if (my === token && slot() === s) setSrc(r.data_url);
+      }
+      function setSrc(du) {
+        if (img.getAttribute('src') !== du) img.src = du;
+        img.style.visibility = 'visible'; load.hidden = true;
+      }
+      async function show(id) {
+        cur = id;
+        const s = slot(); if (!s) { close(); return; }
+        const i = idx(id), n = slots.length;
+        z.querySelector('.pt-zoom-title').innerHTML = s.blank
+          ? `Page ${i + 1} of ${n} <span class="text-muted">· blank</span>`
+          : `Page ${i + 1} of ${n}` + (multiSource() ? ` <span class="text-muted">· ${esc(baseOf(s.path))}, page ${s.page + 1}</span>`
+            : (s.page !== i ? ` <span class="text-muted">· was ${s.page + 1}</span>` : ''));
+        z.querySelector('[data-z="prev"]').disabled = i <= 0;
+        z.querySelector('[data-z="next"]').disabled = i >= n - 1;
+        const on = sel.has(id), sb = z.querySelector('[data-z="select"]');
+        sb.setAttribute('aria-pressed', on ? 'true' : 'false'); sb.classList.toggle('active', on);
+        if (!s.blank && !metaOf(s)) {                 // first look: learn the page size
+          img.style.visibility = 'hidden'; load.hidden = false;
+          const my = ++token;
+          const r = await SFM.pdfPageView(s.path, s.page, 1600).catch(() => null);
+          if (my !== token || cur !== id) return;
+          if (!r || !r.ok) { load.hidden = true; App.toast((r && r.error) || 'Could not show this page', 'error'); return; }
+          viewMeta.set(`${s.path}|${s.page}`, { w_pt: r.width_pt, h_pt: r.height_pt });
+          viewImg.set(`${s.path}|${s.page}|1600`, r.data_url);
+          setSrc(r.data_url);
+        } else if (!s.blank) {
+          // show any copy we have while the sharp one loads
+          const any = VIEW_STEPS.map(w => viewImg.get(`${s.path}|${s.page}|${w}`)).filter(Boolean).pop();
+          if (any) setSrc(any); else { img.style.visibility = 'hidden'; load.hidden = false; }
+        }
+        layout();
+        stage.scrollTop = 0;
+        focusId = id;
+      }
+      function step(d) {
+        const i = idx(cur) + d;
+        if (i >= 0 && i < slots.length) show(slots[i].id);
+      }
+      function zoomBy(f, anchor) {
+        mode = null; zoom *= f;
+        layout(anchor || { x: stage.clientWidth / 2, y: stage.clientHeight / 2 });
+      }
+      function setMode(m) {
+        if (m === 'actual') { mode = null; zoom = 1; } else mode = m;
+        layout({ x: stage.clientWidth / 2, y: stage.clientHeight / 2 });
+      }
+      function act(a) {
+        const i = idx(cur); if (i < 0) return;
+        if (a === 'rotl') rotate([i], -90);
+        else if (a === 'rotr') rotate([i], 90);
+        else if (a === 'select') { sel.has(cur) ? sel.delete(cur) : sel.add(cur); anchor = cur; render(); }
+        else if (a === 'del') {
+          if (slots.length <= 1) { App.toast('A PDF needs at least one page', 'warning'); return; }
+          const next = slots[i + 1] || slots[i - 1];
+          remove([i]);
+          if (next) cur = next.id;
+        }
+        refresh();
+      }
+      function refresh() {                       // after undo / redo / any page change
+        if (!slots.some(s => s.id === cur)) {
+          const f = slots.find(s => s.id === focusId) || slots[0];
+          if (!f) { close(); return; }
+          cur = f.id;
+        }
+        show(cur);
+      }
+      function close() {
+        clearTimeout(timer); token++;
+        stage.removeEventListener('wheel', onWheel);
+        z.remove();
+        viewer = null;
+        if (slots.some(s => s.id === cur)) focusId = cur;
+        render();
+        grid.focus();
+        grid.querySelector(`.pt-tile[data-id="${focusId}"]`)?.scrollIntoView({ block: 'nearest' });
+      }
+      // keys while the viewer is open; returns true when handled
+      function key(e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return false;
+        const k = e.key;
+        const map = {
+          ArrowLeft: () => step(-1), ArrowRight: () => step(1), PageUp: () => step(-1), PageDown: () => step(1),
+          '+': () => zoomBy(1.25), '=': () => zoomBy(1.25), '-': () => zoomBy(0.8), '_': () => zoomBy(0.8),
+          0: () => setMode('fit'), 1: () => setMode('actual'), w: () => setMode('width'), W: () => setMode('width'),
+          r: () => act('rotr'), R: () => act('rotr'), ']': () => act('rotr'),
+          l: () => act('rotl'), L: () => act('rotl'), '[': () => act('rotl'),
+          s: () => act('select'), S: () => act('select'), Delete: () => act('del'), Backspace: () => act('del'),
+          Home: () => slots[0] && show(slots[0].id), End: () => slots.length && show(slots[slots.length - 1].id),
+        };
+        if (!map[k]) return false;
+        e.preventDefault(); e.stopPropagation();
+        map[k]();
+        return true;
+      }
+
+      z.querySelector('.pt-zoom-bar').addEventListener('click', e => {
+        const b = e.target.closest('[data-z]'); if (!b || b.disabled) return;
+        const a = b.dataset.z;
+        if (a === 'close') close();
+        else if (a === 'prev') step(-1);
+        else if (a === 'next') step(1);
+        else if (a === 'in') zoomBy(1.25);
+        else if (a === 'out') zoomBy(0.8);
+        else if (a === 'fit' || a === 'width' || a === 'actual') setMode(a);
+        else act(a);
+        if (viewer) stage.focus();
+      });
+      // Ctrl+wheel and touchpad pinch (sent as Ctrl+wheel) zoom around the cursor
+      function onWheel(e) {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        const r = stage.getBoundingClientRect();
+        zoomBy(Math.exp(-e.deltaY * 0.0025), { x: e.clientX - r.left, y: e.clientY - r.top });
+      }
+      stage.addEventListener('wheel', onWheel, { passive: false });
+      // drag to pan
+      let pan = null;
+      stage.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        pan = { x: e.clientX, y: e.clientY, l: stage.scrollLeft, t: stage.scrollTop };
+        stage.classList.add('is-panning'); e.preventDefault();
+      });
+      const onPanMove = e => { if (pan) { stage.scrollLeft = pan.l - (e.clientX - pan.x); stage.scrollTop = pan.t - (e.clientY - pan.y); } };
+      const onPanUp = () => { if (pan) { pan = null; stage.classList.remove('is-panning'); } };
+      z.addEventListener('mousemove', onPanMove);
+      z.addEventListener('mouseup', onPanUp);
+      z.addEventListener('mouseleave', onPanUp);
+      // touch: pinch to zoom, one finger pans natively
+      let pinch = null;
+      stage.addEventListener('touchstart', e => {
+        if (e.touches.length === 2) {
+          const [a, b] = e.touches;
+          pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) };
+        }
+      }, { passive: true });
+      stage.addEventListener('touchmove', e => {
+        if (!pinch || e.touches.length !== 2) return;
+        e.preventDefault();
+        const [a, b] = e.touches, r = stage.getBoundingClientRect();
+        const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        zoomBy(d / pinch.d, { x: (a.clientX + b.clientX) / 2 - r.left, y: (a.clientY + b.clientY) / 2 - r.top });
+        pinch.d = d;
+      }, { passive: false });
+      stage.addEventListener('touchend', () => { pinch = null; });
+      new ResizeObserver(() => { if (viewer && mode) layout(); }).observe(stage);
+
+      viewer = { show, close, key, refresh };
+      show(id);
+      stage.focus();
+    }
 
     // ── drag & drop reorder (pointer based; moves the whole selection) ──────
     let drag = null;
@@ -1180,6 +1432,12 @@ const PdfTools = (() => {
       if (ctrl && (k === 's' || k === 'S')) { e.preventDefault(); e.stopPropagation(); if (embed) embed.onKey('save'); else save(); return; }
       if (inInput) { if (k === 'Enter' && !e.target.closest('.pt-subbar')) { e.preventDefault(); save(); } return; }
       const handled = () => { e.preventDefault(); e.stopPropagation(); };
+      if (viewer) {
+        if (viewer.key(e)) return;
+        if (/^(Arrow|Delete|Backspace)/.test(k)) { handled(); return; }   // never act on the grid behind it
+      } else if ((k === 'Enter' || k === ' ') && !ctrl && e.target === grid && slots.some(s => s.id === focusId)) {
+        handled(); openViewer(focusId); return;
+      }
       if (ctrl && (k === 'z' || k === 'Z') && !e.shiftKey) { handled(); if (embed && !undoStack.length) embed.onKey('undo'); else undo(); }
       else if (ctrl && (k === 'y' || k === 'Y' || ((k === 'z' || k === 'Z') && e.shiftKey))) { handled(); if (embed && !redoStack.length) embed.onKey('redo'); else redo(); }
       else if (ctrl && (k === 'a' || k === 'A')) { handled(); sel = new Set(slots.map(s => s.id)); render(); }
@@ -1206,6 +1464,7 @@ const PdfTools = (() => {
         }
         grid.querySelector(`.pt-tile[data-id="${focusId}"]`)?.scrollIntoView({ block: 'nearest' });
       }
+      if (viewer && e.defaultPrevented) viewer.refresh();   // Ctrl+Z / Ctrl+Y / Ctrl+D while viewing
     }
     document.addEventListener('keydown', onKey, true);
 

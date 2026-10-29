@@ -691,16 +691,58 @@ def _cache_get(key):
         return v
 
 
-def _cache_put(key, value: str) -> None:
+def _cache_put(key, value) -> None:
     global _thumb_bytes
     with _thumb_lock:
         if key in _THUMB_CACHE:
             return
         _THUMB_CACHE[key] = value
-        _thumb_bytes += len(value)
+        _thumb_bytes += _cache_size(value)
         while _thumb_bytes > _THUMB_CACHE_MAX_BYTES and _THUMB_CACHE:
             _k, v = _THUMB_CACHE.popitem(last=False)
-            _thumb_bytes -= len(v)
+            _thumb_bytes -= _cache_size(v)
+
+
+def _cache_size(value) -> int:
+    """Bytes of a cached thumbnail (data URL) or page view ({"data_url", …})."""
+    return len(value["data_url"]) if isinstance(value, dict) else len(value)
+
+
+def page_view(path: str, page: int, width: int = 1600) -> dict:
+    """One page rendered sharp for the Arrange zoom viewer.
+
+    Returns {data_url, width, height, width_pt, height_pt}: *width* px wide
+    (up to 3200, at most 6x the page's size in points). Cached like thumbnails.
+    """
+    width = max(200, min(int(width or 1600), 3200))
+    path = os.path.abspath(str(path or ""))
+    if not os.path.isfile(path):
+        raise PdfToolsError(f"File not found: {_name(path)}")
+    page = int(page)
+    key = _file_key(path) + (page, "view", width)
+    hit = _cache_get(key)
+    if hit is not None:
+        return hit
+    fitz = _fitz()
+    doc = open_source(path)
+    try:
+        if page < 0 or page >= doc.page_count:
+            raise PdfToolsError("That page doesn’t exist.")
+        pg = doc.load_page(page)
+        r = pg.rect                            # already accounts for /Rotate
+        pw, ph = max(float(r.width), 1.0), max(float(r.height), 1.0)
+        zoom = min(width / pw, 6.0)
+        pix = pg.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        try:
+            data, mime = pix.tobytes("jpg", jpg_quality=88), "image/jpeg"
+        except Exception:
+            data, mime = pix.tobytes("png"), "image/png"
+        out = {"data_url": f"data:{mime};base64," + base64.b64encode(data).decode("ascii"),
+               "width": pix.width, "height": pix.height, "width_pt": pw, "height_pt": ph}
+    finally:
+        doc.close()
+    _cache_put(key, out)
+    return out
 
 
 def thumbnails(path: str, pages: list, width: int = 160) -> dict:
