@@ -958,6 +958,36 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         except Exception as exc:
             return _err(str(exc))
 
+    def resolve_user_path(self, text: str) -> dict:
+        """A typed / pasted path (quotes, %VARS%, file:/// links, UNC) → {ok, path, is_dir, folder}."""
+        import path_input
+        try:
+            return path_input.resolve(text)
+        except Exception as exc:
+            return _err(str(exc))
+
+    def get_clipboard_text(self) -> dict:
+        """Plain text on the Windows clipboard (Ctrl+V of a copied path)."""
+        try:
+            import win32clipboard, win32con
+            for _ in range(5):
+                try:
+                    win32clipboard.OpenClipboard()
+                    break
+                except Exception:
+                    import time; time.sleep(0.05)
+            else:
+                return _ok(text="")
+            try:
+                text = ""
+                if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
+                    text = str(win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT) or "")
+            finally:
+                win32clipboard.CloseClipboard()
+            return _ok(text=text[:4096])
+        except Exception as exc:
+            return _err(str(exc))
+
     def get_clipboard_files(self) -> dict:
         """Files currently on the Windows clipboard (copied/cut in Explorer or here)."""
         try:

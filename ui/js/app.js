@@ -349,6 +349,13 @@ const App = (() => {
         e.preventDefault(); FileTree.cutSelection(); return;
       }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
+      if ((ctrl && !shift && key === 'l') || (alt && key === 'd') || key === 'F4') { e.preventDefault(); FileTree.editPath(); return; }
+      if (ctrl && !shift && key === 'f') {
+        e.preventDefault();
+        const si = document.getElementById('search-input');
+        if (si) { si.focus(); si.select(); }
+        return;
+      }
       if (ctrl && shift && key === 'n')  { e.preventDefault(); FileTree.newFolder(); return; }
       if (ctrl && shift && key === 'l')  { e.preventDefault(); FolderTools.openFromList(); return; }
       if (ctrl && shift && key === 's')  { e.preventDefault(); Details.signSelected(); return; }

@@ -31,6 +31,11 @@ const FileTree = (() => {
   let _edit         = null;  // active inline rename (see "Inline rename" below)
   let _searchQuery  = '';
   let _currentFolder = '';
+  // Folders opened inline in the list view (chevron / → / *): their contents
+  // show indented under them. Kept while you stay in this folder.
+  let _expanded     = new Set();      // normalised folder paths
+  let _childCache   = new Map();      // normalised folder path → its entries
+  const EXPAND_ALL_DEPTH = 3, EXPAND_ALL_MAX = 2000;
 
   // ── DOM refs ──────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
@@ -63,6 +68,9 @@ const FileTree = (() => {
   let _loadSeq = 0;
   async function loadFolder(path) {
     if (App.normPath) path = App.normPath(path);
+    const sameFolder = _currentFolder && _samePath(path, _currentFolder);
+    if (!sameFolder) _expanded = new Set();
+    _childCache = new Map();
     _currentFolder = path;
     App.state.currentFolder = path;
     _selected.clear();
@@ -82,6 +90,8 @@ const FileTree = (() => {
       if (!r.ok) { App.toast(r.error, 'error'); App.setStatus('Error'); return; }
       _entries  = _sortEntries(r.entries || []);
       _filtered = _entries;
+      if (_expanded.size) await _reloadExpanded(my);
+      if (my !== _loadSeq) return;
       _applySearchFilter(_searchQuery);
       App.setStatus(`${_filtered.length} items`);
       App.setStatusFolder(path);
@@ -191,13 +201,7 @@ const FileTree = (() => {
   function _applySearchFilter(q) {
     const focusPath  = _filtered[_focusIdx] ? _filtered[_focusIdx].path : null;
     const anchorPath = _filtered[_shiftAnchor] ? _filtered[_shiftAnchor].path : null;
-    if (!q) {
-      _filtered = _entries;
-    } else {
-      _filtered = _entries.filter(e =>
-        e.name.toLowerCase().includes(q)
-      );
-    }
+    _filtered = _flatten(q);
     const selChanged = _remapAfterReorder(focusPath, anchorPath);
     _renderCurrent();
     if (selChanged) _selectionChanged();
@@ -205,6 +209,117 @@ const FileTree = (() => {
       App.state.focusedPath = _focusIdx >= 0 ? _filtered[_focusIdx].path : null;
     }
     App.setStatus(`${_filtered.length} items${q ? ' (filtered)' : ''}`);
+  }
+
+  // ── Folders expanded inline (list view) ─────────────────────────────────
+  // The visible list: top-level entries, each expanded folder followed by its
+  // (sorted) contents one level deeper. With a search, matches are kept plus
+  // the folders that lead to them.
+  function _flatten(q) {
+    const out = [];
+    const tree = _viewMode === 'list';
+    const walk = (list, depth, parent) => {
+      let any = false;
+      for (const e of list) {
+        e.depth = depth;
+        e.parentPath = parent;
+        const k = _normPath(e.path);
+        const open = tree && e.is_dir && _expanded.has(k) && _childCache.has(k);
+        e.expanded = open;
+        const at = out.length;
+        out.push(e);
+        let kidHit = false;
+        if (open) kidHit = walk(_sortEntries(_childCache.get(k)), depth + 1, e.path);
+        const hit = !q || e.name.toLowerCase().includes(q);
+        if (!hit && !kidHit) out.splice(at);          // drop it (and nothing below it matched)
+        else any = true;
+      }
+      return any;
+    };
+    walk(_entries, 0, '');
+    return out;
+  }
+
+  async function _listChildren(path) {
+    const k = _normPath(path);
+    if (_childCache.has(k)) return _childCache.get(k);
+    const r = await SFM.listFolder(path).catch(e => ({ ok: false, error: String(e) }));
+    if (!r || !r.ok) throw new Error((r && r.error) || 'Could not open the folder');
+    _childCache.set(k, r.entries || []);
+    return _childCache.get(k);
+  }
+
+  // After a refresh: list the expanded folders again (drop the ones that vanished).
+  async function _reloadExpanded(seq) {
+    const want = [..._expanded];
+    for (const k of want) {
+      if (seq !== _loadSeq) return;
+      try { await _listChildren(k); } catch (_) { _expanded.delete(k); }
+    }
+  }
+
+  async function setExpanded(path, open) {
+    const k = _normPath(path);
+    if (open) {
+      try { await _listChildren(path); }
+      catch (e) { App.toast(_esc(e.message || String(e)), 'error'); return; }
+      _expanded.add(k);
+    } else {
+      // collapsing hides everything inside; a selection in there moves to the folder
+      for (const x of [..._expanded]) if (x === k || x.startsWith(k + '/')) _expanded.delete(x);
+      const inside = [..._selected].filter(p => _normPath(p).startsWith(k + '/'));
+      if (inside.length) {
+        inside.forEach(p => _selected.delete(p));
+        _selected.add(_filtered.find(e => _normPath(e.path) === k)?.path || path);
+      }
+    }
+    const focus = _filtered[_focusIdx];
+    const focusInside = focus && _normPath(focus.path).startsWith(k + '/');
+    _applySearchFilter(_searchQuery);
+    if (!open && focusInside) {
+      _focusIdx = _filtered.findIndex(e => _normPath(e.path) === k);
+      _shiftAnchor = _focusIdx;
+      _renderCurrent();
+      _selectionChanged();
+    }
+  }
+  const toggleExpanded = entry => setExpanded(entry.path, !entry.expanded);
+
+  /** Expand every folder under *root* (or the whole list), up to a limit. */
+  async function listExpandAll(rootEntry) {
+    if (_viewMode !== 'list') setViewMode('list');
+    const queue = (rootEntry ? [rootEntry] : _entries.filter(e => e.is_dir)).map(e => ({ path: e.path, depth: 1 }));
+    let count = _filtered.length, capped = false;
+    App.setStatus('Expanding folders…', true);
+    while (queue.length) {
+      const { path, depth } = queue.shift();
+      let kids;
+      try { kids = await _listChildren(path); } catch (_) { continue; }
+      if (count + kids.length > EXPAND_ALL_MAX) { capped = true; break; }
+      _expanded.add(_normPath(path));
+      count += kids.length;
+      if (depth < EXPAND_ALL_DEPTH) kids.filter(k => k.is_dir).forEach(k => queue.push({ path: k.path, depth: depth + 1 }));
+      else if (kids.some(k => k.is_dir)) capped = true;
+    }
+    _applySearchFilter(_searchQuery);
+    if (capped) App.toast(`Expanded ${EXPAND_ALL_DEPTH} levels / up to ${EXPAND_ALL_MAX.toLocaleString()} items — open deeper folders one by one`, 'info', 5000);
+  }
+
+  function listCollapseAll() {
+    if (!_expanded.size) return;
+    const focus = _filtered[_focusIdx];
+    _expanded = new Set();
+    const top = focus && focus.depth ? _topAncestor(focus) : null;
+    _selected = new Set([..._selected].filter(p => _entries.some(e => e.path === p)));
+    if (top) _selected.add(top);
+    _applySearchFilter(_searchQuery);
+    if (top) { _focusIdx = _filtered.findIndex(e => e.path === top); _shiftAnchor = _focusIdx; _renderCurrent(); }
+    _selectionChanged();
+  }
+  function _topAncestor(entry) {
+    let e = entry;
+    while (e && e.parentPath) e = _filtered.find(x => x.path === e.parentPath);
+    return e ? e.path : null;
   }
 
   // ── Rendering ─────────────────────────────────────────────────────────────
@@ -229,7 +344,12 @@ const FileTree = (() => {
       row.dataset.idx  = idx;
       row.dataset.path = entry.path;
       row.title = entry.name;
+      const depth = entry.depth || 0;
+      if (depth) row.style.paddingLeft = `calc(var(--space-2) + ${depth * 18}px)`;
+      if (entry.expanded) row.classList.add('is-expanded');
       row.innerHTML = `
+        ${entry.is_dir ? `<button type="button" class="twisty" tabindex="-1" aria-label="${entry.expanded ? 'Collapse' : 'Expand'} folder" aria-expanded="${!!entry.expanded}">${_chev(!!entry.expanded)}</button>`
+                       : '<span class="twisty-space"></span>'}
         <span class="icon">${iconFor(entry)}</span>
         <span class="name">${_esc(entry.name)}</span>
         <span class="date">${_esc(_fmtShortDate(entry.mtime))}</span>
@@ -355,6 +475,11 @@ const FileTree = (() => {
   // ── Breadcrumb ────────────────────────────────────────────────────────────
   function _renderBreadcrumb(path) {
     const bc = $('breadcrumb');
+    if (!bc._editBound) {
+      bc._editBound = true;
+      bc.addEventListener('click', e => { if (e.target === bc) editPath(); });
+      bc.title = 'Click empty space to type or paste a path (Ctrl+L)';
+    }
     bc.innerHTML = '';
     const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
     // Deep paths: show the drive, an ellipsis for the middle, and the last two
@@ -403,8 +528,64 @@ const FileTree = (() => {
     });
   }
 
+  // ── Type or paste a path (click empty space in the breadcrumb, Ctrl+L, Alt+D, F4)
+  function editPath() {
+    const bc = $('breadcrumb');
+    if (!bc || bc.querySelector('.breadcrumb-input')) { bc && bc.querySelector('.breadcrumb-input')?.select(); return; }
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'breadcrumb-input';
+    inp.spellcheck = false;
+    inp.setAttribute('aria-label', 'Folder or file path');
+    inp.placeholder = 'Type or paste a folder or file path, then press Enter';
+    inp.value = _currentFolder || '';
+    bc.innerHTML = '';
+    bc.appendChild(inp);
+    inp.focus();
+    inp.select();
+    let done = false;
+    const restore = () => {
+      if (done) return;
+      done = true;
+      _renderBreadcrumb(_currentFolder || '');
+      if (!_currentFolder) bc.innerHTML = '<span class="breadcrumb-seg last">No folder open</span>';
+    };
+    inp.addEventListener('keydown', async e => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); restore(); (listEl() || document.body).focus(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const ok = await openPath(inp.value, { quietSame: true });
+        if (ok) { restore(); (listEl() || document.body).focus(); } else inp.select();
+      }
+    });
+    inp.addEventListener('blur', () => setTimeout(restore, 120));
+  }
+
+  /** Open a typed / pasted path: a folder opens; a file opens its folder,
+   *  gets selected and previewed. Returns true when it went somewhere. */
+  async function openPath(text, opts = {}) {
+    const r = await SFM.resolveUserPath(String(text || '')).catch(e => ({ ok: false, error: String(e) }));
+    if (!r || !r.ok) { if (!opts.silent) App.toast(_esc((r && r.error) || 'Couldn’t open that path'), 'warning', 5000); return false; }
+    if (r.is_dir) {
+      if (!(opts.quietSame && _samePath(r.path, _currentFolder))) App.navigate(r.path);
+      return true;
+    }
+    if (!_samePath(r.folder, _currentFolder)) App.navigate(r.folder);
+    await refreshAndSelect(r.path);
+    const entry = _filtered.find(e => _samePath(e.path, r.path));
+    if (entry && window.Preview && Preview.previewFile) Preview.previewFile(entry.path, entry.ext);
+    return true;
+  }
+
   // ── Selection ─────────────────────────────────────────────────────────────
   function _bindRowEvents(el, idx, entry) {
+    const tw = el.querySelector('.twisty');
+    if (tw) {
+      tw.addEventListener('click', e => { e.stopPropagation(); toggleExpanded(entry); });
+      tw.addEventListener('dblclick', e => e.stopPropagation());
+      tw.addEventListener('mousedown', e => e.stopPropagation());
+    }
     el.addEventListener('click', e => _handleRowClick(e, idx, entry));
     el.addEventListener('dblclick', e => _handleRowDblClick(e, entry));
     el.addEventListener('contextmenu', e => _handleRowCtx(e, entry));
@@ -519,41 +700,48 @@ const FileTree = (() => {
   }
 
   // ── Keyboard nav in file list ─────────────────────────────────────────────
-  // ── Type-ahead state ──────────────────────────────────────────────────────
+  // ── Type to select (TypeSelect in type-select.js) ───────────────────────
+  // Letters, digits and words pick a file: "15", "shila", "md shahed".
+  const TYPE_PAUSE = 1200;               // ms between keys before a new search
   let _typeBuffer = '';
   let _typeTimer  = null;
 
+  function _typeHint(text, found) {
+    let el = document.getElementById('type-select-hint');
+    if (!text) { if (el) el.classList.remove('show'); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'type-select-hint';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      (document.getElementById('pane-filelist') || document.body).appendChild(el);
+    }
+    el.innerHTML = `${Icons.svg('search', 13)}<span>${_esc(text)}</span>${found ? '' : '<em>no match</em>'}`;
+    el.classList.toggle('no-match', !found);
+    el.classList.add('show');
+  }
+
   function _typeAheadJump(ch) {
-    // Append char and reset 600ms clear timer
-    _typeBuffer += ch.toLowerCase();
+    const fresh = !_typeBuffer;
+    _typeBuffer += ch;
     clearTimeout(_typeTimer);
-    _typeTimer = setTimeout(() => { _typeBuffer = ''; }, 600);
-
-    const buf = _typeBuffer;
-    const n   = _filtered.length;
-    if (!n) return;
-
-    // Search from (focusIdx + 1) wrapping around, so same letter cycles
-    const start = (_focusIdx + 1) % n;
-    for (let i = 0; i < n; i++) {
-      const idx  = (start + i) % n;
-      const name = _filtered[idx].name.toLowerCase();
-      if (name.startsWith(buf)) {
-        _focusIdx = idx;
-        _selected.clear();
-        _selected.add(_filtered[idx].path);
-        _shiftAnchor = idx;
-        _renderCurrent();
-        _selectionChanged();
-        _scrollFocusedIntoView();
-        return;
-      }
+    _typeTimer = setTimeout(() => { _typeBuffer = ''; _typeHint(''); }, TYPE_PAUSE);
+    const names = _filtered.map(e => e.name);
+    let buf = _typeBuffer, again = fresh;
+    // the same letter pressed again and again → next item with that letter
+    if (TypeSelect.repeated(buf.toLowerCase())) {
+      buf = buf[0]; again = true;
     }
-    // No match — clear buffer and try single char from current position
-    if (buf.length > 1) {
-      _typeBuffer = ch.toLowerCase();
-      _typeAheadJump('');   // recurse with fresh single-char buffer (harmless if buf='')
-    }
+    const idx = TypeSelect.find(names, buf, _focusIdx, again);
+    _typeHint(_typeBuffer, idx >= 0);
+    if (idx < 0) return;
+    _focusIdx = idx;
+    _selected.clear();
+    _selected.add(_filtered[idx].path);
+    _shiftAnchor = idx;
+    _renderCurrent();
+    _selectionChanged();
+    _scrollFocusedIntoView();
   }
 
   function _initKeyboardNav() {
@@ -563,14 +751,53 @@ const FileTree = (() => {
       const active = document.activeElement;
       const onList = active && (active.id === 'filelist-list' || active.id === 'filelist-thumb');
       const onBody = !active || active === document.body || active.tagName === 'DIV';
-      if (!onList && !onBody) return;
+      const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      // After clicking a toolbar button or the folder tree, letters still pick a
+      // file (arrows / Enter / Space keep working the focused button).
+      const onControl = active && /^(BUTTON|A|LI|SPAN|SVG)$/i.test(active.tagName) && !active.isContentEditable;
+      if (!onList && !onBody && !(onControl && typing && (e.key !== ' ' || _typeBuffer))) return;
       // A dialog is open (its focused DIV counted as "body"): arrows, Space,
       // Ctrl+A and Backspace moved the selection behind it.
       if (App.blocked && App.blocked()) return;
       // The preview pane has focus (text selection, Ctrl+A on a page) — not ours.
       if (active && active.closest && active.closest('#preview-body')) return;
       // Don't hijack search box or rename inputs
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' ||
+                     active.tagName === 'SELECT' || active.isContentEditable)) return;
+      if (e.isComposing) return;                     // IME (e.g. Bangla) still composing
+      // While a word is being typed, Space is part of it ("md shahed").
+      if (e.key === ' ' && _typeBuffer && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        _typeAheadJump(' ');
+        return;
+      }
+
+      if (e.key.length > 1 && _typeBuffer) { _typeBuffer = ''; clearTimeout(_typeTimer); _typeHint(''); }
+
+      // ── → / ← / * : open and close folders inline (list view) ─────────────
+      if (_viewMode === 'list' && (onList || onBody) && !e.ctrlKey && !e.metaKey && !e.altKey &&
+          (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || (e.key === '*' && !_typeBuffer))) {
+        const cur = _filtered[_focusIdx];
+        if (!cur) return;
+        e.preventDefault();
+        if (e.key === '*') { if (cur.is_dir) listExpandAll(cur); return; }
+        if (e.key === 'ArrowRight') {
+          if (!cur.is_dir) return;
+          if (!cur.expanded) { setExpanded(cur.path, true); return; }
+          const next = _filtered[_focusIdx + 1];
+          if (next && next.parentPath === cur.path) _focusIdx++; else return;
+        } else {
+          if (cur.is_dir && cur.expanded) { setExpanded(cur.path, false); return; }
+          if (!cur.parentPath) return;
+          const up = _filtered.findIndex(x => x.path === cur.parentPath);
+          if (up < 0) return;
+          _focusIdx = up;
+        }
+        const entry = _filtered[_focusIdx];
+        _selected.clear(); _selected.add(entry.path); _shiftAnchor = _focusIdx;
+        _renderCurrent(); _selectionChanged(); _scrollFocusedIntoView();
+        return;
+      }
 
       // ── Arrow navigation ──────────────────────────────────────────────────
       if (e.key === 'ArrowDown') {
@@ -625,7 +852,7 @@ const FileTree = (() => {
         return;
 
       // ── Printable character: type-ahead jump ───────────────────────────
-      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (typing) {
         e.preventDefault();
         _typeAheadJump(e.key);
         return;
@@ -691,7 +918,7 @@ const FileTree = (() => {
       if (tbListBtn)  tbListBtn.classList.remove('active');
       if (tbThumbBtn) tbThumbBtn.classList.add('active');
     }
-    _renderCurrent();
+    _applySearchFilter(_searchQuery);
   }
 
   // ── Thumbnail Zoom ────────────────────────────────────────────────────────
@@ -742,16 +969,28 @@ const FileTree = (() => {
     App.toast(`${paths.length} item(s) cut — paste to move them`, err ? 'warning' : 'info', 1800);
   }
   async function pasteSelection() {
-    if (!_currentFolder) return;
     // Prefer whatever is on the Windows clipboard (e.g. copied in Explorer);
     // it also holds what was copied here, unless another app replaced it.
+    let winFiles = false;
     try {
       const w = await SFM.getClipboardFiles();
       if (w && w.ok && w.paths && w.paths.length) {
+        winFiles = true;
         const same = w.paths.length === _clipboard.paths.length && w.paths.every(p => _clipboard.paths.includes(p));
         if (!same) _clipboard = { mode: w.cut ? 'cut' : 'copy', paths: w.paths };
       }
     } catch (_) {}
+    // No files on the clipboard but a path as text (copied from an email,
+    // Explorer's address bar…) → go there instead.
+    if (!winFiles) {
+      const t = await SFM.getClipboardText().catch(() => null);
+      const text = t && t.ok ? String(t.text || '').trim() : '';
+      if (text && text.length < 1024 && /^["'“]?(?:[A-Za-z]:|\\\\|%|~|file:)/i.test(text)) {
+        if (await openPath(text, { silent: false })) return;
+        return;
+      }
+    }
+    if (!_currentFolder) return;
     if (!_clipboard.paths.length) { App.toast('Nothing to paste — copy some files first', 'info', 2000); return; }
     const folder = _currentFolder;
     const cut = _clipboard.mode !== 'copy';
@@ -1554,7 +1793,8 @@ const FileTree = (() => {
   init();
 
   return {
-    loadFolder, refresh, refreshAndSelect, revealPath, applySearch, setViewMode,
+    loadFolder, refresh, refreshAndSelect, revealPath, applySearch, setViewMode, editPath, openPath,
+    setExpanded, listExpandAll, listCollapseAll,
     copySelection, cutSelection, pasteSelection,
     newFolder, selectPaths, deleteSelection, softDeletePaths, pushFileOpUndo, pushCreatedUndo: _pushCreatedUndo,
     combineSelected, browseFolder,
