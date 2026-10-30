@@ -519,41 +519,48 @@ const FileTree = (() => {
   }
 
   // ── Keyboard nav in file list ─────────────────────────────────────────────
-  // ── Type-ahead state ──────────────────────────────────────────────────────
+  // ── Type to select (TypeSelect in type-select.js) ───────────────────────
+  // Letters, digits and words pick a file: "15", "shila", "md shahed".
+  const TYPE_PAUSE = 1200;               // ms between keys before a new search
   let _typeBuffer = '';
   let _typeTimer  = null;
 
+  function _typeHint(text, found) {
+    let el = document.getElementById('type-select-hint');
+    if (!text) { if (el) el.classList.remove('show'); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'type-select-hint';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      (document.getElementById('pane-filelist') || document.body).appendChild(el);
+    }
+    el.innerHTML = `${Icons.svg('search', 13)}<span>${_esc(text)}</span>${found ? '' : '<em>no match</em>'}`;
+    el.classList.toggle('no-match', !found);
+    el.classList.add('show');
+  }
+
   function _typeAheadJump(ch) {
-    // Append char and reset 600ms clear timer
-    _typeBuffer += ch.toLowerCase();
+    const fresh = !_typeBuffer;
+    _typeBuffer += ch;
     clearTimeout(_typeTimer);
-    _typeTimer = setTimeout(() => { _typeBuffer = ''; }, 600);
-
-    const buf = _typeBuffer;
-    const n   = _filtered.length;
-    if (!n) return;
-
-    // Search from (focusIdx + 1) wrapping around, so same letter cycles
-    const start = (_focusIdx + 1) % n;
-    for (let i = 0; i < n; i++) {
-      const idx  = (start + i) % n;
-      const name = _filtered[idx].name.toLowerCase();
-      if (name.startsWith(buf)) {
-        _focusIdx = idx;
-        _selected.clear();
-        _selected.add(_filtered[idx].path);
-        _shiftAnchor = idx;
-        _renderCurrent();
-        _selectionChanged();
-        _scrollFocusedIntoView();
-        return;
-      }
+    _typeTimer = setTimeout(() => { _typeBuffer = ''; _typeHint(''); }, TYPE_PAUSE);
+    const names = _filtered.map(e => e.name);
+    let buf = _typeBuffer, again = fresh;
+    // the same letter pressed again and again → next item with that letter
+    if (TypeSelect.repeated(buf.toLowerCase())) {
+      buf = buf[0]; again = true;
     }
-    // No match — clear buffer and try single char from current position
-    if (buf.length > 1) {
-      _typeBuffer = ch.toLowerCase();
-      _typeAheadJump('');   // recurse with fresh single-char buffer (harmless if buf='')
-    }
+    const idx = TypeSelect.find(names, buf, _focusIdx, again);
+    _typeHint(_typeBuffer, idx >= 0);
+    if (idx < 0) return;
+    _focusIdx = idx;
+    _selected.clear();
+    _selected.add(_filtered[idx].path);
+    _shiftAnchor = idx;
+    _renderCurrent();
+    _selectionChanged();
+    _scrollFocusedIntoView();
   }
 
   function _initKeyboardNav() {
@@ -563,14 +570,28 @@ const FileTree = (() => {
       const active = document.activeElement;
       const onList = active && (active.id === 'filelist-list' || active.id === 'filelist-thumb');
       const onBody = !active || active === document.body || active.tagName === 'DIV';
-      if (!onList && !onBody) return;
+      const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      // After clicking a toolbar button or the folder tree, letters still pick a
+      // file (arrows / Enter / Space keep working the focused button).
+      const onControl = active && /^(BUTTON|A|LI|SPAN|SVG)$/i.test(active.tagName) && !active.isContentEditable;
+      if (!onList && !onBody && !(onControl && typing && (e.key !== ' ' || _typeBuffer))) return;
       // A dialog is open (its focused DIV counted as "body"): arrows, Space,
       // Ctrl+A and Backspace moved the selection behind it.
       if (App.blocked && App.blocked()) return;
       // The preview pane has focus (text selection, Ctrl+A on a page) — not ours.
       if (active && active.closest && active.closest('#preview-body')) return;
       // Don't hijack search box or rename inputs
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' ||
+                     active.tagName === 'SELECT' || active.isContentEditable)) return;
+      if (e.isComposing) return;                     // IME (e.g. Bangla) still composing
+      // While a word is being typed, Space is part of it ("md shahed").
+      if (e.key === ' ' && _typeBuffer && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        _typeAheadJump(' ');
+        return;
+      }
+
+      if (e.key.length > 1 && _typeBuffer) { _typeBuffer = ''; clearTimeout(_typeTimer); _typeHint(''); }
 
       // ── Arrow navigation ──────────────────────────────────────────────────
       if (e.key === 'ArrowDown') {
@@ -625,7 +646,7 @@ const FileTree = (() => {
         return;
 
       // ── Printable character: type-ahead jump ───────────────────────────
-      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (typing) {
         e.preventDefault();
         _typeAheadJump(e.key);
         return;

@@ -1956,3 +1956,19 @@ mark.hl { background: transparent; color: var(--accent-text); font-weight: var(-
 .col-folders-first { flex-shrink: 0; margin-left: 2px; color: var(--text-disabled); }
 .col-folders-first.active { color: var(--accent-text); background: var(--accent-subtle); }
 .filelist-toolbar:has(#thumb-zoom-bar[style*="flex"]) .col-folders-first { display: none; }
+
+/* ── Type to select: what you've typed, bottom of the file list ── */
+#pane-filelist { position: relative; }
+#type-select-hint {
+  position: absolute; left: 50%; bottom: 14px; transform: translate(-50%, 6px);
+  display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 24px);
+  padding: 5px 12px; border-radius: 999px; background: var(--bg-surface);
+  border: 1px solid var(--border-strong); box-shadow: var(--shadow-popup);
+  font-size: var(--fs-sm); color: var(--text-primary); white-space: pre; overflow: hidden;
+  opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 20;
+}
+#type-select-hint.show { opacity: 1; transform: translate(-50%, 0); }
+#type-select-hint svg { color: var(--text-secondary); flex: none; }
+#type-select-hint span { overflow: hidden; text-overflow: ellipsis; }
+#type-select-hint em { font-style: normal; color: var(--red, #c4302b); font-size: var(--fs-xs); }
+#type-select-hint.no-match { border-color: var(--red, #c4302b); }
