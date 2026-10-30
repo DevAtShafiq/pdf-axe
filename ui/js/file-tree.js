@@ -71,6 +71,9 @@ const FileTree = (() => {
     const sameFolder = _currentFolder && _samePath(path, _currentFolder);
     if (!sameFolder) _expanded = new Set();
     _childCache = new Map();
+    _sizeCache.clear();                    // F5 / after a file operation: measure again
+    _fsJob = '';
+    SFM.folderSizesCancel && SFM.folderSizesCancel().catch(() => {});
     _currentFolder = path;
     App.state.currentFolder = path;
     _selected.clear();
@@ -93,6 +96,7 @@ const FileTree = (() => {
       if (_expanded.size) await _reloadExpanded(my);
       if (my !== _loadSeq) return;
       _applySearchFilter(_searchQuery);
+      _measureFolders();
       App.setStatus(`${_filtered.length} items`);
       App.setStatusFolder(path);
       _selectionChanged();
@@ -115,13 +119,15 @@ const FileTree = (() => {
   let _sort = { key: 'mtime', dir: 'desc', foldersFirst: false };
   try { Object.assign(_sort, JSON.parse(localStorage.getItem(_SORT_STORE) || '{}')); } catch (_) {}
   const _byName = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
+  // folders count by their measured size once known (Size column), else first
+  const _sizeKey = e => e.is_dir ? (e.size_str && e.size_str !== '…' ? e.size : -1) : (e.size || 0);
   function _sortEntries(list) {
     const k = _sort.key, m = _sort.dir === 'asc' ? 1 : -1;
     return list.slice().sort((a, b) => {
       if (_sort.foldersFirst && !!a.is_dir !== !!b.is_dir) return a.is_dir ? -1 : 1;
       let c = 0;
       if (k === 'name') c = _byName(a, b);
-      else if (k === 'size') c = (a.is_dir ? -1 : (a.size || 0)) - (b.is_dir ? -1 : (b.size || 0));
+      else if (k === 'size') c = _sizeKey(a) - _sizeKey(b);
       else c = (a.mtime || 0) - (b.mtime || 0);
       return c ? c * m : _byName(a, b);
     });
@@ -211,6 +217,74 @@ const FileTree = (() => {
     App.setStatus(`${_filtered.length} items${q ? ' (filtered)' : ''}`);
   }
 
+
+  // ── Folder sizes (Size column) ──────────────────────────────────────────
+  // Measured in the background, visible folders first; cached per folder and
+  // cleared on F5 / after file operations (any reload of the folder). Can be
+  // switched off in Settings (slow network drives).
+  const _FS_STORE = 'oa.filelist.folderSizes';
+  const _sizeCache = new Map();          // normalised path → {bytes, size_str, files, folders, complete}
+  let _fsJob = '', _fsWanted = new Set();
+  const folderSizesOn = () => { try { return localStorage.getItem(_FS_STORE) !== '0'; } catch (_) { return true; } };
+  function setFolderSizes(on) {
+    try { localStorage.setItem(_FS_STORE, on ? '1' : '0'); } catch (_) {}
+    if (!on) { SFM.folderSizesCancel().catch(() => {}); _fsJob = ''; }
+    _applyKnownSizes();
+    _renderCurrent();
+    if (on) _measureFolders();
+  }
+  function _sizeTip(s) {
+    const n = (k, w) => `${k.toLocaleString()} ${w}${k === 1 ? '' : 's'}`;
+    return `${n(s.files, 'file')}, ${n(s.folders, 'folder')}${s.complete ? '' : ' (still more — stopped counting)'}`;
+  }
+  function _applyKnownSizes() {
+    const on = folderSizesOn();
+    const all = [..._entries];
+    _childCache.forEach(list => all.push(...list));
+    for (const e of all) {
+      if (!e.is_dir) continue;
+      const s = on ? _sizeCache.get(_normPath(e.path)) : null;
+      e.size = s ? s.bytes : 0;
+      e.size_str = s ? s.size_str : (on && _fsWanted.has(_normPath(e.path)) ? '…' : '');
+      e.size_tip = s ? _sizeTip(s) : '';
+    }
+  }
+  function _measureFolders() {
+    if (!folderSizesOn() || _viewMode !== 'list') return;
+    // visible rows first, then the rest of the list
+    const box = listEl();
+    const top = box ? box.scrollTop : 0, h = box ? box.clientHeight : 0, rowH = 30;
+    const first = Math.max(0, Math.floor(top / rowH) - 5), last = Math.ceil((top + h) / rowH) + 5;
+    const dirs = _filtered.map((e, i) => [e, i]).filter(([e]) => e.is_dir && !_sizeCache.has(_normPath(e.path)));
+    if (!dirs.length) return;
+    dirs.sort(([, a], [, b]) => ((a >= first && a <= last) ? 0 : 1) - ((b >= first && b <= last) ? 0 : 1) || a - b);
+    const paths = dirs.map(([e]) => e.path);
+    _fsWanted = new Set(paths.map(_normPath));
+    _fsJob = 'fs' + Date.now();
+    SFM.folderSizes(paths, _fsJob).catch(() => {});
+    _applyKnownSizes();
+    paths.forEach(p => _paintSize(p));
+  }
+  function _paintSize(path) {
+    const row = listEl()?.querySelector(`.file-item[data-path="${CSS.escape(path)}"] .size`);
+    const e = _filtered.find(x => x.path === path);
+    if (row && e) { row.textContent = e.size_str || ''; row.title = e.size_tip || ''; row.classList.toggle('is-pending', e.size_str === '…'); }
+  }
+  let _fsResortTimer = 0;
+  function _onFolderSize(d) {
+    if (!d || d.job_id !== _fsJob) return;
+    _sizeCache.set(_normPath(d.path), { bytes: d.bytes, size_str: d.size_str, files: d.files, folders: d.folders, complete: d.complete });
+    _applyKnownSizes();
+    _paintSize(d.path);
+    if (_sort.key === 'size') {                 // folders join the size order as they arrive
+      clearTimeout(_fsResortTimer);
+      _fsResortTimer = setTimeout(() => { _entries = _sortEntries(_entries); _applySearchFilter(_searchQuery); }, 400);
+    }
+    if (_selected.size === 1 && _selected.has(d.path) && window.Details && Details.showFile)
+      Details.showFile(_filtered.find(e => e.path === d.path) || null);
+  }
+  if (typeof SFM !== 'undefined' && SFM.on) SFM.on('folder_size', _onFolderSize);
+
   // ── Folders expanded inline (list view) ─────────────────────────────────
   // The visible list: top-level entries, each expanded folder followed by its
   // (sorted) contents one level deeper. With a search, matches are kept plus
@@ -264,6 +338,7 @@ const FileTree = (() => {
       try { await _listChildren(path); }
       catch (e) { App.toast(_esc(e.message || String(e)), 'error'); return; }
       _expanded.add(k);
+      setTimeout(_measureFolders, 0);
     } else {
       // collapsing hides everything inside; a selection in there moves to the folder
       for (const x of [..._expanded]) if (x === k || x.startsWith(k + '/')) _expanded.delete(x);
@@ -302,6 +377,7 @@ const FileTree = (() => {
       else if (kids.some(k => k.is_dir)) capped = true;
     }
     _applySearchFilter(_searchQuery);
+    _measureFolders();
     if (capped) App.toast(`Expanded ${EXPAND_ALL_DEPTH} levels / up to ${EXPAND_ALL_MAX.toLocaleString()} items — open deeper folders one by one`, 'info', 5000);
   }
 
@@ -353,7 +429,7 @@ const FileTree = (() => {
         <span class="icon">${iconFor(entry)}</span>
         <span class="name">${_esc(entry.name)}</span>
         <span class="date">${_esc(_fmtShortDate(entry.mtime))}</span>
-        <span class="size">${entry.size_str || ''}</span>`;
+        <span class="size${entry.size_str === '…' ? ' is-pending' : ''}"${entry.size_tip ? ` title="${_esc(entry.size_tip)}"` : ''}>${entry.size_str || ''}</span>`;
       _bindRowEvents(row, idx, entry);
       el.appendChild(row);
     });
@@ -1822,7 +1898,7 @@ const FileTree = (() => {
 
   return {
     loadFolder, refresh, refreshAndSelect, revealPath, applySearch, setViewMode, editPath, openPath,
-    setExpanded, listExpandAll, listCollapseAll,
+    setExpanded, listExpandAll, listCollapseAll, setFolderSizes, folderSizesOn,
     copySelection, cutSelection, pasteSelection,
     newFolder, selectPaths, deleteSelection, softDeletePaths, pushFileOpUndo, pushCreatedUndo: _pushCreatedUndo,
     combineSelected, browseFolder,

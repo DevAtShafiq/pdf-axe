@@ -124,6 +124,8 @@ const SFM = (() => {
     setClipboardFiles:   (paths, cut=false)        => call('set_clipboard_files', paths, cut),
     getClipboardFiles:   ()                        => call('get_clipboard_files'),
     getClipboardText:    ()                        => call('get_clipboard_text'),
+    folderSizes:         (paths, jobId='')         => call('folder_sizes', paths, jobId),
+    folderSizesCancel:   ()                        => call('folder_sizes_cancel'),
     resolveUserPath:     (text)                    => call('resolve_user_path', text),
     // PDF thumbnails / pages
     getPdfThumb:         (path, page=0, dpi=72)    => call('get_pdf_thumbnail', path, page, dpi),

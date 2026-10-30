@@ -958,6 +958,34 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         except Exception as exc:
             return _err(str(exc))
 
+    def folder_sizes(self, paths: list, job_id: str = "") -> dict:
+        """Measure folders in the background (Size column). Emits ``folder_size``
+        {job_id, path, bytes, size_str, files, folders, complete} per folder,
+        then ``folder_sizes_done`` {job_id}. Starting a new job stops the old one."""
+        import folder_size as _fs
+        paths = [p for p in (paths or []) if isinstance(p, str) and p]
+        job_id = str(job_id or f"fs{int(time.time() * 1000)}")
+        self._fs_job = job_id
+
+        def _run():
+            gone = lambda: getattr(self, "_fs_job", None) != job_id
+            for p in paths:
+                if gone():
+                    return
+                r = _fs.measure(p, cancelled=gone)
+                if gone():
+                    return
+                txt = _fmt_size(r["bytes"])
+                self._emit("folder_size", dict(r, job_id=job_id, path=p,
+                                               size_str=txt if r["complete"] else "> " + txt))
+            self._emit("folder_sizes_done", {"job_id": job_id})
+        self._thread(_run)
+        return _ok(job_id=job_id, total=len(paths))
+
+    def folder_sizes_cancel(self) -> dict:
+        self._fs_job = None
+        return _ok()
+
     def resolve_user_path(self, text: str) -> dict:
         """A typed / pasted path (quotes, %VARS%, file:/// links, UNC) → {ok, path, is_dir, folder}."""
         import path_input
