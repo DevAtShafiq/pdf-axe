@@ -67,6 +67,7 @@ datas = [
     ("license_keys.py",      "."),   # signed offline license keys
     ("ed25519_pure.py",      "."),
     ("license_client.py",    "."),   # online key checks against the portal
+    ("path_input.py",        "."),   # typed / pasted paths (breadcrumb box)
     ("revoked_keys.json",    "."),   # withdrawn key ids (dashboard writes it)
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
@@ -124,6 +125,7 @@ hiddenimports = [
     "license_keys",
     "ed25519_pure",
     "license_client",
+    "path_input",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",

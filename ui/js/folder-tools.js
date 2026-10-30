@@ -663,6 +663,10 @@ const FolderTools = (() => {
     });
     const fl = document.getElementById('fl-new-folder');
     if (fl) fl.addEventListener('click', () => FileTree.newFolder());
+    const ea = document.getElementById('fl-expand-all');
+    if (ea) ea.addEventListener('click', () => FileTree.listExpandAll());
+    const ca = document.getElementById('fl-collapse-all');
+    if (ca) ca.addEventListener('click', () => FileTree.listCollapseAll());
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _init);
   else _init();

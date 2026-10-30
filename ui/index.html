@@ -140,12 +140,6 @@
 
     <div class="toolbar-spacer"></div>
 
-    <!-- Search -->
-    <label class="toolbar-search" for="search-input">
-      <i data-icon="search" data-size="14"></i>
-      <input type="text" id="search-input" placeholder="Search this folder" autocomplete="off" spellcheck="false">
-    </label>
-
     <!-- View toggles -->
     <div class="segmented" role="group" aria-label="View">
       <button class="seg-btn view-mode-btn active" id="btn-view-list"  title="List view" aria-label="List view"><i data-icon="list"></i></button>
@@ -199,11 +193,18 @@
           <div id="breadcrumb">
             <span class="breadcrumb-seg last" id="bc-root">No folder open</span>
           </div>
+          <button class="icon-btn icon-btn-sm" id="fl-expand-all" title="Expand all folders (*)" aria-label="Expand all folders"><i data-icon="chevrons-up-down" data-size="14"></i></button>
+          <button class="icon-btn icon-btn-sm" id="fl-collapse-all" title="Collapse all folders" aria-label="Collapse all folders"><i data-icon="chevrons-down-up" data-size="14"></i></button>
           <button class="icon-btn icon-btn-sm" id="fl-new-folder" title="New folder (Ctrl+Shift+N)" aria-label="New folder"><i data-icon="folder-plus" data-size="14"></i></button>
           <div class="segmented segmented-sm">
             <button class="seg-btn view-btn active" id="fl-view-list"  title="List" aria-label="List"><i data-icon="list" data-size="14"></i></button>
             <button class="seg-btn view-btn"        id="fl-view-thumb" title="Thumbnails" aria-label="Thumbnails"><i data-icon="grid" data-size="14"></i></button>
           </div>
+          <!-- Search (Ctrl+F) -->
+          <label class="toolbar-search crumb-search" for="search-input" title="Search this folder (Ctrl+F)">
+            <i data-icon="search" data-size="13"></i>
+            <input type="text" id="search-input" placeholder="Search" autocomplete="off" spellcheck="false">
+          </label>
         </div>
 
         <!-- Column header (list view) / zoom (thumbnail view) -->
