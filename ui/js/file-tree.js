@@ -705,6 +705,7 @@ const FileTree = (() => {
   const TYPE_PAUSE = 1200;               // ms between keys before a new search
   let _typeBuffer = '';
   let _typeTimer  = null;
+  let _typeGuardUntil = 0;              // Backspace right after typing never leaves the folder
 
   function _typeHint(text, found) {
     let el = document.getElementById('type-select-hint');
@@ -726,6 +727,7 @@ const FileTree = (() => {
     _typeBuffer += ch;
     clearTimeout(_typeTimer);
     _typeTimer = setTimeout(() => { _typeBuffer = ''; _typeHint(''); }, TYPE_PAUSE);
+    _typeGuardUntil = Date.now() + TYPE_PAUSE + 300;
     const names = _filtered.map(e => e.name);
     let buf = _typeBuffer, again = fresh;
     // the same letter pressed again and again → next item with that letter
@@ -735,6 +737,26 @@ const FileTree = (() => {
     const idx = TypeSelect.find(names, buf, _focusIdx, again);
     _typeHint(_typeBuffer, idx >= 0);
     if (idx < 0) return;
+    _focusIdx = idx;
+    _selected.clear();
+    _selected.add(_filtered[idx].path);
+    _shiftAnchor = idx;
+    _renderCurrent();
+    _selectionChanged();
+    _scrollFocusedIntoView();
+  }
+
+  // Backspace while typing: remove the last letter and search again. It never
+  // leaves the folder; once nothing is left, the next Backspace goes up as usual
+  // (after the pause).
+  function _typeBackspace() {
+    _typeBuffer = _typeBuffer.slice(0, -1);
+    clearTimeout(_typeTimer);
+    _typeTimer = setTimeout(() => { _typeBuffer = ''; _typeHint(''); }, TYPE_PAUSE);
+    if (!_typeBuffer) { _typeHint(''); _typeGuardUntil = Date.now() + TYPE_PAUSE; return; }
+    const idx = TypeSelect.find(_filtered.map(x => x.name), _typeBuffer, _focusIdx, false);
+    _typeHint(_typeBuffer, idx >= 0);
+    if (idx < 0 || idx === _focusIdx) return;
     _focusIdx = idx;
     _selected.clear();
     _selected.add(_filtered[idx].path);
@@ -772,6 +794,11 @@ const FileTree = (() => {
         return;
       }
 
+      if (e.key === 'Backspace' && !e.ctrlKey && !e.altKey && (_typeBuffer || Date.now() < _typeGuardUntil)) {
+        e.preventDefault();
+        if (_typeBuffer) _typeBackspace(); else _typeGuardUntil = Date.now() + TYPE_PAUSE;
+        return;
+      }
       if (e.key.length > 1 && _typeBuffer) { _typeBuffer = ''; clearTimeout(_typeTimer); _typeHint(''); }
 
       // ── → / ← / * : open and close folders inline (list view) ─────────────
@@ -846,6 +873,7 @@ const FileTree = (() => {
         return;
 
       // ── Backspace: go up one folder ────────────────────────────────────
+      // (while a word is being typed it only removes the last letter)
       } else if (e.key === 'Backspace' && !e.ctrlKey && !e.shiftKey) {
         e.preventDefault();
         App.navUp();     // "C:\Users" → "C:\" (not "C:", which is drive C's cwd)

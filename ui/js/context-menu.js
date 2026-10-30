@@ -191,9 +191,22 @@ const ContextMenu = (() => {
     _sep(menu);
 
     // Section: folder ops (directory only)
+    // Open folders in place in the file list (the › arrow / → / ←)
     if (isDir) {
-      _item(menu, 'chevrons-up-down', 'Expand All', '', () => { hide(); FileTree.expandAll(); });
-      _item(menu, 'chevrons-down-up', 'Collapse All', '', () => { hide(); FileTree.collapseAll(); });
+      const dirs = entries.filter(e => e.is_dir);
+      if (dirs.length === 1) {
+        const d = dirs[0];
+        if (d.expanded) _item(menu, 'chevron-down', 'Collapse', '←', () => { hide(); FileTree.setExpanded(d.path, false); });
+        else _item(menu, 'chevron-right', 'Expand', '→', () => { hide(); FileTree.setExpanded(d.path, true); });
+        _item(menu, 'chevrons-up-down', 'Expand Everything Inside', '*', () => { hide(); FileTree.listExpandAll(d); });
+      } else {
+        _item(menu, 'chevrons-up-down', `Expand ${dirs.length} Folders`, '', async () => {
+          hide();
+          for (const d of dirs) await FileTree.setExpanded(d.path, true);
+        });
+      }
+      _item(menu, 'chevrons-up-down', 'Expand All Folders', '', () => { hide(); FileTree.listExpandAll(); });
+      _item(menu, 'chevrons-down-up', 'Collapse All Folders', '', () => { hide(); FileTree.listCollapseAll(); });
       _sep(menu);
     }
 
