@@ -666,6 +666,17 @@ const Dialogs = (() => {
             </div>
           </div>
         </section>
+
+        <section class="settings-group">
+          <div class="settings-group-head">${Icons.svg('folder', 16)}File list</div>
+          <div class="settings-row">
+            <span class="field-label">Folder sizes</span>
+            <div>
+              <label class="switch"><input type="checkbox" id="s-foldersizes"><span class="switch-track"></span>Show folder sizes</label>
+              <div class="field-hint">Counted in the background. Switch off for slow network drives.</div>
+            </div>
+          </div>
+        </section>
       </div>`;
 
     _openModal('settings', 'Settings', body, [
@@ -696,6 +707,12 @@ const Dialogs = (() => {
       const sel = document.getElementById('s-theme');
       if (sel) sel.value = b.dataset.themeVal;
     }));
+    // Folder sizes: applied right away (a preference of this PC)
+    const fsBox = document.getElementById('s-foldersizes');
+    if (fsBox && window.FileTree && FileTree.folderSizesOn) {
+      fsBox.checked = FileTree.folderSizesOn();
+      fsBox.addEventListener('change', () => FileTree.setFolderSizes(fsBox.checked));
+    }
     // File Explorer right-click menu: applied right away (not on Save)
     const shellBox = document.getElementById('s-shellmenu');
     if (shellBox) {

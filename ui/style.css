@@ -1995,3 +1995,5 @@ mark.hl { background: transparent; color: var(--accent-text); font-weight: var(-
   background: transparent; color: var(--text-muted); border-radius: var(--radius-sm); cursor: pointer;
 }
 .file-item .twisty:hover { background: var(--bg-active); color: var(--text-primary); }
+
+.file-item .size.is-pending { color: var(--text-disabled); }

@@ -68,6 +68,7 @@ datas = [
     ("ed25519_pure.py",      "."),
     ("license_client.py",    "."),   # online key checks against the portal
     ("path_input.py",        "."),   # typed / pasted paths (breadcrumb box)
+    ("folder_size.py",       "."),   # folder sizes for the Size column
     ("revoked_keys.json",    "."),   # withdrawn key ids (dashboard writes it)
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
@@ -126,6 +127,7 @@ hiddenimports = [
     "ed25519_pure",
     "license_client",
     "path_input",
+    "folder_size",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
