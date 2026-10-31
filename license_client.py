@@ -24,7 +24,7 @@ import ed25519_pure
 import license_keys
 
 # The live portal, e.g. "https://portal.example.com". Empty = offline keys only.
-SERVER_URL = ""
+SERVER_URL = "https://officeaxe-8a44f.web.app"
 ENV_SERVER = "OFFICEAXE_LICENSE_SERVER"
 GRACE_DAYS = 7
 CHECK_EVERY_HOURS = 24
