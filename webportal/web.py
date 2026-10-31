@@ -267,8 +267,8 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "", de
 <meta property="og:image" content="/static/video/poster.jpg">
 <meta name="theme-color" content="#2f6bff">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/portal.css?v=4">
-<script src="/static/portal.js?v=4" defer></script>
+<link rel="stylesheet" href="/static/portal.css?v=6">
+<script src="/static/portal.js?v=7" defer></script>
 </head><body class="{'admin' if admin else 'public'}">
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
@@ -374,7 +374,7 @@ class Portal:
         ("qr", "Read QR codes", "From a file or anywhere on screen, with link safety checks."),
         ("lock", "ZIP and passwords", "Zip folders, unzip archives and lock PDFs or ZIPs with a password."),
         ("record", "Screen recorder", "Record the screen or take screenshots, with your microphone if you like."),
-        ("key", "One plan, five PCs", "A subscription works on up to five computers; keys activate in seconds."),
+        ("key", "Buy one, get one", "One subscription works on 2 PCs — your office PC and one more; keys activate in seconds."),
     ]
 
     def landing(self) -> Response:
@@ -384,13 +384,15 @@ class Portal:
             cur = {}
         ver = str(cur.get("version") or "")
         feats = "".join(f"""
-          <article class="feat"><span class="feat-ic">{icon(k)}</span>
-            <h3>{e(t)}</h3><p>{e(d)}</p></article>""" for k, t, d in self.FEATURES)
+          <article class="feat" tabindex="0" role="button" aria-expanded="false" data-shot="/static/feat/{n:02d}.webp"
+                   aria-label="{e(t)} — show a screenshot"><span class="feat-ic">{icon(k)}</span>
+            <h3>{e(t)}</h3><p>{e(d)}</p><span class="feat-peek">{icon("eye", 14)}See it</span></article>"""
+                        for n, (k, t, d) in enumerate(self.FEATURES, 1))
         faq = [
             ("Which computers does it run on?", "Windows 10 and Windows 11 PCs."),
             ("Does it need the internet?", "No — your files are handled on your own PC. A license key is checked online "
              "now and then; without internet Office Axe keeps working for 7 days after the last check."),
-            ("How many PCs can I use?", "One subscription covers up to 5 PCs. A review or trial key may allow fewer."),
+            ("How many PCs can I use?", "Buy one, get one: one subscription covers 2 PCs. A review or trial key may allow 1."),
             ("Are my documents uploaded anywhere?", "No. Office Axe works on the files on your PC. Only the optional "
              "“AI suit and tie” tool sends the photo you choose to OpenAI to create the new picture."),
             ("How do updates work?", "When a new version is published, the installed app shows “Update Now”."),
@@ -410,7 +412,7 @@ class Portal:
     </div>
     <ul class="ticks">
       <li>{icon("check", 16)}Windows 10 &amp; 11</li><li>{icon("check", 16)}Works with your files offline</li>
-      <li>{icon("check", 16)}Up to 5 PCs per plan</li>
+      <li>{icon("check", 16)}Buy one, get one: 2 PCs per plan</li>
     </ul>
     {self._release_strip()}
   </div>
@@ -427,9 +429,10 @@ class Portal:
 {self._slider_html()}
 
 <section id="pricing" class="section alt">
-  <div class="section-head"><p class="eyebrow">Pricing</p><h2>Simple plans, all tools included</h2>
-    <p class="muted">Prices in Bangladeshi taka. Prepaid — no automatic renewal.</p></div>
+  <div class="section-head"><p class="eyebrow">Pricing</p><h2>One plan, every tool — on 2 PCs</h2>
+    <p class="muted">Buy one, get one. Prices in Bangladeshi taka. Prepaid — no automatic renewal.</p></div>
   {self._plans_html()}
+  <p class="center"><a href="/pricing/">Compare plans and billing questions →</a></p>
 </section>
 
 <section id="activate" class="section">
@@ -452,18 +455,93 @@ class Portal:
 </section>"""
         return Response(page("Every office file job, in one app", body))
 
-    def _plans_html(self) -> str:
-        return """
-  <div class="plans">
-    <div class="plan"><h3>Monthly</h3><div class="price">৳999<span>/ month</span></div>
-      <ul><li>All 17 tools</li><li>Up to 5 PCs</li><li>Updates included</li><li>No auto-renew</li></ul>
-      <a class="btn wide-btn" href="/download">Get started</a></div>
-    <div class="plan best"><div class="badge">Save 17%</div><h3>Yearly</h3>
-      <div class="price">৳9,999<span>/ year</span></div><div class="was">৳11,988</div>
-      <ul><li>All 17 tools</li><li>Up to 5 PCs</li><li>Updates included</li><li>Two months free</li></ul>
-      <a class="btn primary wide-btn" href="/download">Get started</a></div>
-  </div>
-  <p class="muted small center">Pay with bKash, Nagad or Visa / Mastercard inside the app.</p>"""
+    PLAN_GROUPS = [
+        ("Files and folders", ["File workspace with instant preview", "A folder for every name in a list",
+                               "Smart rename", "Undo / redo for every action", "Folder sizes, type-to-find, open folders in place",
+                               "“Office Axe” in the File Explorer right-click menu"]),
+        ("PDF tools", ["Merge, split and extract pages", "Arrange pages: rotate, reorder, zoom",
+                       "Fill forms, sign, add a photo", "Edit text and pictures in a PDF", "Protect a PDF with a password"]),
+        ("Convert and compress", ["Word, Excel, PowerPoint and photos to PDF", "PDF pages to images",
+                                  "Compress a PDF to a target size"]),
+        ("Photo and AI", ["Passport and visa photo sizes", "Mark up images", "AI suit and tie (uses OpenAI when you choose it)"]),
+        ("QR, ZIP and recorder", ["Read QR codes from files or the screen", "ZIP / unzip with passwords",
+                                  "Screen recorder and screenshots"]),
+    ]
+
+    def _plans_html(self, full: bool = False) -> str:
+        """The plan card(s). The switch only changes what is shown (JS); without
+        JS both prices are visible."""
+        inc = "".join(f'<li>{icon("check", 16)}{e(x)}</li>' for x in [
+            "2 PCs — buy one, get one", "All 17 tools", "Free updates during your plan", "Works with your files offline",
+            "Manage your PCs in the app", "Pay with bKash, Nagad or card"])
+        return f"""
+  <div class="billing" data-period="yearly">
+    <div class="period-switch" role="radiogroup" aria-label="Billing period">
+      <button type="button" role="radio" aria-checked="false" data-period="monthly">Monthly</button>
+      <button type="button" role="radio" aria-checked="true" data-period="yearly">Yearly <span class="save">Save 17%</span></button>
+    </div>
+    <div class="plans">
+      <div class="plan" data-plan="monthly">
+        <h3>Monthly</h3>
+        <div class="price">৳999<span>/ month</span></div>
+        <p class="muted small">Billed every month · prepaid, no auto-renew</p>
+        <ul class="inc">{inc}</ul>
+        <a class="btn wide-btn" href="/download">{icon("download", 16)}Download and buy monthly</a>
+      </div>
+      <div class="plan best" data-plan="yearly">
+        <div class="badge">Best value · Save 17%</div>
+        <h3>Yearly</h3>
+        <div class="price">৳9,999<span>/ year</span></div>
+        <div class="per">≈ ৳833 a month · <s>৳11,988</s></div>
+        <p class="muted small">Billed once a year · prepaid, no auto-renew</p>
+        <ul class="inc">{inc}</ul>
+        <a class="btn primary wide-btn" href="/download">{icon("download", 16)}Download and buy yearly</a>
+      </div>
+    </div>
+    <p class="muted small center">You buy inside the app: open Office Axe → choose a plan → pay with bKash, Nagad or card.</p>
+  </div>"""
+
+    def _pricing_details_html(self) -> str:
+        tick = icon("check", 16)
+        rows = "".join(
+            f'<tr class="grp"><th colspan="3">{e(g)}</th></tr>' +
+            "".join(f'<tr><td>{e(x)}</td><td class="c">{tick}</td><td class="c">{tick}</td></tr>' for x in items)
+            for g, items in self.PLAN_GROUPS)
+        faq = [
+            ("What happens when my plan ends?", "The tools lock until you renew. Your files stay exactly where they are — "
+             "nothing on your PC is changed or removed."),
+            ("Can I renew early?", "Yes. The new period starts when your current one ends, so no days are lost."),
+            ("Can I switch from monthly to yearly?", "Yes — buy the yearly plan in the app. It starts when your current "
+             "month ends."),
+            ("Can I use a 3rd PC?", "One subscription covers 2 PCs. For more PCs, buy another subscription."),
+            ("I got a new PC — how do I move?", "Open Subscription in the app and remove the old PC, then activate on "
+             "the new one with your license key."),
+            ("How do I pay?", "Inside the app with bKash, Nagad or a Visa / Mastercard card."),
+            ("Do I get a receipt?", "Yes. Every payment is listed on the app's Subscription page with its order number "
+             "and payment reference."),
+            ("What are review and trial keys?", "Keys Office Axe gives out for testing or reviews. They run for a set "
+             "number of days, usually on 1 PC."),
+        ]
+        faq_html = "".join(f'<details class="faq-item"><summary>{e(q)}</summary><p>{e(a)}</p></details>' for q, a in faq)
+        return f"""
+<section class="section">
+  <div class="section-head"><p class="eyebrow">Compare</p><h2>What's included</h2>
+    <p class="muted">Both plans include everything — the only difference is how you pay.</p></div>
+  <div class="table-scroll"><table class="compare">
+    <thead><tr><th></th><th>Monthly</th><th>Yearly</th></tr></thead>
+    <tbody>
+      <tr><td>Price</td><td class="c"><b>৳999</b> / month</td><td class="c"><b>৳9,999</b> / year<br><span class="muted small">≈ ৳833 / month</span></td></tr>
+      <tr><td>PCs per subscription</td><td class="c">2 (buy one, get one)</td><td class="c">2 (buy one, get one)</td></tr>
+      <tr><td>Free updates during the plan</td><td class="c">{tick}</td><td class="c">{tick}</td></tr>
+      <tr><td>Works offline</td><td class="c">{tick}</td><td class="c">{tick}</td></tr>
+      {rows}
+    </tbody>
+  </table></div>
+</section>
+<section class="section alt">
+  <div class="section-head"><p class="eyebrow">Billing</p><h2>Questions about plans</h2></div>
+  <div class="faq">{faq_html}</div>
+</section>"""
 
     # ── pages the earlier OfficeAxe site had (same addresses) ────────────────
     def document_page(self) -> Response:
@@ -488,11 +566,13 @@ class Portal:
     def pricing_page(self) -> Response:
         body = f"""
 <section class="section">
-  <div class="section-head"><p class="eyebrow">Pricing</p><h1>OfficeAxe plans</h1>
-    <p class="muted">Prices are in Bangladeshi taka. Prepaid — no automatic renewal.</p></div>
-  {self._plans_html()}
-</section>"""
-        return Response(page("OfficeAxe pricing", body))
+  <div class="section-head"><p class="eyebrow">Pricing</p><h1>One plan, every tool — on 2 PCs</h1>
+    <p class="muted">Buy one, get one: each subscription works on two computers. Prices in Bangladeshi taka.</p></div>
+  {self._plans_html(full=True)}
+</section>
+{self._pricing_details_html()}"""
+        return Response(page("OfficeAxe pricing", body, description="Office Axe plans: ৳999 a month or ৳9,999 a year, "
+                                                                      "2 PCs per subscription, all 17 tools."))
 
     def _release_strip(self) -> str:
         try:
@@ -589,14 +669,14 @@ class Portal:
                              "<p>The installer will be available here shortly.</p></section>"))
 
     def static(self, name: str) -> Response:
-        if not re.fullmatch(r"[A-Za-z0-9_\-/]+\.(css|js|jpg|png|svg|ico|vtt|json)", name) or ".." in name:
+        if not re.fullmatch(r"[A-Za-z0-9_\-/]+\.(css|js|jpg|png|webp|svg|ico|vtt|json)", name) or ".." in name:
             return not_found()
         path = os.path.join(STATIC, *name.split("/"))
         if not os.path.isfile(path):
             return not_found()
         with open(path, "rb") as fh:
             data = fh.read()
-        ctype = "text/vtt; charset=utf-8" if path.endswith(".vtt") else \
+        ctype = "text/vtt; charset=utf-8" if path.endswith(".vtt") else "image/webp" if path.endswith(".webp") else \
             (mimetypes.guess_type(path)[0] or "application/octet-stream")
         return Response(data, ctype=ctype, headers=[("Cache-Control", "public, max-age=3600")])
 

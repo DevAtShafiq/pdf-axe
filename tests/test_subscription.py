@@ -58,7 +58,7 @@ def test_plans_and_prices():
 def test_no_subscription_blocks_access(tmp_path, clock):
     s = _mgr(tmp_path, clock).state()
     assert s["access"] is False and s["status"] == "none" and s["reason"] == "none"
-    assert s["max_devices"] == 5 and s["gateway"]["sandbox"] is True
+    assert s["max_devices"] == 2 and s["gateway"]["sandbox"] is True
 
 
 def test_sandbox_checkout_activates_and_records_payment(tmp_path, clock):
@@ -123,27 +123,28 @@ def test_gateway_unavailable_without_sandbox(tmp_path, clock):
     assert not r["ok"] and r["gateway_unavailable"]
 
 
-def test_device_limit_of_five(tmp_path, clock):
+def test_device_limit_of_two(tmp_path, clock):
+    """Buy one, get one: one subscription works on 2 PCs."""
     path = str(tmp_path / "sub.json")
     owner = _mgr(tmp_path, clock)
     _buy(owner)
     backend = sub.LocalLicenseBackend(path, secret="test")
     rec = backend.load()
-    for i in range(2, 6):
-        rec["devices"].append(dict(_dev(i), added_at="2026-01-31T10:00:00Z", last_seen=""))
+    rec["devices"].append(dict(_dev(2), added_at="2026-01-31T10:00:00Z", last_seen=""))
     backend.save(rec)
 
-    sixth = sub.SubscriptionManager(backend=backend, gateway=sub.PlaceholderGateway(True),
-                                    device=_dev(6), now=clock)
-    s = sixth.state()
+    third = sub.SubscriptionManager(backend=backend, gateway=sub.PlaceholderGateway(True),
+                                    device=_dev(3), now=clock)
+    s = third.state()
+    assert s["max_devices"] == 2
     assert s["status"] == "active" and not s["access"] and s["reason"] == "device_limit"
-    assert not sixth.activate_this_device()["ok"]
+    assert not third.activate_this_device()["ok"]
     key = s["license_key"]
-    assert sixth.activate_key(key)["device_limit"]
+    assert third.activate_key(key)["device_limit"]
 
-    assert sixth.remove_device("dev_3")["ok"]
-    r = sixth.activate_key(key)
-    assert r["ok"] and r["state"]["access"] and r["state"]["device_count"] == 5
+    assert third.remove_device("dev_2")["ok"]
+    r = third.activate_key(key)
+    assert r["ok"] and r["state"]["access"] and r["state"]["device_count"] == 2
 
 
 def test_unknown_key_needs_server(tmp_path, clock):

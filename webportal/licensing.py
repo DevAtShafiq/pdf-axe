@@ -31,7 +31,7 @@ from store import Store, iso, parse_iso  # noqa: E402
 
 RESPONSE_CONTEXT = b"OfficeAxe-portal-v1:"
 DEFAULT_DAYS = 30
-DEFAULT_DEVICES = {"review": 1, "trial": 1, "full": 5}
+DEFAULT_DEVICES = {"review": 1, "trial": 1, "full": 2}
 
 
 def sign_payload(seed: bytes, payload: dict) -> dict:
