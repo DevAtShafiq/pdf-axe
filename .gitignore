@@ -27,3 +27,7 @@ issued_keys.json
 webportal/data/
 webportal/deploy/.env
 webportal/deploy/secrets/
+
+# Firebase deploy bundle (made by webportal/firebase/prepare.py)
+webportal/firebase/build/
+webportal/firebase/.firebase/

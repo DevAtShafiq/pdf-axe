@@ -1,0 +1,24 @@
+{
+  "hosting": {
+    "public": "build/public",
+    "ignore": ["firebase.json", "**/.*"],
+    "rewrites": [
+      { "source": "**", "function": { "functionId": "portal", "region": "asia-southeast1" } }
+    ],
+    "headers": [
+      { "source": "/static/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600" }] },
+      { "source": "/media/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] }
+    ]
+  },
+  "functions": [
+    {
+      "source": "build/functions",
+      "codebase": "officeaxe",
+      "runtime": "python311",
+      "ignore": ["venv", "__pycache__", "*.pyc"]
+    }
+  ],
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

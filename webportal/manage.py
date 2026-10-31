@@ -28,12 +28,25 @@ def main(argv=None) -> int:
     r.add_argument("--host", default="127.0.0.1")
     r.add_argument("--port", type=int, default=8090)
     sub.add_parser("set-password")
+    sub.add_parser("hash-password", help="print a password hash for OFFICEAXE_ADMIN_PASSWORD_HASH")
     i = sub.add_parser("import-desktop")
     i.add_argument("path", nargs="?", default=os.path.join(os.path.expanduser("~"), "OfficeAxeAdmin",
                                                            "issued_keys.json"))
     sub.add_parser("public-key")
     a = ap.parse_args(argv)
     cfg = Config()
+
+    if a.cmd == "hash-password":
+        from auth import hash_password, password_problem
+        pw = getpass.getpass("Admin password for the server: ")
+        if pw != getpass.getpass("Repeat it: "):
+            print("The passwords don't match.")
+            return 1
+        if password_problem(pw):
+            print(password_problem(pw))
+            return 1
+        print(hash_password(pw))
+        return 0
 
     if a.cmd == "set-password":
         acct = AdminAccount(cfg.admin_file, cfg.admin_user)

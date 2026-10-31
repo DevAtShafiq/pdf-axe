@@ -117,3 +117,47 @@ These cover login, CSRF, the rate limit, key pages, import, the API (device
 limit, revoke, expiry, forged keys) and the app's online checks (device limit
 across PCs, revocation at the next check, the 7-day offline grace, forged
 server answers). The tests never touch the network.
+
+## Deploy on Firebase (Hosting + Cloud Functions 2nd gen + Firestore)
+
+Everything for Firebase is in `webportal/firebase/`.
+
+- **Hosting** serves `/static/**` (pages, images, captions) and `/media/office-axe-demo.mp4`.
+- Every other address goes to the **`portal` function**: the same portal code, running on Cloud Run under the hood, in region asia-southeast1.
+- **Data** lives in **Firestore** (collections `oa_*`). Locally and in the tests, the portal keeps using SQLite.
+- **Secrets** come from **Secret Manager**, never from the code or git:
+
+| Secret | What it is |
+|---|---|
+| `OFFICEAXE_SIGNING_KEY` | your license signing key (the desktop dashboard's `signing_key.json`) |
+| `OFFICEAXE_SESSION_SECRET` | random, signs the admin login cookie |
+| `OFFICEAXE_ADMIN_PASSWORD_HASH` | the first admin password (a hash). A changed password is then kept in Firestore. |
+
+One-time setup:
+
+1. In the Firebase console, create the Firestore database in **production mode**, location `asia-southeast1`. The project needs the Blaze plan.
+2. Sign in to the Firebase CLI once:
+   ```
+   firebase login
+   ```
+3. Copy `.firebaserc.example` to `.firebaserc` and put in your project ID (`firebase projects:list` shows it).
+4. Upload the secrets, from `webportal/firebase`:
+   ```
+   firebase functions:secrets:set OFFICEAXE_SIGNING_KEY --data-file "%USERPROFILE%\OfficeAxeAdmin\signing_key.json"
+   python -c "import secrets; print(secrets.token_hex(32))" > %TEMP%\oa_session.txt
+   firebase functions:secrets:set OFFICEAXE_SESSION_SECRET --data-file %TEMP%\oa_session.txt
+   python ..\manage.py hash-password > %TEMP%\oa_admin_hash.txt
+   firebase functions:secrets:set OFFICEAXE_ADMIN_PASSWORD_HASH --data-file %TEMP%\oa_admin_hash.txt
+   ```
+   (`hash-password` asks for the password twice and doesn't show it. Afterwards, remove the two temp files yourself.)
+
+Each deploy:
+
+```
+python webportal/firebase/prepare.py --venv --download-url "https://…/OfficeAxe.zip"
+cd webportal/firebase
+firebase deploy --only hosting,functions:officeaxe
+```
+
+- `prepare.py` builds `webportal/firebase/build/`, which git ignores.
+- `firebase.json` also holds strict Firestore rules (no browser access). Deploy them with `--only firestore:rules` only if nothing else in the project uses Firestore from a browser.
