@@ -1,0 +1,101 @@
+/* ============================================================
+   archive.css — ZIP / unzip and ZIP + PDF password dialogs,
+   the ZIP preview, details section and job card (ui/js/archive.js).
+   Built on the shared components in style.css; tokens only.
+   ============================================================ */
+
+.ax-modal { width: min(540px, 96vw); }
+.ax-modal.ax-ask { width: min(420px, 94vw); }
+.ax-modal.ax-view { width: min(760px, 96vw); }
+.ax-modal .modal-body { gap: var(--space-4); }
+.ax-msg { margin: 0; color: var(--text-secondary); font-size: var(--fs-base); line-height: var(--lh); }
+
+.ax-hint { display: flex; align-items: flex-start; gap: var(--space-2); }
+.ax-hint > svg { flex-shrink: 0; margin-top: 1px; color: var(--text-muted); }
+.ax-hint strong { color: var(--text-primary); font-weight: var(--fw-semibold); word-break: break-all; }
+.ax-callout { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--fs-sm); line-height: var(--lh); }
+
+/* ── password fields ───────────────────────────────────────── */
+.ax-pw .input-text { font-family: var(--font); letter-spacing: .02em; }
+.ax-pw .input-action { color: var(--text-muted); }
+.ax-pw .input-action:hover { color: var(--text-primary); }
+.ax-pw-section { display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-panel); }
+.ax-pw-section .pill svg { margin-right: 0; }
+.ax-pw-section.is-disabled .switch { color: var(--text-disabled); cursor: not-allowed; }
+.ax-pw-box { display: flex; flex-direction: column; gap: var(--space-3); }
+.ax-pw-box.hidden { display: none; }
+
+.ax-strength { display: grid; grid-template-columns: repeat(4, 1fr) auto; align-items: center; gap: 4px; margin-top: 2px; }
+.ax-strength span { height: 4px; border-radius: var(--radius-full); background: var(--bg-active); transition: background var(--transition); }
+.ax-strength em { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); min-width: 56px; text-align: right; }
+.ax-strength[data-score="1"] span:nth-child(-n+1) { background: var(--red); }
+.ax-strength[data-score="2"] span:nth-child(-n+2) { background: var(--orange); }
+.ax-strength[data-score="3"] span:nth-child(-n+3) { background: var(--yellow); }
+.ax-strength[data-score="4"] span:nth-child(-n+4) { background: var(--green); }
+
+.ax-perms { display: flex; flex-direction: column; gap: var(--space-2); }
+.ax-perm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-1); }
+.ax-perm-grid .check { font-size: var(--fs-sm); color: var(--text-secondary); display: flex; align-items: center; gap: var(--space-2); }
+
+/* ── View contents ─────────────────────────────────────────── */
+.ax-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4);
+  font-size: var(--fs-sm); color: var(--text-secondary); }
+.ax-summary > span:not(.pill) { display: inline-flex; align-items: center; gap: 6px; }
+.ax-summary strong { color: var(--text-primary); }
+.ax-table-wrap { max-height: 52vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-panel); }
+.ax-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); table-layout: fixed; }
+.ax-table th { position: sticky; top: 0; z-index: 1; background: var(--bg-surface-2); color: var(--text-muted);
+  font-weight: var(--fw-semibold); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
+  text-align: left; padding: 6px var(--space-2); border-bottom: 1px solid var(--border); }
+.ax-table td { padding: 4px var(--space-2); border-bottom: 1px solid var(--border); color: var(--text-primary); }
+.ax-table tbody tr { cursor: pointer; }
+.ax-table tbody tr:hover { background: var(--bg-hover); }
+.ax-table tbody tr.is-selected { background: var(--bg-selected); }
+.ax-table tbody tr:last-child td { border-bottom: none; }
+.ax-c-check { width: 32px; text-align: center !important; }
+.ax-c-num { width: 84px; text-align: right !important; color: var(--text-secondary) !important; font-variant-numeric: tabular-nums; }
+.ax-c-date { width: 132px; color: var(--text-muted) !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ax-name { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: calc(var(--depth, 0) * 16px); }
+.ax-name > svg { flex-shrink: 0; }
+.ax-lock { display: inline-flex; color: var(--yellow); flex-shrink: 0; }
+
+/* ── Preview pane (ZIP summary / locked PDF) ───────────────── */
+.ax-pv { width: min(560px, 100%); display: flex; flex-direction: column; gap: var(--space-3); text-align: left; color: var(--text-primary); }
+.ax-pv > .loading-spinner { margin: var(--space-6) auto; }
+.ax-pv-head { display: flex; align-items: center; gap: var(--space-3); }
+.ax-pv-icon { width: 44px; height: 44px; border-radius: var(--radius-lg); display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--ft-zip) 16%, transparent); color: var(--ft-zip); flex-shrink: 0; }
+.ax-pv-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ax-pv-title strong { font-size: var(--fs-md); font-weight: var(--fw-semibold); }
+.ax-pv-title span { font-size: var(--fs-sm); color: var(--text-muted); }
+.ax-pv-list { list-style: none; margin: 0; padding: var(--space-1) 0; max-height: 46vh; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.ax-pv-list li { display: flex; align-items: center; gap: var(--space-2); padding: 4px var(--space-3); font-size: var(--fs-sm); min-width: 0; }
+.ax-pv-list li > svg { flex-shrink: 0; }
+.ax-pv-list li .truncate { flex: 1; min-width: 0; }
+.ax-pv-size { color: var(--text-muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.ax-pv-more { color: var(--text-muted); justify-content: center; }
+.ax-pv-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.ax-locked { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
+.ax-locked .empty-state-icon { color: var(--yellow); }
+.ax-locked .ax-pv-actions { margin-top: var(--space-2); justify-content: center; }
+
+/* ── Details section ───────────────────────────────────────── */
+#archive-section .detail-section-title { justify-content: space-between; }
+.ax-pill { text-transform: none; letter-spacing: 0; }
+
+/* ── Job card (sits in the toast stack) ────────────────────── */
+.toast.ax-job { width: 340px; max-width: 340px; }
+.ax-job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ax-job-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.ax-job-head strong { font-weight: var(--fw-semibold); min-width: 0; }
+.ax-job-file { font-size: var(--fs-xs); color: var(--text-muted); }
+.ax-job-pct { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ax-job-pct:empty { display: none; }
+.ax-job-cancel { flex-shrink: 0; }
+
+@media (max-width: 560px) {
+  .ax-hide-sm { display: none; }
+  .ax-perm-grid { grid-template-columns: 1fr; }
+}

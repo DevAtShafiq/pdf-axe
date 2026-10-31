@@ -23,9 +23,9 @@ for _f in _glob.glob("ui/**/*", recursive=True):
 
 # ── User data files that must live next to the EXE ───────────────────────────
 _user_data = []
+# Never bundle .env (OpenAI key, server secrets) or sfm_settings.json
+# (personal settings / API key): the EXE is shared with staff.
 for _fname in (
-    ".env",
-    "sfm_settings.json",
     "document_name_templates.txt",
     "sfm_rename_templates.json",
     "sfm_name_templates.json",
@@ -38,12 +38,48 @@ datas = [
     ("sfm_bridge.py",   "."),
     ("main_webview.py", "."),
     ("file_ops.py",     "."),
-    ("apostille_matcher.py",   "."),
-    ("watch_folder_service.py","."),
     ("ai_photo_editor.py",     "."),
     ("qr_screen_capture.py",   "."),
+    ("rename_templates.py",    "."),   # document-name templates (F2 rename suggestions)
     ("student_folder_maker.py","."),   # lazily imported for rename templates
     ("excel_grid.py",          "."),   # imported by student_folder_maker
+    ("media_convert.py",       "."),   # image<->PDF conversion + PDF/image compression
+    ("pdf_tools.py",         "."),
+    ("pdf_tools_bridge.py",  "."),
+    ("annotate.py",          "."),   # annotation engine (PDF + image)
+    ("annotate_bridge.py",   "."),
+    ("pdf_edit.py",          "."),   # PDF text editing engine (Edit text)
+    ("pdf_edit_bridge.py",   "."),
+    ("pdf_objects.py",       "."),   # Edit: images / vector objects engine
+    ("pdf_studio.py",        "."),
+    ("studio_bridge.py",     "."),
+    ("pdf_form.py",          "."),   # Fill form (AcroForm fields)
+    ("qr_scan.py",           "."),
+    ("qr_pick.py",           "."),   # QR pick overlay (helper process: EXE --qr-pick)
+    ("image_crop.py",        "."),
+    ("photo_size.py",        "."),   # Crop to photo size (passport / visa presets)
+    ("subscription.py",      "."),   # plans, devices, payments (gateway seam)
+    ("subscription_bridge.py", "."), # subscription JS API + access gate
+    ("recycle_bin.py",       "."),   # Delete → Recycle Bin, Ctrl+Z restore
+    ("shell_menu.py",        "."),   # File Explorer right-click menu (HKCU)
+    ("shell_ipc.py",         "."),   # hand files from Explorer to the running app
+    ("shell_bridge.py",      "."),
+    ("license_keys.py",      "."),   # signed offline license keys
+    ("ed25519_pure.py",      "."),
+    ("license_client.py",    "."),   # online key checks against the portal
+    ("path_input.py",        "."),   # typed / pasted paths (breadcrumb box)
+    ("folder_size.py",       "."),   # folder sizes for the Size column
+    ("drag_out.py",          "."),   # drag files out to other apps (OLE)
+    ("dragdrop_bridge.py",   "."),
+    ("revoked_keys.json",    "."),   # withdrawn key ids (dashboard writes it)
+    ("archive_tools.py",     "."),
+    ("archive_bridge.py",    "."),
+    ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
+    ("doc_preview.py",       "."),   # PDF text layer + Word/Excel/Office previews
+    ("doc_preview_bridge.py", "."),
+    ("docx_edit.py",         "."),   # Word quick edits
+    ("doc_convert.py",       "."),   # Word / HWP(X) → PDF
+    ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -53,14 +89,49 @@ binaries: list = []
 hiddenimports = [
     # ── App modules ──────────────────────────────────────────────────────────
     "file_ops",
-    "apostille_matcher",
-    "watch_folder_service",
     "ai_photo_editor",
     "qr_screen_capture",
+    "rename_templates",
     "excel_grid",
     "student_folder_maker",
     "sfm_bridge",
     "main_webview",
+    "media_convert",
+    "pdf_tools",
+    "pdf_tools_bridge",
+    "annotate",
+    "annotate_bridge",
+    "pdf_edit",
+    "pdf_edit_bridge",
+    "pdf_objects",
+    "pdf_studio",
+    "studio_bridge",
+    "pdf_form",
+    "qr_scan",
+    "qr_pick",
+    "image_crop",
+    "photo_size",
+    "archive_tools",
+    "archive_bridge",
+    "recorder_bridge",
+    "doc_preview",
+    "doc_preview_bridge",
+    "docx_edit",
+    "doc_convert",
+    "screen_pick",
+    "subscription",
+    "subscription_bridge",
+    "recycle_bin",
+    "shell_menu",
+    "shell_ipc",
+    "shell_bridge",
+    "license_keys",
+    "ed25519_pure",
+    "license_client",
+    "path_input",
+    "folder_size",
+    "drag_out",
+    "dragdrop_bridge",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
@@ -86,8 +157,18 @@ hiddenimports = [
     "openpyxl.utils",
     # ── ZIP / network ────────────────────────────────────────────────────────
     "zipfile",
+    "pyzipper",
+    "Cryptodome",
+    "Cryptodome.Cipher.AES",
+    "Cryptodome.Protocol.KDF",
+    "Cryptodome.Hash.HMAC",
+    "Cryptodome.Hash.SHA1",
+    "Cryptodome.Util.Counter",
     "urllib.request",
+    "urllib.parse",
+    "urllib.error",
     "http.client",
+    "mimetypes",
     "ssl",
     # ── Screen / QR ─────────────────────────────────────────────────────────
     "mss",
@@ -171,7 +252,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="StudentFolderMaker",
+    name="OfficeAxe",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -193,5 +274,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=["webview*", "clr*", "*.dll"],
-    name="StudentFolderMaker",
+    name="OfficeAxe",
 )

@@ -1,8 +1,8 @@
 /**
  * details.js — Right-hand details pane
  *
- * Shows file metadata, rename bar with autocomplete,
- * quick actions, and AI photo section.
+ * Shows file metadata, quick actions, and the AI photo section.
+ * (Rename is inline in the file list — see FileTree.startRename.)
  */
 
 const Details = (() => {
@@ -10,29 +10,31 @@ const Details = (() => {
   // ── State ─────────────────────────────────────────────────────────────────
   let _path         = null;
   let _entry        = null;
-  let _suggestions  = [];
-  let _acIdx        = -1;
 
   // ── DOM helpers ───────────────────────────────────────────────────────────
   const $  = id  => document.getElementById(id);
 
   // ── Public: show one file ─────────────────────────────────────────────────
   async function showFile(entry) {
+    if (!entry) { clear(); return; }   // selected item not in the visible list
     _entry = entry;
     _path  = entry.path;
 
     _showPanel();
     _renderBadge(entry);
     _renderRows(entry);
-    _setRenameValue(entry.name);
+    $('quick-actions').classList.remove('hidden');
+    _showConvertAction(entry);
     _showAiSection(entry);
+    _syncOpenWith(entry);
+    // (const globals are not window properties — test with typeof)
+    if (typeof PdfTools !== 'undefined') PdfTools.onDetails(entry);
+    if (typeof Archive !== 'undefined') Archive.onDetails(entry);
 
     try {
       const info = await SFM.getFileInfo(entry.path);
       if (info.ok && _path === entry.path) _enrichDetails(info);
     } catch(e) {}
-
-    _loadSuggestions(entry);
   }
 
   // ── Public: multi-select summary ──────────────────────────────────────────
@@ -40,22 +42,26 @@ const Details = (() => {
     _path  = null;
     _entry = null;
     _showPanel();
-    $('file-type-badge').textContent = '📁';
-    $('file-type-badge').className   = 'type-badge type-folder';
+    $('file-type-badge').innerHTML = Icons.svg('files', 14) + '<span>' + entries.length + ' ITEMS</span>';
+    $('file-type-badge').className = 'type-badge type-file';
 
     const totalSize = entries.reduce((a, e) => a + (e.size || 0), 0);
     _clearRows();
     _addRow('Selected', entries.length + ' items');
     _addRow('Total size', _fmtSize(totalSize));
 
-    $('rename-wrap').classList.add('hidden');
     $('quick-actions').classList.add('hidden');
     $('ai-photo-section').classList.add('hidden');
+    _closeOpenWith();
+    if (typeof PdfTools !== 'undefined') PdfTools.onDetails(null, entries);
+    if (typeof Archive !== 'undefined') Archive.onDetails(null, entries);
   }
 
   // ── Public: clear panel ───────────────────────────────────────────────────
   function clear() {
     _path = null; _entry = null;
+    _closeOpenWith();
+    if (typeof Archive !== 'undefined') Archive.onDetails(null, []);
     $('details-empty').classList.remove('hidden');
     $('details-content').classList.add('hidden');
   }
@@ -80,10 +86,12 @@ const Details = (() => {
       '.txt': ['TXT','type-txt'], '.md':  ['MD','type-txt'],
     };
     if (entry.is_dir) {
-      badge.textContent = '📁'; badge.className = 'type-badge type-folder';
+      badge.innerHTML = Icons.svg('folder', 14) + '<span>FOLDER</span>';
+      badge.className = 'type-badge type-folder';
     } else {
       const [label, cls] = iconMap[ext] || [ext.replace('.','').toUpperCase() || 'FILE', 'type-file'];
-      badge.textContent = label; badge.className = `type-badge ${cls}`;
+      badge.innerHTML = Icons.svg(Icons.fileType(ext).icon, 14) + '<span>' + _esc(label) + '</span>';
+      badge.className = `type-badge ${cls}`;
     }
   }
 
@@ -107,12 +115,14 @@ const Details = (() => {
     _addRow('Name', entry.name);
     _addRow('Type', entry.is_dir ? 'Folder' : (entry.ext || 'File').replace('.','').toUpperCase());
     if (!entry.is_dir) _addRow('Size', _fmtSize(entry.size));
-    _addRow('Modified', _fmtDate(entry.modified));
+    _addRow('Modified', _fmtDate(entry.mtime || entry.modified));
     _addRow('Location', _shortPath(entry.path));
   }
 
   function _enrichDetails(info) {
     if (info.pages)    _addRow('Pages', info.pages);
+    if (info.slides)   _addRow('Slides', info.slides);
+    if (info.words)    _addRow('Words', Number(info.words).toLocaleString());
     if (info.author)   _addRow('Author', info.author);
     if (info.created)  _addRow('Created', _fmtDate(info.created));
     if (info.title)    _addRow('Title', info.title);
@@ -120,178 +130,144 @@ const Details = (() => {
     if (info.sheets?.length) _addRow('Sheets', info.sheets.join(', '));
   }
 
-  // ── Rename bar ────────────────────────────────────────────────────────────
-  function _setRenameValue(name) {
-    const input = $('rename-input');
-    if (!input) return;
-    input.value = name;
-    $('rename-wrap').classList.remove('hidden');
-    $('quick-actions').classList.remove('hidden');
-  }
-
-  async function _loadSuggestions(entry) {
-    try {
-      const r = await SFM.filterSuggestions('', entry.ext || '');
-      _suggestions = r.ok ? (r.suggestions || []) : [];
-    } catch(e) { _suggestions = []; }
-  }
-
-  function _initRenameBar() {
-    const input = $('rename-input');
-    const ac    = $('rename-autocomplete');
-    if (!input || !ac) return;
-
-    input.addEventListener('input', async () => {
-      const q = input.value.trim();
-      _acIdx  = -1;
-      if (!q) { _hideAc(); return; }
-      try {
-        const ext = _entry?.ext || '';
-        const r   = await SFM.filterSuggestions(q, ext);
-        _showAc(r.ok ? (r.suggestions || []) : [], input);
-      } catch(e) { _hideAc(); }
-    });
-
-    input.addEventListener('keydown', async e => {
-      const items = ac.querySelectorAll('.ac-item');
-      if (e.key === 'ArrowDown') { e.preventDefault(); _acIdx = Math.min(_acIdx + 1, items.length - 1); _acHighlight(items); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); _acIdx = Math.max(_acIdx - 1, -1); _acHighlight(items); }
-      else if (e.key === 'Enter' && e.shiftKey) {
-        // Shift+Enter: apply the best template suggestion for this file, then rename.
-        e.preventDefault();
-        let chosen = null;
-        if (_acIdx >= 0 && items[_acIdx]) chosen = items[_acIdx].dataset.val;   // highlighted suggestion
-        else if (items.length)            chosen = items[0].dataset.val;        // top listed suggestion
-        else {
-          // No dropdown open — fetch the best matching template for the current name/ext.
-          try {
-            const r = await SFM.filterSuggestions(input.value.trim(), _entry?.ext || '');
-            const sugg = (r.ok && r.suggestions) ? r.suggestions : [];
-            if (sugg.length) chosen = sugg[0];
-          } catch (_) {}
-        }
-        if (chosen) input.value = chosen;      // fall back to the typed value when nothing matched
-        _hideAc();
-        _commitRename();
-      }
-      else if (e.key === 'Enter') {
-        // Plain Enter only accepts a highlighted autocomplete suggestion.
-        if (_acIdx >= 0 && items[_acIdx]) { e.preventDefault(); input.value = items[_acIdx].dataset.val; _hideAc(); }
-      }
-      else if (e.key === 'Escape') { _hideAc(); input.value = _entry?.name || ''; }
-    });
-
-    input.addEventListener('blur', () => { setTimeout(_hideAc, 120); });
-
-    const btn = $('rename-btn');
-    if (btn) btn.addEventListener('click', _commitRename);
-  }
-
-  function _showAc(items, input) {
-    const ac = $('rename-autocomplete');
-    if (!ac) return;
-    ac.innerHTML = '';
-    items.slice(0, 12).forEach(val => {
-      const d = document.createElement('div');
-      d.className = 'ac-item'; d.dataset.val = val;
-      d.textContent = val;
-      d.addEventListener('mousedown', e => { e.preventDefault(); input.value = val; _hideAc(); });
-      ac.appendChild(d);
-    });
-    ac.classList.toggle('hidden', items.length === 0);
-  }
-
-  function _hideAc() {
-    const ac = $('rename-autocomplete');
-    if (ac) ac.classList.add('hidden');
-    _acIdx = -1;
-  }
-
-  function _acHighlight(items) {
-    items.forEach((el, i) => el.classList.toggle('active', i === _acIdx));
-    if (_acIdx >= 0 && items[_acIdx]) $('rename-input').value = items[_acIdx].dataset.val;
-  }
-
-  async function _commitRename() {
-    const input = $('rename-input');
-    if (!input || !_path) return;
-    const newName = input.value.trim();
-    if (!newName || newName === _entry?.name) return;
-
-    const r = await SFM.renameFile(_path, newName);
-    if (r.ok) {
-      App.pushUndo({
-        label: `Rename → ${newName}`,
-        undo: async () => { await SFM.renameFile(r.new_path, _entry.name); FileTree.refresh(); },
-        redo: async () => { await SFM.renameFile(_path, newName); FileTree.refresh(); }
-      });
-      _path = r.new_path;
-      if (_entry) _entry = { ..._entry, name: newName, path: r.new_path };
-      App.toast(`Renamed to ${newName}`, 'success');
-      FileTree.refresh();
-    } else {
-      App.toast('Rename failed: ' + r.error, 'error');
-      input.value = _entry?.name || '';
-    }
-  }
+  // Renaming happens inline in the file list (FileTree.startRename: F2,
+  // slow second click, context menu, "Rename (F2)" quick action).
 
   // ── Quick actions ─────────────────────────────────────────────────────────
   function _initQuickActions() {
     const wire = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
 
-    wire('qa-open',    () => { if (_path) SFM.openNative(_path); });
-    wire('qa-opendir', () => { if (_path) SFM.openFolder(_path.replace(/[\\/][^\\/]+$/, '')); });
+    wire('qa-open',    async () => {
+      if (!_path) return;
+      if (_entry && _entry.is_dir) { App.navigate(_path); return; }
+      const r = await SFM.openNative(_path);
+      if (r && r.ok === false) App.toast('Could not open: ' + r.error, 'error');
+    });
+    wire('qa-openwith', (e) => { e.stopPropagation(); _toggleOpenWith(); });
+    wire('qa-opendir', () => { if (_path) SFM.openFolder(_path, true); });   // parent, item highlighted
+    wire('qa-rename',  () => { if (_path) FileTree.startRename(_path); });
     wire('qa-copy-path', () => {
       if (!_path) return;
-      navigator.clipboard.writeText(_path).catch(() => SFM.setClipboard(_path));
-      App.toast('Path copied', 'success');
+      SFM.copyText(_path).then(ok => App.toast(ok ? 'Path copied' : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
     wire('qa-delete',  async () => {
       if (!_path) return;
-      const n = _entry?.name || _path;
-      if (!confirm(`Move "${n}" to _to_review/?`)) return;
-      const r = await SFM.softDelete([_path]);
-      if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); clear(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
+      // Shared with Del / context menu: confirm, move, undoable with Ctrl+Z.
+      await FileTree.softDeletePaths([_path]);
     });
-    wire('qa-convert-pdf', async () => {
+    // Conversion / compression (convert-tools.js)
+    wire('qa-convert-pdf', () => {
       if (!_path) return;
-      App.setStatus('Converting to PDF…', true);
-      const r = await SFM.convertToPdf(_path);
-      App.setStatus('Ready');
-      if (r.ok) { App.toast('Converted: ' + r.out, 'success'); FileTree.refresh(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
+      if (ConvertTools.isDoc(_path)) ConvertTools.docsToPdf([_path]);
+      else ConvertTools.quickImageToPdf(_path);
     });
-    wire('qa-print', () => { if (_path) Dialogs.openPrint(_path); });
+    wire('qa-convert-img', () => { if (_path) ConvertTools.openConvertImage([_path]); });
+    wire('qa-pdf-images',  () => { if (_path) ConvertTools.openPdfToImages(_path); });
+    wire('qa-sign',        () => { if (_path) sign(_path); });
+    wire('qa-add-photo',   () => { if (_path) addPhoto(_path); });
+    wire('qa-studio',      () => {
+      if (!_path) return;
+      if (/\.docx$/i.test(_path) && window.DocxEdit) DocxEdit.open(_path);
+      else if (window.Studio) Studio.open(_path);
+    });
+    wire('qa-annotate',    () => { if (_path && window.Annotate) Annotate.open(_path); });
+    wire('qa-compress',    () => {
+      if (!_path) return;
+      ConvertTools.openCompress([_path]);
+    });
   }
+
+  // "To PDF" shows a spinner and "Converting…" while this file is converting.
+  function _syncConvertBtn(path) {
+    const b = $('qa-convert-pdf'); if (!b) return;
+    const busy = !!(path && ConvertTools.isConverting && ConvertTools.isConverting(path));
+    b.disabled = busy;
+    b.classList.toggle('is-busy', busy);
+    const icon = b.querySelector('.icon');
+    if (icon) icon.innerHTML = busy ? '<span class="spinner"></span>' : Icons.svg('file-pdf', 16);
+    b.lastChild.textContent = busy ? ' Converting…' : ' To PDF';
+  }
+  document.addEventListener('oa-convert-state', () => _syncConvertBtn(_path));
+
+  // Image → PDF / format / compress for images; → images / compress for PDFs.
+  function _showConvertAction(entry) {
+    const file  = entry && !entry.is_dir;
+    const isImg = file && ConvertTools.isImage(entry.path);
+    const isPdf = file && ConvertTools.isPdf(entry.path);
+    const show = (id, on) => { const b = $(id); if (b) b.classList.toggle('hidden', !on); };
+    show('qa-convert-pdf', isImg || (file && ConvertTools.isDoc(entry.path)));
+    _syncConvertBtn(entry && entry.path);
+    show('qa-convert-img', isImg);
+    show('qa-pdf-images',  isPdf);
+    show('qa-compress',    isImg || isPdf);
+    show('qa-studio',      (isPdf && !!window.Studio) || (file && /\.docx$/i.test(entry.path) && !!window.DocxEdit));
+    show('qa-sign',        canSign(entry));
+    show('qa-add-photo',   isPdf && !!window.Studio);
+    // PDFs: one "Edit" (PDF Studio) button covers text, comments and signing; Annotate is for images.
+    show('qa-annotate',    file && !isPdf && !!window.Annotate && Annotate.canAnnotate(entry.path));
+  }
+
+  // ── Sign / Add photo (also used by the context menu and Ctrl+Shift+S) ──
+  // PDFs open in Edit straight on Fill & sign → Signature / Photo, which opens
+  // the signature pad / photo picker as soon as the editor has loaded; images
+  // open in Annotate with its Signature tool.
+  function canSign(entry) {
+    if (!entry || entry.is_dir) return false;
+    const p = entry.path || '';
+    if (/\.pdf$/i.test(p)) return !!window.Studio;
+    return !!window.Annotate && Annotate.canAnnotate(p);
+  }
+  async function _openOn(path, tool) {
+    if (!path) return;
+    if (/\.pdf$/i.test(path)) {
+      if (!window.Studio) return;
+      if (Studio.isOpen()) { App.toast('Close the open Edit window first', 'info'); return; }
+      return Studio.open(path, { tool });
+    }
+    if (!window.Annotate || !Annotate.canAnnotate(path)) {
+      App.toast(tool === 'photo' ? 'Add photo works with PDF files' : 'Sign works with PDFs and images', 'info'); return;
+    }
+    const ctl = await Annotate.open(path, { standalone: true });
+    if (ctl && ctl.tool) ctl.tool(tool);
+  }
+  // Ctrl+Shift+S: sign the one selected file (or the file in the preview).
+  function signSelected() {
+    let cand = null;
+    try {
+      const sel = FileTree.getSelected ? FileTree.getSelected() : [];
+      if (sel && sel.length > 1) { App.toast('Select one PDF or image to sign', 'info'); return; }
+      if (sel && sel.length === 1) cand = sel[0];
+    } catch (_) {}
+    if (!cand) { try { cand = Preview.getCurrentPath && Preview.getCurrentPath(); } catch (_) {} }
+    if (cand && canSign({ path: cand, is_dir: false })) sign(cand);
+    else App.toast('Select one PDF or image to sign', 'info');
+  }
+  const sign     = path => _openOn(path, 'signature');
+  const addPhoto = path => _openOn(path, 'photo');
 
   // ── AI Photo section ──────────────────────────────────────────────────────
   function _showAiSection(entry) {
     const imgExts = ['.jpg','.jpeg','.png','.bmp','.webp'];
     const isImg   = imgExts.includes((entry.ext||'').toLowerCase());
     $('ai-photo-section').classList.toggle('hidden', !isImg);
+    if (isImg && typeof AiPhoto !== 'undefined') AiPhoto.onShowFile(entry);
+  }
+
+  // Shared AI photo runner (also used by the context menu). The flow — plan
+  // gate, API-key check, options, busy state, result reveal and before/after —
+  // lives in photo-tools.js (AiPhoto). Resolves with the ai_photo_result payload.
+  function runAiPhoto(path, action) {
+    return AiPhoto.run(path, action || 'wear_suit');
   }
 
   function _initAiPhoto() {
-    const wire = (id, action) => {
-      const el = $(id);
-      if (!el) return;
-      el.addEventListener('click', async () => {
-        if (!_path) return;
-        const key = (await SFM.getApiKey()).key || '';
-        if (!key) { App.toast('Set your API key in Settings first', 'error'); return; }
-        App.setStatus('Running AI…', true);
-        App.toast('Processing image…', 'info');
-        const r = await SFM.runAiPhoto(_path, action, null, key);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Done: ' + r.out, 'success'); FileTree.refresh(); }
-        else       { App.toast('AI failed: ' + r.error, 'error'); }
-      });
-    };
-    wire('ai-remove-bg', 'remove_background');
-    wire('ai-enhance',   'enhance');
-    wire('ai-upscale',   'upscale');
-    wire('ai-to-bw',     'to_bw');
+    document.querySelectorAll('#ai-photo-section [data-ai-action]').forEach(btn => {
+      btn.addEventListener('click', () => { if (_path) runAiPhoto(_path, btn.dataset.aiAction); });
+    });
+    const crop = $('ai-crop');
+    if (crop) crop.addEventListener('click', () => { if (_path) Cropper.open(_path); });
+    const psz = $('ai-photo-size');
+    if (psz) psz.addEventListener('click', () => { if (_path && typeof PhotoSize !== 'undefined') PhotoSize.open(_path); });
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -320,47 +296,126 @@ const Details = (() => {
 
   function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  // ── Open with: a tile like Open; app icons appear only after it is clicked ─
+  let _owGen = 0;
+
+  function _closeOpenWith() {
+    _owGen++;
+    const pop = $('open-with-pop');
+    const list = $('open-with-list');
+    const btn = $('qa-openwith');
+    if (pop) pop.classList.add('hidden');
+    if (list) list.innerHTML = '';
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function _syncOpenWith(entry) {
+    _closeOpenWith();
+    const btn = $('qa-openwith');
+    const row = document.querySelector('.qa-quick');
+    const file = !!(entry && !entry.is_dir && entry.path);
+    if (btn) btn.classList.toggle('hidden', !file);
+    if (row) row.classList.toggle('no-openwith', !file);
+  }
+
+  function _placeOpenWith() {
+    const pop = $('open-with-pop');
+    const btn = $('qa-openwith');
+    if (!pop || !btn) return;
+    const r = btn.getBoundingClientRect();
+    const width = Math.max(196, Math.min(260, r.width * 3));
+    let left = r.left;
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+    pop.style.width = width + 'px';
+    pop.style.left = left + 'px';
+    pop.style.top = (r.bottom + 4) + 'px';
+    const below = window.innerHeight - r.bottom - 12;
+    if (below < 120 && r.top > below) {
+      pop.style.top = 'auto';
+      pop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+    } else {
+      pop.style.bottom = 'auto';
+    }
+  }
+
+  function _appRow(name, iconHtml, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'open-with-app';
+    btn.title = name;
+    btn.setAttribute('role', 'menuitem');
+    btn.innerHTML = iconHtml + '<span class="name">' + _esc(name) + '</span>';
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return btn;
+  }
+
+  async function _toggleOpenWith() {
+    const pop = $('open-with-pop');
+    const list = $('open-with-list');
+    const btn = $('qa-openwith');
+    if (!pop || !list || !_path || (_entry && _entry.is_dir)) return;
+    if (!pop.classList.contains('hidden')) { _closeOpenWith(); return; }
+    const gen = ++_owGen;
+    const path = _path;
+    list.innerHTML = '<div class="open-with-empty">Looking up installed apps…</div>';
+    pop.classList.remove('hidden');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    _placeOpenWith();
+    let r;
+    try { r = await SFM.getOpenWithCommands(path); }
+    catch (e) { r = { ok: false }; }
+    if (gen !== _owGen || _path !== path) return;
+    list.innerHTML = '';
+    const apps = (r && r.ok && r.apps) || [];
+    apps.forEach(app => {
+      const icon = app.icon
+        ? '<img src="' + app.icon + '" alt="">'
+        : '<span class="icon-slot">' + Icons.svg('app-window', 18) + '</span>';
+      list.appendChild(_appRow(app.name || 'App', icon, async () => {
+        _closeOpenWith();
+        const out = await SFM.runOpenWith(app.argv, path);
+        if (out && out.ok === false) App.toast(out.error || 'Could not open the file', 'error');
+      }));
+    });
+    if (!apps.length) {
+      const empty = document.createElement('div');
+      empty.className = 'open-with-empty';
+      empty.textContent = 'No apps are registered for this file type.';
+      list.appendChild(empty);
+    }
+    list.appendChild(_appRow('Choose another app…',
+      '<span class="icon-slot">' + Icons.svg('plus', 16) + '</span>',
+      async () => {
+        _closeOpenWith();
+        const out = await SFM.openWithPicker(path);
+        if (out && out.ok === false) App.toast(out.error || 'Could not open the app list', 'error');
+      }));
+  }
+
+  document.addEventListener('mousedown', (e) => {
+    const pop = $('open-with-pop');
+    const btn = $('qa-openwith');
+    if (!pop || pop.classList.contains('hidden')) return;
+    if (pop.contains(e.target) || (btn && btn.contains(e.target))) return;
+    _closeOpenWith();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') _closeOpenWith();
+  });
+
   // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
-    _initRenameBar();
     _initQuickActions();
     _initAiPhoto();
     clear();
   }
   init();
 
-  // ── Public: beginRename — F2 shortcut ────────────────────────────────────
-  function beginRename() {
-    const input = $('rename-input');
-    if (!input || !_path) return;
-    input.focus();
-    const name = input.value;
-    const dot  = name.lastIndexOf('.');
-    input.setSelectionRange(0, dot > 0 ? dot : name.length);
+  // ── Public: beginRename — compatibility shim (old details-pane rename box).
+  // Starts the inline rename in the file list; `text` pre-fills the box.
+  function beginRename(text) {
+    return FileTree.startRename(_path || undefined, text);
   }
 
-  // ── Public: translateRename — toolbar 🇰🇷 button ─────────────────────────
-  async function translateRename() {
-    if (!_path) { App.toast('Select a file first', 'warning'); return; }
-    const name = _entry?.name || '';
-    const stem = name.replace(/\.[^.]+$/, '');
-    App.setStatus('Translating…', true);
-    try {
-      const r = await SFM.translateKorean(stem);
-      App.setStatus('Ready');
-      if (r.ok && r.text) {
-        const ext   = _entry?.ext || '';
-        const input = $('rename-input');
-        if (input) { input.value = r.text + ext; input.focus(); }
-        App.toast('Korean: ' + r.text, 'info', 5000);
-      } else {
-        App.toast('Translation failed: ' + (r.error || ''), 'error');
-      }
-    } catch(e) {
-      App.setStatus('Ready');
-      App.toast('Translation error', 'error');
-    }
-  }
-
-  return { showFile, showMultiple, clear, beginRename, translateRename };
+  return { showFile, showMultiple, clear, beginRename, runAiPhoto, sign, addPhoto, canSign, signSelected };
 })();

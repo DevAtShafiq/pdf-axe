@@ -47,7 +47,14 @@ const SFM = (() => {
 
   // ── api call wrapper ───────────────────────────────────────────────────────
   async function call(method, ...args) {
-    const api = await _getApi();
+    let api = await _getApi();
+    // pywebview attaches the API methods in batches after window.pywebview.api
+    // appears, so a call made right at start-up can arrive before its method
+    // exists (the drive list came up empty on first launch). Wait for it.
+    for (let waited = 0; !api[method] && waited < 10000; waited += 50) {
+      await new Promise(r => setTimeout(r, 50));
+      api = window.pywebview.api || api;
+    }
     if (!api[method]) {
       _pylog('error', `Bridge: unknown method "${method}"`);
       throw new Error(`Bridge: unknown method "${method}"`);
@@ -56,6 +63,9 @@ const SFM = (() => {
       const result = await api[method](...args);
       if (result && result.ok === false) {
         _pylog('warn', `${method} → error: ${result.error}`);
+        // The plan ran out while the app was open: show the plans right away
+        // instead of letting each tool fail on its own.
+        if (result.need_subscription) emit('subscription_required', { method });
       }
       return result;
     } catch(e) {
@@ -95,104 +105,170 @@ const SFM = (() => {
     getFileTypeIconsBatch: (exts, size=18)         => call('get_file_type_icons_batch', exts, size),
     getFileInfo:         (path)                    => call('get_file_info', path),
     openNative:          (path)                    => call('open_native', path),
-    openFolder:          (path)                    => call('open_folder_in_explorer', path),
-    openWithAcrobat:     (paths)                   => call('open_with_acrobat', paths),
+    openFolder:          (path, select=false)      => call('open_folder_in_explorer', path, select),
+    restoreSoftDeleted:  (items)                   => call('restore_soft_deleted', items),
     getOpenWithCommands: (path)                    => call('get_open_with_commands', path),
-    runOpenWith:         (argv, path)               => call('_run_open_with', argv, path),
+    runOpenWith:         (argv, path)               => call('run_open_with', argv, path),
+    openWithPicker:      (path)                     => call('open_with_picker', path),
     showContextMenu:     (path, x, y)              => call('show_native_context_menu', path, x, y),
     // File ops
     renameFile:          (old, name)               => call('rename_file', old, name),
     softDelete:          (paths)                   => call('soft_delete', paths),
     recycleDelete:       (paths)                   => call('recycle_delete', paths),
+    restoreRecycled:     (items)                   => call('restore_recycled', items),
+    undoMoves:           (items)                   => call('undo_moves', items),
     copyFiles:           (paths, dest)             => call('copy_files', paths, dest),
     moveFiles:           (paths, dest)             => call('move_files', paths, dest),
     createFolder:        (parent, name)            => call('create_folder', parent, name),
-    createTextFile:      (parent, name)            => call('create_text_file', parent, name),
     setClipboard:        (text)                    => call('set_clipboard', text),
-    planSimilarMoves:    (paths)                   => call('plan_similar_moves', paths),
-    applyFileMoves:      (plan)                    => call('apply_file_moves', plan),
+    setClipboardFiles:   (paths, cut=false)        => call('set_clipboard_files', paths, cut),
+    getClipboardFiles:   ()                        => call('get_clipboard_files'),
+    getClipboardText:    ()                        => call('get_clipboard_text'),
+    folderSizes:         (paths, jobId='')         => call('folder_sizes', paths, jobId),
+    folderSizesCancel:   ()                        => call('folder_sizes_cancel'),
+    dragOut:             (paths)                   => call('dnd_drag_out', paths),
+    resolveUserPath:     (text)                    => call('resolve_user_path', text),
     // PDF thumbnails / pages
     getPdfThumb:         (path, page=0, dpi=72)    => call('get_pdf_thumbnail', path, page, dpi),
-    getPdfPage:          (path, page, dpi=150)     => call('get_pdf_page_as_png', path, page, dpi),
+    getPdfPage:          (path, page, dpi=150, widthPx=0) => call('get_pdf_page_as_png', path, page, dpi, widthPx),
     getPdfPageCount:     (path)                    => call('get_pdf_page_count', path),
     // Previews
     getImagePreview:     (path, maxDim=1200)       => call('get_image_preview', path, maxDim),
     getTextPreview:      (path)                    => call('get_text_preview', path),
-    getDocxPreview:      (path)                    => call('get_docx_preview', path),
-    getWordHtml:         (path)                    => call('get_word_html', path),
-    getExcelHtml:        (path, sheet='')          => call('get_excel_html', path, sheet),
-    getExcelSheets:      (path)                    => call('get_excel_sheets', path),
-    getDocAsPdf:         (path)                    => call('get_doc_as_pdf', path),
+    // Selectable PDF text + Word / Excel / Office previews (doc_preview_bridge.py)
+    pdfTextLayer:        (path, page=0)            => call('pdf_text_layer', path, page),
+    pdfPageText:         (path, page=0)            => call('pdf_page_text', path, page),
+    pdfAllText:          (path)                    => call('pdf_all_text', path),
+    docxPreviewHtml:     (path, edit=false)        => call('docx_preview_html', path, edit),
+    docsToPdf:           (paths, job='')           => call('docs_to_pdf', paths, job),
+    docxSaveEdits:       (path, edits, out, sig='') => call('docx_save_edits', path, edits, out, sig),
+    sheetPreviewHtml:    (path, sheet='')          => call('sheet_preview_html', path, sheet),
+    officePreviewInfo:   (path)                    => call('office_preview_info', path),
+    officePreviewPdf:    (path)                    => call('office_preview_pdf', path),
     // PDF ops
     mergePdfs:           (paths, out)              => call('merge_pdfs', paths, out),
     splitPdf:            (path, dir)               => call('split_pdf_pages', path, dir),
     compressPdf:         (path, out)               => call('compress_pdf', path, out),
-    compressPdfQuality:  (path, quality='ebook', out='') => call('compress_pdf_quality', path, quality, out),
-    compressPdfAsync:    (path, out='')            => call('compress_pdf_async', path, out),
+    compressPdfQuality:  (path, quality='ebook', out='', targetKb=0, saveSmallest=false) => call('compress_pdf_quality', path, quality, out, targetKb, saveSmallest),
+    // job='' → compress_done event (legacy); job set → media_progress (per attempt) + media_done
+    compressPdfAsync:    (path, out='', preset='ebook', targetKb=0, job='', saveSmallest=false) => call('compress_pdf_async', path, out, preset, targetKb, job, saveSmallest),
+    fileSizes:           (paths)                   => call('file_sizes', paths),
+    // Predicted sizes, in memory; emits compress_preview events tagged with job
+    compressPreview:     (paths, settings={}, job='') => call('compress_preview', paths, settings, job),
     rotatePage:          (path, page, deg)         => call('rotate_pdf_page', path, page, deg),
     deletePage:          (path, page)              => call('delete_pdf_page', path, page),
+    swapWithBackup:      (path, backup)            => call('swap_with_backup', path, backup),
     reorderPages:        (path, order, out)        => call('reorder_pdf_pages', path, order, out),
     buildPdfFromPages:   (pages, out, replace=false) => call('build_pdf_from_pages', pages, out, replace),
     browseForPdfs:       ()                        => call('browse_for_pdfs'),
     extractPdfPages:     (path, spec, out)         => call('extract_pdf_pages', path, spec, out),
-    findDuplicatePages:  (path)                    => call('find_duplicate_pages', path),
-    pdfToImages:         (path, dpi=150, fmt='png') => call('pdf_to_images', path, dpi, fmt),
+    pdfToImages:         (path, dpi=150, fmt='png', pages='', quality=90) => call('pdf_to_images', path, dpi, fmt, pages, quality),
+    pdfToImagesAsync:    (path, opts={}, job='')   => call('pdf_to_images_async', path, opts, job),
     combineToPdf:        (paths, out)              => call('combine_files_to_pdf', paths, out),
-    convertToPdf:        (path, out='')            => call('convert_to_pdf', path, out),
+    convertToPdf:        (path, out='', opts={})   => call('convert_to_pdf', path, out, opts),
     convertToPdfAsync:   (paths)                   => call('convert_to_pdf_async', paths),
+    imagesToPdf:         (paths, out='', opts={})  => call('images_to_pdf', paths, out, opts),
+    imagesToPdfAsync:    (paths, opts={}, job='')  => call('images_to_pdf_async', paths, opts, job),
+    mediaCapabilities:   ()                        => call('media_capabilities'),
+    // PDF tools: merge / split / arrange / extract (pdf_tools_bridge.py)
+    pdfInfo:             (path)                    => call('pdf_info', path),
+    pdfInfos:            (paths)                   => call('pdf_infos', paths),
+    pdfThumbs:           (path, pages, width=160)  => call('pdf_thumbnails', path, pages, width),
+    pdfPageView:         (path, page, width=1600)  => call('pdf_page_view', path, page, width),
+    pdfParseRanges:      (spec, count, mode='ranges', every=1) => call('pdf_parse_ranges', spec, count, mode, every),
+    pdfMerge:            (inputs, out='', bookmarks=true, job='') => call('pdf_merge', inputs, out, bookmarks, job),
+    pdfSplit:            (path, mode='each', every=1, ranges='', outDir='', job='') => call('pdf_split', path, mode, every, ranges, outDir, job),
+    pdfExtract:          (path, spec, out='', job='') => call('pdf_extract', path, spec, out, job),
+    pdfBuild:            (pages, out, replace=false, job='') => call('pdf_build', pages, out, replace, job),
+    browseForPdfsOrImages: ()                      => call('browse_for_pdfs_or_images'),
+    // ZIP / unzip / ZIP + PDF passwords (archive_bridge.py). Jobs emit
+    // archive_progress {job_id, done, total, file} and archive_done {job_id, ok, out_path, error, code}
+    archiveCapabilities: ()                        => call('archive_capabilities'),
+    archiveCancel:       (job)                     => call('archive_cancel', job),
+    zipPaths:            (paths, outName='', password='', job='', compression='deflate', level=6) => call('zip_paths', paths, outName, password, job, compression, level),
+    zipEach:             (paths, password='', job='', compression='deflate', level=6) => call('zip_each', paths, password, job, compression, level),
+    zipList:             (path, password='')       => call('zip_list', path, password),
+    zipExtract:          (path, dest='', password='', members=null, job='', mode='folder') => call('zip_extract', path, dest, password, members, job, mode),
+    zipSetPassword:      (path, newPw, oldPw='')   => call('zip_set_password', path, newPw, oldPw),
+    zipRemovePassword:   (path, pw)                => call('zip_remove_password', path, pw),
+    pdfIsEncrypted:      (path)                    => call('pdf_is_encrypted', path),
+    pdfPreviewState:     (path)                    => call('pdf_preview_state', path),
+    pdfSetPassword:      (path, userPw, ownerPw='', perms=null, currentPw='') => call('pdf_set_password', path, userPw, ownerPw, perms, currentPw),
+    pdfRemovePassword:   (path, pw)                => call('pdf_remove_password', path, pw),
+    pdfUnlockPreview:    (path, pw)                => call('pdf_unlock_preview', path, pw),
+    // Annotation editor (annotate_bridge.py)
+    annotLoad:           (path)                    => call('annot_load', path),
+    annotPagePng:        (path, page=0, scale=1.5) => call('annot_page_png', path, page, scale),
+    annotWords:          (path, page=0)            => call('annot_words', path, page),
+    annotSave:           (path, anns, opts={})     => call('annot_save', path, anns, opts),
+    annotAuthor:         ()                        => call('annot_author'),
+    annotSignatures:     ()                        => call('annot_signatures'),
+    annotSignatureSave:  (dataUrl)                 => call('annot_signature_save', dataUrl),
+    annotSignatureForget:(index)                   => call('annot_signature_forget', index),
+    annotSignatureFolder:(hint='')                 => call('annot_signature_folder', hint),
+    annotSignatureSavePng:(dataUrl, name, hint='') => call('annot_signature_save_png', dataUrl, name, hint),
+    annotPickPhoto:      ()                        => call('annot_pick_photo'),
+    annotPhotoLoad:      (path, maxDim=1600)       => call('annot_photo_load', path, maxDim),
+    // PDF text editor (pdf_edit_bridge.py)
+    pdfeditOpen:         (path)                    => call('pdfedit_open', path),
+    pdfeditBlocks:       (path, page=0)            => call('pdfedit_blocks', path, page),
+    pdfeditPagePng:      (path, page=0, scale=1.5, opts=null) => call('pdfedit_page_png', path, page, scale, opts),
+    pdfeditObjects:      (path, page=0)            => call('pdfedit_objects', path, page),
+    pdfeditLoadImage:    (path, maxDim=2400)       => call('pdfedit_load_image', path, maxDim),
+    pdfeditObjectPng:    (path, page, id, scale=1.5, style=null) => call('pdfedit_object_png', path, page, id, scale, style),
+    pdfeditApply:        (path, edits, opts={})    => call('pdfedit_apply', path, edits, opts),
+    pdfeditFonts:        ()                        => call('pdfedit_fonts'),
+    // PDF Studio (studio_bridge.py)
+    studioBegin:         (path, password='')       => call('studio_begin', path, password),
+    studioNextStep:      (session)                 => call('studio_next_step', session),
+    studioStepInfo:      (work)                    => call('studio_step_info', work),
+    studioFinish:        (work, original, opts={}) => call('studio_finish', work, original, opts),
+    formFields:          (path)                    => call('form_fields', path),
+    formPagePng:         (path, page=0, dpi=150)   => call('form_page_png', path, page, dpi),
+    formFill:            (path, values, out, lock=false) => call('form_fill', path, values, out, lock),
     // Image
-    resizePhotoToMm:     (path, w=35, h=45, dpi=300, out='', mode='center') => call('resize_photo_to_mm', path, w, h, dpi, out, mode),
-    cropImage:           (path, x, y, w, h, out='')        => call('crop_image', path, x, y, w, h, out),
-    rotateImage:         (path, deg=90, out='')            => call('rotate_image', path, deg, out),
-    flipImage:           (path, dir='horizontal', out='')  => call('flip_image', path, dir, out),
-    adjustImageSave:     (path, brightness=1, contrast=1, out='', overwrite=false) => call('adjust_image_save', path, brightness, contrast, out, overwrite),
-    excelToCsv:          (path, outDir='')                 => call('excel_to_csv', path, outDir),
-    moveToRoot:          (paths, root)                     => call('move_to_root', paths, root),
-    ocrRenameProgress:   (paths)                           => call('ocr_rename_with_progress', paths),
-    checkPassportPhoto:  (path)                    => call('check_passport_photo', path),
-    // Long async ops
-    smartSplit:          (path, outDir='')         => call('smart_split_rename', path, outDir),
-    splitAndRenameOcr:   (path)                    => call('split_and_rename_ocr', path),
-    makeOcrSearchable:   (path)                    => call('make_ocr_searchable', path),
-    ocrRename:           (paths)                   => call('ocr_rename', paths),
-    generateReport:      (folder)                  => call('generate_report', folder),
-    // ZIP
-    zipPaths:            (paths, out='')           => call('zip_paths', paths, out),
-    unzip:               (path)                    => call('unzip', path),
-    unzipAll:            (paths)                   => call('unzip_all', paths),
-    listZip:             (path)                    => call('list_zip', path),
-    // Misc
-    translateKorean:     (text)                    => call('translate_to_korean', text),
-    scanQr:              ()                        => call('scan_qr_from_screen'),
+    cropImage:          (path, x, y, w, h, out='', rotate=0, size=null) => call('crop_image', path, x, y, w, h, out, rotate,
+                          size ? size.w : 0, size ? size.h : 0, size ? size.dpi : 0, size ? (size.maxKb || 0) : 0),
+    getCropSource:       (path, maxDim=1600)               => call('get_crop_source', path, maxDim),
+    getPhotoPresets:     ()                                => call('get_photo_presets'),
+    photoSizeSave:       (path, params)                    => call('photo_size_save', path, params),
+    photoFaceBox:        (path, rotate=0)                  => call('photo_face_box', path, rotate),
+    openPhotoPresetsFile: ()                               => call('open_photo_presets_file'),
+    compressImage:       (path, quality=70, maxEdge=0, fmt='', out='', targetKb=0, saveSmallest=true) => call('compress_image', path, quality, maxEdge, fmt, out, targetKb, saveSmallest),
+    compressImages:      (paths, quality=70, maxEdge=0, fmt='', targetKb=0)        => call('compress_images', paths, quality, maxEdge, fmt, targetKb),
+    convertImage:        (path, fmt, out='', quality=92)               => call('convert_image', path, fmt, out, quality),
+    // QR / misc
+    qrPickStart:         ()                        => call('qr_pick_start'),
     scanQrFromFile:      (path)                    => call('scan_qr_from_file', path),
-    getScreenCapture:    ()                        => call('get_screen_capture'),
-    decodeQrAtPoint:     (cx, cy)                  => call('decode_qr_at_point', cx, cy),
+    scanQrFiles:         (paths, jobId='')         => call('scan_qr_files', paths, jobId),
+    qrScanCancel:        (jobId)                   => call('qr_scan_cancel', jobId),
+    qrOpenUrl:           (url)                     => call('qr_open_url', url),
     getCost:             ()                        => call('get_cost'),
     resetCost:           ()                        => call('reset_cost'),
     getSettings:         ()                        => call('get_settings'),
     saveSettings:        (s)                       => call('save_settings', s),
     getApiKey:           ()                        => call('get_api_key'),
     setApiKey:           (k)                       => call('set_api_key', k),
-    listPrinters:        ()                        => call('list_printers'),
-    printPdf:            (path, printer='')        => call('print_pdf', path, printer),
-    getRenameTemplates:  ()                        => call('get_rename_templates'),
-    filterSuggestions:   (q, ext='')              => call('filter_rename_suggestions', q, ext),
-    saveNameTemplate:    (key, label)              => call('save_name_template', key, label),
+    getRenameTemplates:  (lang='')                 => call('get_rename_templates', lang),
+    filterSuggestions:   (q, ext='', lang='')     => call('filter_rename_suggestions', q, ext, lang),
+    saveNameTemplate:    (en, local='', lang='')   => call('save_name_template', en, local, lang),
+    saveRenameTemplates: (rows, lang='')           => call('save_rename_templates', rows, lang),
+    getRenameLang:       ()                        => call('get_rename_lang'),
+    setRenameLang:       (lang)                    => call('set_rename_lang', lang),
+    renameWithTemplate:  (path, name, save=false, lang='') => call('rename_with_template', path, name, save, lang),
     saveRenameTemplate:  (tpl)                     => call('save_rename_template', tpl),
-    getChecklistLabels:  ()                        => call('get_checklist_labels'),
-    // Apostille
-    scanApostilleRefs:   (folder)                  => call('scan_apostille_refs', folder),
-    processApostille:    (urls, local, out, key)   => call('process_apostille', urls, local, out, key),
-    // Watch
-    watchStart:          (folder, out='')          => call('watch_start', folder, out),
-    watchStop:           ()                        => call('watch_stop'),
-    watchEntries:        ()                        => call('watch_get_entries'),
-    watchClearDone:      ()                        => call('watch_clear_completed'),
-    // Folder maker
-    createStudentFolders: (names, dest)            => call('create_student_folders', names, dest),
-    // Heatmap
-    getExpiryHeatmap:    (folder)                  => call('get_expiry_heatmap', folder),
     // AI photo
     runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
+    aiPhotoActions:      ()                        => call('ai_photo_actions'),
+    aiPhotoEstimate:     (path, opts={})           => call('ai_photo_estimate', path, opts),
   };
 })();
+
+// Copy text to the Windows clipboard reliably (Unicode-safe, via the bridge),
+// falling back to the browser clipboard. Resolves true when it really copied.
+SFM.copyText = async function copyText(text) {
+  text = String(text == null ? '' : text);
+  try { const r = await SFM.setClipboard(text); if (r && r.ok) return true; } catch (_) {}
+  try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+  return false;
+};

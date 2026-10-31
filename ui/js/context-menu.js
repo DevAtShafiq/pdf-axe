@@ -10,6 +10,7 @@ const ContextMenu = (() => {
 
   // ── Build DOM ─────────────────────────────────────────────────────────────
   let _menu = null;
+  const DANGER = new Set(['Delete']);
 
   function _ensureMenu() {
     if (_menu) return _menu;
@@ -31,40 +32,53 @@ const ContextMenu = (() => {
   function show(x, y, entries, selectedPaths) {
     const menu = _ensureMenu();
     menu.innerHTML = '';
+    menu.dataset.kind = 'items';
 
-    const single   = entries.length === 1;
+    const single  = entries.length === 1;
     const multi    = entries.length > 1;
     const entry    = single ? entries[0] : null;
     const isPdf    = single && (entry?.ext || '').toLowerCase() === '.pdf';
     const isImg    = single && ['.jpg','.jpeg','.png','.bmp','.webp','.gif'].includes((entry?.ext||'').toLowerCase());
-    const isOffice = single && ['.docx','.doc','.xlsx','.xls','.pptx','.ppt'].includes((entry?.ext||'').toLowerCase());
     const isDir    = single && entry?.is_dir;
     const paths    = selectedPaths || entries.map(e => e.path);
     const mainPath = entry?.path || paths[0];
 
     // Section: open
-    _item(menu, '\u{1F5C2}️', 'Open',           'Ctrl+Enter', () => { hide(); if(entry) SFM.openNative(entry.path); });
-    _item(menu, '\u{1F4C2}', 'Show in Explorer', '',              () => { hide(); if(entry) SFM.openFolder(entry.path.replace(/[\\\/][^\\\/]+$/, '')); });
+    // Enter opens (Ctrl+Enter is Merge/Arrange). A folder opens in the list.
+    if (single) _item(menu, isDir ? 'folder-open' : 'external-link', 'Open', 'Enter', async () => {
+      hide();
+      if (isDir) { App.navigate(entry.path); return; }
+      const r = await SFM.openNative(entry.path);
+      if (r && r.ok === false) App.toast('Could not open: ' + r.error, 'error');
+    });
+    if (single) _item(menu, 'folder-open', 'Show in Explorer', '', () => { hide(); SFM.openFolder(entry.path, true); });
     if (single && entry && !isDir) {
-      _item(menu, '\u{1F4E4}', 'Open with\u2026', '', async () => {
+      _item(menu, 'app-window', 'Open with\u2026', '', async () => {
         hide();
         App.setStatus('Getting apps\u2026', true);
         const r = await SFM.getOpenWithCommands(mainPath);
         App.setStatus('Ready');
-        if (!r.ok || !r.commands?.length) { App.toast('No apps found for this file type', 'info'); return; }
-        // Mini floating picker
+        const apps = (r.apps && r.apps.length) ? r.apps : (r.commands || []).map(c => ({ name: c[0], argv: c[1], icon: '' }));
+        if (!r.ok || !apps.length) { App.toast('No apps found for this file type', 'info'); return; }
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:#0004;';
-        const listHtml = r.commands.map((c, i) =>
-          '<button class="btn" style="width:100%;text-align:left;margin:2px 0;padding:7px 12px" data-idx="' + i + '">' + _esc(c[0]) + '</button>'
-        ).join('');
-        overlay.innerHTML = '<div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:16px;min-width:260px;max-width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 40px #0008"><div style="font-weight:600;margin-bottom:10px;font-size:14px">Open with\u2026</div>' + listHtml + '<button class="btn" id="ow-cancel" style="width:100%;margin-top:10px">Cancel</button></div>';
+        overlay.className = 'modal-overlay';
+        overlay.style.zIndex = 99999;
+        const listHtml = apps.map((c, i) => {
+          const icon = c.icon
+            ? '<img src="' + c.icon + '" alt="" width="16" height="16">'
+            : Icons.svg('app-window', 16);
+          return '<button class="qa-btn" data-idx="' + i + '"><span class="icon">' + icon + '</span>' + _esc(c.name) + '</button>';
+        }).join('');
+        overlay.innerHTML = '<div class="modal modal-sm" role="dialog">'
+          + '<div class="modal-header"><h2 class="modal-title">Open with\u2026</h2></div>'
+          + '<div class="modal-body" style="gap:2px;padding:8px 12px">' + listHtml + '</div>'
+          + '<div class="modal-footer"><button class="btn" id="ow-cancel">Cancel</button></div></div>';
         document.body.appendChild(overlay);
         overlay.querySelectorAll('[data-idx]').forEach(btn => {
           btn.addEventListener('click', async () => {
             overlay.remove();
-            const cmd = r.commands[parseInt(btn.dataset.idx)];
-            await SFM.runOpenWith(cmd[1], mainPath);
+            const cmd = apps[parseInt(btn.dataset.idx)];
+            await SFM.runOpenWith(cmd.argv, mainPath);
           });
         });
         overlay.querySelector('#ow-cancel').addEventListener('click', () => overlay.remove());
@@ -74,259 +88,182 @@ const ContextMenu = (() => {
     _sep(menu);
 
     // Section: edit
-    _item(menu, '✂️', 'Cut',  'Ctrl+X', () => { hide(); FileTree.cutSelection(); });
-    _item(menu, '\u{1F4CB}', 'Copy', 'Ctrl+C', () => { hide(); FileTree.copySelection(); });
-    _item(menu, '\u{1F4CC}', 'Paste','Ctrl+V', () => { hide(); FileTree.pasteSelection(); });
+    _item(menu, 'scissors', 'Cut',  'Ctrl+X', () => { hide(); FileTree.cutSelection(); });
+    _item(menu, 'copy', 'Copy', 'Ctrl+C', () => { hide(); FileTree.copySelection(); });
+    _item(menu, 'paste', 'Paste','Ctrl+V', () => { hide(); FileTree.pasteSelection(); });
     _sep(menu);
 
     // Section: file ops
-    _item(menu, '✏️', 'Rename',         'F2',  () => { hide(); setTimeout(() => Details.beginRename(), 100); });
-    _item(menu, '\u{1F4C4}+', 'New Text Document', '', async () => {
-      hide();
-      const folder = isDir ? mainPath : (FileTree.getCurrentFolder() || mainPath.replace(/[\\\\/][^\\\\/]+$/, ''));
-      const name = prompt('File name:', 'New Document.txt');
-      if (!name) return;
-      const r = await SFM.createTextFile(folder, name);
-      if (r.ok) { App.toast('Created: ' + name, 'success'); FileTree.refresh(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
-    });
-    if (single && !isDir) {
-      _item(menu, '\u{1F4C1}', 'Make Folder for File', '', async () => {
-        hide();
-        const fname = entry.name.replace(/\.[^.]+$/, '');
-        const parent = mainPath.replace(/[\\\\/][^\\\\/]+$/, '');
-        const cr = await SFM.createFolder(parent, fname);
-        if (!cr.ok) { App.toast('Failed: ' + cr.error, 'error'); return; }
-        const mr = await SFM.moveFiles([mainPath], cr.path);
-        if (mr.ok) { App.toast('Moved into ' + fname + '/', 'success'); FileTree.refresh(); }
-        else        { App.toast('Move failed: ' + mr.error, 'error'); }
-      });
-    }
-    _item(menu, '\u{1F3E0}', 'Move to Root Folder', '', async () => {
-      hide();
-      const root = FileTree.getCurrentFolder();
-      if (!root) { App.toast('No folder open', 'error'); return; }
-      if (!confirm('Move ' + paths.length + ' item(s) to root of\n' + root + '?')) return;
-      App.setStatus('Moving…', true);
-      const r = await SFM.moveToRoot(paths, root);
-      App.setStatus('Ready');
-      if (r.ok) {
-        const n = r.moved?.length || 0;
-        const e = r.errors?.length || 0;
-        App.toast('Moved ' + n + ' item(s)' + (e ? ' (' + e + ' error(s))' : ''), n ? 'success' : 'error');
-        FileTree.refresh();
-      } else { App.toast('Failed: ' + r.error, 'error'); }
-    });
-    _item(menu, '\u{1F5D1}️', 'Move to Review', 'Del', async () => {
-      hide();
-      if (!confirm('Move ' + paths.length + ' item(s) to _to_review/?')) return;
-      const r = await SFM.softDelete(paths);
-      if (r.ok) { App.toast('Moved to _to_review/', 'success'); FileTree.refresh(); }
-      else       { App.toast('Failed: ' + r.error, 'error'); }
-    });
+    _item(menu, 'text-cursor', 'Rename',         'F2',  () => { hide(); setTimeout(() => FileTree.startRename(), 50); });
+    // Same flow as the Del key: names the file (not its full path), undoable.
+    _item(menu, 'trash', 'Delete', 'Del', () => { hide(); FileTree.softDeletePaths(paths); });
     _sep(menu);
 
     // Section: PDF ops
     const allPdf = entries.length > 0 && entries.every(e => (e.ext||'').toLowerCase() === '.pdf');
+    // Mixed PDFs + images → merge (images become pages).
+    const mixedPdfImg = !allPdf && entries.length > 1
+      && entries.every(e => /^\.(pdf|jpe?g|png|bmp|gif|tiff?|webp)$/i.test(e.ext || ''))
+      && entries.some(e => (e.ext||'').toLowerCase() === '.pdf');
+    // One Compress dialog for PDFs, images or a mix (target size or quality).
+    const cmpLabel = n => n > 1 ? 'Compress ' + n + ' files…' : 'Compress…';
+    const openCmp = () => { hide(); ConvertTools.openCompress(entries.map(e => e.path)); };
+    if (mixedPdfImg) {
+      _item(menu, 'merge', 'Merge into One PDF…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
+      _item(menu, 'compress', cmpLabel(entries.length), '', openCmp);
+      _sep(menu);
+    }
+    if (!multi && /\.docx$/i.test(mainPath || '') && window.DocxEdit) {
+      _item(menu, 'file-pen', 'Edit…', '', () => { hide(); DocxEdit.open(mainPath); });
+      _sep(menu);
+    }
     if (allPdf) {
       if (multi) {
-        _item(menu, '\u{1F4CE}', 'Combine PDFs…', '', () => { hide(); Dialogs.openCombinePdf(paths, FileTree.getCurrentFolder()); });
+        _item(menu, 'merge', 'Merge PDFs…', '', () => { hide(); PdfTools.openMerge(paths, FileTree.getCurrentFolder()); });
+        _item(menu, 'compress', cmpLabel(entries.length), '', openCmp);
+        _sep(menu);
       }
       if (isPdf) {
-        _item(menu, '\u{2B0D}', 'Arrange Pages…', '', () => { hide(); Dialogs.openArrangePages(mainPath); });
-        _item(menu, '✂️', 'Split PDF', '', async () => {
-          hide();
-          App.setStatus('Splitting…', true);
-          const r = await SFM.splitPdf(mainPath, mainPath.replace(/[\\\/][^\\\/]+$/, ''));
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('Split into ' + (r.files?.length||'?') + ' pages', 'success'); FileTree.refresh(); }
-          else       { App.toast('Split failed: ' + r.error, 'error'); }
-        });
-        _item(menu, '\u{1F4C4}', 'Extract Pages…',      '', () => { hide(); Dialogs.openExtractPages(mainPath); });
-        _item(menu, '\u{1F4C4}\u2192', 'Extract Current Page → New PDF', '', async () => {
-          hide();
-          const pr = await SFM.getPdfPageCount(mainPath);
-          if (!pr.ok) { App.toast('Cannot read PDF', 'error'); return; }
-          const page = prompt('Page number to extract (1 - ' + pr.count + '):', '1');
-          if (!page) return;
-          const pg = parseInt(page) - 1;
-          if (isNaN(pg) || pg < 0 || pg >= pr.count) { App.toast('Invalid page number', 'error'); return; }
-          const base = mainPath.replace(/(\.[^.]+)$/, '_p' + page + '$1');
-          App.setStatus('Extracting page…', true);
-          const r = await SFM.extractPdfPages(mainPath, String(page), base);
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('Extracted page ' + page + ' → ' + base.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-          else        { App.toast('Extract failed: ' + r.error, 'error'); }
-        });
-        _item(menu, '\u{1F520}', 'Smart Split & Rename…','', () => {
-          hide(); Dialogs.openSmartSplitProgress(mainPath);
-        });
-        _item(menu, '\u{1F50D}', 'Rename by Doc Type (OCR)\u2026', '', () => { hide(); Dialogs.openOcrRenameProgress([mainPath]); });
-        _item(menu, '\u{1F5DC}️', 'Compress PDF…',  '', () => { hide(); Dialogs.openCompressPdf(mainPath); });
-        _item(menu, '\u{1F4D0}', 'Place on A4…',         '', () => { hide(); Dialogs.openA4Placer(mainPath); });
-        _item(menu, '\u{1FAA7}', 'ID Card on A4…',       '', () => { hide(); Dialogs.openIdCard(mainPath); });
-        _item(menu, '\u{1F50E}', 'Find Duplicate Pages',      '', () => { hide(); Dialogs.openDuplicatePages(mainPath); });
-        _item(menu, '\u{1F5D2}️', 'Open with Acrobat',  '', () => { hide(); SFM.openWithAcrobat([mainPath]); });
-        _item(menu, '\u{1F4F7}', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
-        _item(menu, '\u{1F50D}', 'Split & Rename by OCR…',   '', () => { hide(); Dialogs.openSplitRenameOcrProgress(mainPath); });
-        _item(menu, '\u{1F4C4}', 'Make OCR Searchable',       '', async () => {
-          hide(); App.setStatus('Running OCR…', true);
-          const r = await SFM.makeOcrSearchable(mainPath);
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('OCR searchable saved', 'success'); FileTree.refresh(); }
-          else       { App.toast('OCR failed: ' + r.error, 'error'); }
-        });
+        if (window.Studio) _item(menu, 'file-pen', 'Edit…', 'Ctrl+Shift+P', () => { hide(); Studio.open(mainPath); });
+        if (window.Studio && !multi) {
+          _item(menu, 'signature', 'Sign…', 'Ctrl+Shift+S', () => { hide(); Details.sign(mainPath); });
+          _item(menu, 'image', 'Add Photo…', '', () => { hide(); Details.addPhoto(mainPath); });
+        }
+        _item(menu, 'layers', 'Arrange Pages…', '', () => { hide(); PdfTools.openArrange([mainPath]); });
+        _item(menu, 'scissors', 'Split PDF…', '', () => { hide(); PdfTools.openSplit(mainPath); });
+        _item(menu, 'extract', 'Extract Pages…', '', () => { hide(); PdfTools.openExtract(mainPath); });
+        // "Current page" = the page shown in the preview for this file.
+        const curPage = PdfTools.previewPageFor(mainPath);
+        if (curPage !== null) {
+          _item(menu, 'file-pdf', 'Extract Current Page (' + (curPage + 1) + ') → New PDF', '', () => {
+            hide(); PdfTools.extractPage(mainPath, curPage);
+          });
+        }
+        if (!multi) _item(menu, 'compress', 'Compress…', '', () => { hide(); ConvertTools.openCompress([mainPath]); });
+        _item(menu, 'images', 'Convert to Images…',        '', () => { hide(); Dialogs.openPdfToImages(mainPath); });
         _sep(menu);
       }
     }
 
     // Section: image ops
     if (isImg) {
-      _item(menu, '\u{1F5A8}️', 'Print…',          '', () => { hide(); Dialogs.openPrint(mainPath); });
-      _item(menu, '\u{1F4D0}', 'Resize to Photo Size\u2026', '', () => { hide(); Dialogs.openPhotoSizer(mainPath); });
-      _item(menu, '✂️', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
-      _item(menu, '\u{1F504}', 'Rotate CW 90°', '', async () => {
-        hide(); App.setStatus('Rotating…', true);
-        const r = await SFM.rotateImage(mainPath, 90);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Rotated CW → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Rotate failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{1F503}', 'Rotate CCW 90°', '', async () => {
-        hide(); App.setStatus('Rotating…', true);
-        const r = await SFM.rotateImage(mainPath, -90);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Rotated CCW → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Rotate failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{2194}\uFE0F', 'Flip Horizontal', '', async () => {
-        hide(); App.setStatus('Flipping…', true);
-        const r = await SFM.flipImage(mainPath, 'horizontal');
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Flipped → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Flip failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{2195}\uFE0F', 'Flip Vertical', '', async () => {
-        hide(); App.setStatus('Flipping…', true);
-        const r = await SFM.flipImage(mainPath, 'vertical');
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Flipped → ' + r.out.split(/[\\/]/).pop(), 'success'); FileTree.refresh(); }
-        else App.toast('Flip failed: ' + r.error, 'error');
-      });
-      _item(menu, '\u{1F3A8}', 'Brightness / Contrast\u2026', '', () => { hide(); Dialogs.openImageAdjust(mainPath); });
-      _item(menu, '\u{1FAA7}',        'Check Passport Photo', '', () => { hide(); Dialogs.openPassportCheck(mainPath); });
+      if (window.Annotate && Annotate.canAnnotate(mainPath)) _item(menu, 'annotate', 'Annotate…', 'Ctrl+Shift+A', () => { hide(); Annotate.open(mainPath); });
+      if (window.Annotate && Annotate.canAnnotate(mainPath) && !multi) _item(menu, 'signature', 'Sign…', 'Ctrl+Shift+S', () => { hide(); Details.sign(mainPath); });
+      _item(menu, 'crop', 'Crop Image…', '', () => { hide(); Dialogs.openCropImage(mainPath); });
+      if (typeof PhotoSize !== 'undefined') _item(menu, 'user', 'Crop to photo size…', '', () => { hide(); PhotoSize.open(mainPath); });
+      _item(menu, 'shirt', 'Wear Suit & Tie (AI)', '', () => { hide(); Details.runAiPhoto(mainPath, 'wear_suit'); });
+    }
+
+    // Section: Word / 한글 documents → PDF (single or multi-select)
+    const allDoc = entries.length > 0 && entries.every(e => !e.is_dir && ConvertTools.isDoc(e.path));
+    if (allDoc) {
+      const docPaths = entries.map(e => e.path);
+      _item(menu, 'file-pdf', docPaths.length > 1 ? `Convert ${docPaths.length} to PDF` : 'Convert to PDF', '', () => { hide(); ConvertTools.docsToPdf(docPaths); });
       _sep(menu);
     }
 
-    // Section: Office
-    if (isOffice) {
-      _item(menu, '\u{1F4C4}', 'Convert to PDF', '', async () => {
-        hide(); App.setStatus('Converting…', true);
-        const r = await SFM.convertToPdf(mainPath);
-        App.setStatus('Ready');
-        if (r.ok) { App.toast('Converted: ' + r.out, 'success'); FileTree.refresh(); }
-        else       { App.toast('Failed: ' + r.error, 'error'); }
-      });
-      if ((entry?.ext||'').toLowerCase().match(/\.xlsx?$/)) {
-        _item(menu, '\u{1F4CA}', 'Export Sheets as CSV', '', async () => {
-          hide(); App.setStatus('Exporting CSV\u2026', true);
-          const r = await SFM.excelToCsv(mainPath);
-          App.setStatus('Ready');
-          if (r.ok) { App.toast('Exported ' + (r.files?.length||'?') + ' CSV file(s)', 'success'); FileTree.refresh(); }
-          else       { App.toast('Failed: ' + r.error, 'error'); }
-        });
+    // Section: image compress / convert (single or multi-select)
+    const IMG_EXTS = ConvertTools.IMAGE_EXTS;
+    const allImg = entries.length > 0 && entries.every(e => !e.is_dir && IMG_EXTS.includes((e.ext||'').toLowerCase()));
+    if (allImg) {
+      const imgPaths = entries.map(e => e.path);
+      _item(menu, 'compress', cmpLabel(imgPaths.length), '', () => { hide(); ConvertTools.openCompress(imgPaths); });
+      _item(menu, 'convert', 'Convert Image Format…', '', () => { hide(); ConvertTools.openConvertImage(imgPaths); });
+      if (imgPaths.length > 1) {
+        // Several images → one multi-page PDF (reorderable) or one PDF each
+        _item(menu, 'combine', 'Combine Images into One PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'combine' }); });
+        _item(menu, 'file-pdf', 'Convert Each to PDF…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths, { mode: 'separate' }); });
+      } else {
+        _item(menu, 'file-pdf', 'Convert to PDF', '', () => { hide(); ConvertTools.quickImageToPdf(imgPaths[0]); });
+        _item(menu, 'file-pdf', 'Convert to PDF (options)…', '', () => { hide(); ConvertTools.openImagesToPdf(imgPaths); });
       }
       _sep(menu);
+    } else if (isImg) {
+      _sep(menu);
     }
 
-    // Section: multi-selection extras / copy+move always visible
-    if (multi) {
-      _item(menu, '\u{1F500}', 'Similar Move…', '', () => { hide(); Dialogs.openSimilarMove(paths); });
-    }
-    _item(menu, '\u{1F4CB}', 'Copy To…', '', () => { hide(); Dialogs.openCopyTo(paths); });
-    _item(menu, '\u{2702}\uFE0F', 'Move To…', '', () => { hide(); Dialogs.openMoveTo(paths); });
-    _sep(menu);
+    // Section: ZIP / unzip / ZIP + PDF passwords (archive.js)
+    if (typeof Archive !== 'undefined') Archive.menuItems(menu, { entries, paths, item: _item, sep: _sep, hide });
 
-    // Section: ZIP
-    _item(menu, '\u{1F4E6}', 'Zip…', 'Ctrl+Shift+Z', () => { hide(); FileTree.zipSelection(); });
-    if (single && ['.zip'].includes((entry?.ext||'').toLowerCase())) {
-      _item(menu, '\u{1F4C2}', 'Extract Here', '', () => { hide(); FileTree.unzipSelection(); });
-      _item(menu, '\u{1F4CB}', 'View Contents…', '', () => { hide(); Dialogs.openZipContents(mainPath); });
-    }
-    if (entries.length > 1 && entries.every(e => (e.ext||'').toLowerCase() === '.zip')) {
-      _item(menu, '\u{1F4C2}', 'Extract All…', '', () => { hide(); FileTree.unzipSelection(); });
-    }
+    // Section: copy / move (always visible)
+    _item(menu, 'copy', 'Copy To…', '', () => { hide(); Dialogs.openCopyTo(paths); });
+    _item(menu, 'folder-input', 'Move To…', '', () => { hide(); Dialogs.openMoveTo(paths); });
     _sep(menu);
 
     // Section: folder ops (directory only)
+    // Open folders in place in the file list (the › arrow / → / ←)
     if (isDir) {
-      _item(menu, '\u{1F4CA}', 'Generate Report', '', () => { hide(); SFM.generateReport(mainPath); App.toast('Report queued', 'info'); });
-      _item(menu, '\u{1F441}️', 'Watch Folder', '', () => { hide(); SFM.watchStart(mainPath, ''); App.toast('Watching ' + entry.name, 'info'); });
-      _item(menu, '\u{2702}\uFE0F', 'Split PDFs in Folder\u2026', '', () => { hide(); Dialogs.openBulkSplitPdfs(mainPath); });
-      _item(menu, '\u{1F4E6}', 'Zip Each Subfolder', '', () => { hide(); FileTree.zipEachSubfolder(); });
-      _item(menu, '\u{1F4C2}', 'Expand All', '', () => { hide(); FileTree.expandAll(); });
-      _item(menu, '\u{1F4C1}', 'Collapse All', '', () => { hide(); FileTree.collapseAll(); });
+      const dirs = entries.filter(e => e.is_dir);
+      if (dirs.length === 1) {
+        const d = dirs[0];
+        if (d.expanded) _item(menu, 'chevron-down', 'Collapse', '←', () => { hide(); FileTree.setExpanded(d.path, false); });
+        else _item(menu, 'chevron-right', 'Expand', '→', () => { hide(); FileTree.setExpanded(d.path, true); });
+        _item(menu, 'chevrons-up-down', 'Expand Everything Inside', '*', () => { hide(); FileTree.listExpandAll(d); });
+      } else {
+        _item(menu, 'chevrons-up-down', `Expand ${dirs.length} Folders`, '', async () => {
+          hide();
+          for (const d of dirs) await FileTree.setExpanded(d.path, true);
+        });
+      }
+      _item(menu, 'chevrons-up-down', 'Expand All Folders', '', () => { hide(); FileTree.listExpandAll(); });
+      _item(menu, 'chevrons-down-up', 'Collapse All Folders', '', () => { hide(); FileTree.listCollapseAll(); });
       _sep(menu);
     }
 
-    // Section: apostille
-    _item(menu, '\u{1F3DB}️', 'Apostille Merge…', '', () => {
-      hide();
-      const folder = isDir ? mainPath : mainPath.replace(/[\\\/][^\\\/]+$/, '');
-      Dialogs.openApostille(folder);
-    });
-
-    // Section: translate / QR
-    _sep(menu);
-    _item(menu, '\u{1F310}', 'Translate to Korean…', '', async () => {
-      hide();
-      const name = entry?.name || paths[0].split(/[\\\/]/).pop();
-      const r    = await SFM.translateKorean(name.replace(/\.[^.]+$/, ''));
-      if (r.ok) App.toast('Korean: ' + r.text, 'info', 6000);
-      else       App.toast('Translation failed', 'error');
-    });
+    // Section: QR
     // QR from file (image / PDF) — primary path
-    const _qrExts = new Set(['.jpg','.jpeg','.png','.bmp','.webp','.gif',
+    const _qrExts = new Set(['.jpg','.jpeg','.jfif','.png','.bmp','.webp','.gif',
                               '.tiff','.tif','.pdf']);
-    const _qrExt  = (entry?.ext || '').toLowerCase();
-    if (!isDir && _qrExts.has(_qrExt)) {
-      _item(menu, '\u{1F4F7}', 'Scan QR from File', '', async () => {
+    const _qrPaths = entries.filter(e => !e.is_dir && _qrExts.has((e.ext || '').toLowerCase())).map(e => e.path);
+    if (!isDir && _qrPaths.length) {
+      _item(menu, 'qr-code', _qrPaths.length > 1 ? `Check QR Codes (${_qrPaths.length} files)` : 'Scan QR from File', '', () => {
         hide();
-        App.setStatus('Scanning QR…', true);
-        App.toast('Scanning for QR code…', 'info', 2000);
-        SFM.scanQrFromFile(mainPath);
+        QrScan.scanPaths(_qrPaths);
       });
+      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.pick(); });
     } else {
       // Screen scan — open click-overlay
-      _item(menu, '\u{1F4F7}', 'Scan QR from Screen', '', () => {
-        hide();
-        Dialogs.openQrOverlay();
-      });
+      _item(menu, 'scan', 'Scan QR from Screen', '', () => { hide(); QrScan.pick(); });
     }
 
     // Section: copy path
     _sep(menu);
-    _item(menu, '\u{1F517}', 'Copy Path', '', () => {
+    _item(menu, 'link', 'Copy Path', '', () => {
       hide();
       const text = paths.join('\n');
-      navigator.clipboard.writeText(text).catch(() => SFM.setClipboard(text));
-      App.toast('Path copied', 'success');
+      SFM.copyText(text).then(ok => App.toast(ok ? (paths.length > 1 ? `${paths.length} paths copied` : 'Path copied') : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
-    _item(menu, '\u{1F4CB}', 'Copy Name', '', () => {
+    _item(menu, 'clipboard', 'Copy Name', '', () => {
       hide();
       const names = entries.map(e => e.name).join('\n');
-      navigator.clipboard.writeText(names).catch(() => SFM.setClipboard(names));
-      App.toast('Name copied', 'success');
+      SFM.copyText(names).then(ok => App.toast(ok ? 'Name copied' : 'Could not copy to the clipboard', ok ? 'success' : 'error'));
     });
 
-    // Position & show
+    _place(menu, x, y);
+  }
+
+  // Position & show
+  function _place(menu, x, y) {
     menu.classList.remove('hidden');
     const vw = window.innerWidth, vh = window.innerHeight;
-    const mw = 220, mh = menu.scrollHeight || 400;
+    const mw = Math.max(220, menu.offsetWidth || 0), mh = menu.scrollHeight || 400;
     const left = x + mw > vw ? vw - mw - 4 : x;
     const top  = y + mh > vh ? vh - mh - 4 : y;
     menu.style.left = left + 'px';
     menu.style.top  = top  + 'px';
+  }
+
+  // A plain menu of actions (empty-space menu of the file list, toolbar
+  // drop-downs): items = [{ icon, label, shortcut?, run, disabled? } | 'sep']
+  function showItems(x, y, items, opts) {
+    const menu = _ensureMenu();
+    menu.innerHTML = '';
+    menu.dataset.kind = (opts && opts.kind) || '';
+    (items || []).forEach(it => {
+      if (it === 'sep') { _sep(menu); return; }
+      _item(menu, it.icon, it.label, it.shortcut || '', () => { hide(); it.run && it.run(); }, !!it.disabled);
+    });
+    _place(menu, x, y);
   }
 
   function hide() {
@@ -334,10 +271,12 @@ const ContextMenu = (() => {
   }
 
   // ── Builders ──────────────────────────────────────────────────────────────
+  // icon: an Icons name (js/icons.js), e.g. 'copy', 'scissors', 'file-pdf'
   function _item(menu, icon, label, shortcut, fn, disabled = false) {
     const div = document.createElement('div');
-    div.className = 'ctx-item';
-    div.innerHTML = '<span class="ctx-icon">' + icon + '</span>'
+    div.className = 'ctx-item' + (DANGER.has(label) ? ' danger' : '');
+    div.setAttribute('role', 'menuitem');
+    div.innerHTML = '<span class="ctx-icon">' + (icon ? Icons.svg(icon, 16) : '') + '</span>'
       + '<span class="ctx-label">' + _esc(label) + '</span>'
       + (shortcut ? '<span class="ctx-shortcut">' + shortcut + '</span>' : '');
     if (disabled) div.classList.add('disabled');
@@ -355,5 +294,5 @@ const ContextMenu = (() => {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  return { show, hide };
+  return { show, showItems, hide };
 })();

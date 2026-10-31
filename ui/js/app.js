@@ -1,6 +1,6 @@
 /**
  * app.js — Core application: state, routing, toasts, keyboard shortcuts,
- *           undo/redo registry, pane resizing, cost poller.
+ *           undo/redo registry, pane resizing, theme toggle.
  */
 
 // ── Global App State ─────────────────────────────────────────────────────────
@@ -22,8 +22,6 @@ const App = (() => {
     thumbZoom:       100,      // %
     searchQuery:     '',
     currentPanel:    'workspace',
-    costPollTimer:   null,
-    watchPollTimer:  null,
   };
 
   // ── Panel Switching ───────────────────────────────────────────────────────
@@ -31,9 +29,11 @@ const App = (() => {
     state.currentPanel = name;
     document.querySelectorAll('.panel-view').forEach(el => {
       el.style.display = 'none';
+      el.classList.add('hidden');
     });
     const target = document.getElementById(`panel-${name}`);
-    if (target) target.style.display = 'flex';
+    // .hidden is display:none !important, so it must come off as well
+    if (target) { target.classList.remove('hidden'); target.style.display = 'flex'; }
 
     document.querySelectorAll('.sidebar-btn[data-panel]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.panel === name);
@@ -42,11 +42,12 @@ const App = (() => {
 
   // ── Toast Notifications ───────────────────────────────────────────────────
   function toast(message, type = 'info', duration = 3500) {
-    const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+    const icons = { info: 'info', success: 'check-circle', error: 'x-circle', warning: 'alert-triangle' };
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
     el.className = `toast ${type}`;
-    el.innerHTML = `<span class="icon">${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    el.innerHTML = `<span class="icon">${Icons.svg(icons[type] || 'info', 16)}</span><span>${message}</span>`;
     container.appendChild(el);
     setTimeout(() => {
       el.classList.add('fade-out');
@@ -135,12 +136,39 @@ const App = (() => {
   }
 
   // ── Navigation History ────────────────────────────────────────────────────
+  // One spelling per folder: backslashes, no trailing separator, and a drive
+  // root as "C:\" ("C:" alone means drive C's current directory). The
+  // breadcrumb used to hand over "C:/Users/" — Up then did nothing and the
+  // tree highlight never matched.
+  function normPath(p) {
+    let s = String(p || '').trim().replace(/\//g, '\\');
+    if (!s) return '';
+    const unc = s.startsWith('\\\\');
+    s = (unc ? '\\\\' : '') + s.slice(unc ? 2 : 0).replace(/\\{2,}/g, '\\');
+    if (/^[A-Za-z]:\\?$/.test(s)) return s.slice(0, 2).toUpperCase() + '\\';
+    return s.length > 3 ? s.replace(/\\+$/, '') : s;
+  }
+
+  // Parent folder, or '' at a drive root / share root.
+  function parentPath(p) {
+    const s = normPath(p);
+    if (!s || /^[A-Za-z]:\\$/.test(s)) return '';
+    const i = s.lastIndexOf('\\');
+    if (i < 0) return '';
+    const par = s.slice(0, i);
+    if (/^[A-Za-z]:$/.test(par)) return par + '\\';
+    if (par.startsWith('\\\\') && par.slice(2).split('\\').length < 2) return '';   // \\server
+    return par;
+  }
+
   function navigate(folder, pushHistory = true) {
-    if (pushHistory && state.currentFolder) {
+    folder = normPath(folder);
+    if (!folder) return;
+    if (pushHistory && state.currentFolder && folder.toLowerCase() !== state.currentFolder.toLowerCase()) {
       state.historyBack.push(state.currentFolder);
       state.historyFwd = [];
-      _addRecent(folder);
     }
+    _addRecent(folder);
     state.currentFolder = folder;
     _updateNavButtons();
     setStatusFolder(folder);
@@ -149,7 +177,7 @@ const App = (() => {
 
   function _addRecent(folder) {
     if (!folder) return;
-    state.recentFolders = [folder, ...state.recentFolders.filter(f => f !== folder)].slice(0, 10);
+    state.recentFolders = [folder, ...state.recentFolders.filter(f => f.toLowerCase() !== folder.toLowerCase())].slice(0, 10);
   }
 
   function _showRecentDropdown(anchorEl) {
@@ -165,7 +193,8 @@ const App = (() => {
       const row = document.createElement('div');
       row.style.cssText = 'padding:6px 14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       row.title = f;
-      row.innerHTML = '📂 ' + f.split(/[\\/]/).slice(-2).join('/');
+      row.innerHTML = Icons.svg('folder', 14, 'text-muted') + '<span class="truncate">'
+        + _escHtml(f.split(/[\\/]/).slice(-2).join('/')) + '</span>';
       row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-hover)');
       row.addEventListener('mouseleave', () => row.style.background = '');
       row.addEventListener('click', () => { dd.remove(); navigate(f); });
@@ -191,9 +220,8 @@ const App = (() => {
   }
 
   function navUp() {
-    if (!state.currentFolder) return;
-    const parent = state.currentFolder.replace(/[\\/][^\\/]+$/, '') || state.currentFolder;
-    if (parent !== state.currentFolder) navigate(parent);
+    const parent = parentPath(state.currentFolder);
+    if (parent) navigate(parent);
   }
 
   function _updateNavButtons() {
@@ -201,41 +229,22 @@ const App = (() => {
     document.getElementById('btn-nav-forward').disabled = state.historyFwd.length === 0;
   }
 
-  // ── Cost Polling ──────────────────────────────────────────────────────────
-  async function _pollCost() {
-    try {
-      const r = await SFM.getCost();
-      if (r.ok) {
-        const v = `$${r.cost_usd.toFixed(4)}`;
-        document.getElementById('cost-label').textContent = v;
-        document.getElementById('status-cost').textContent = `GPT: ${v}`;
-      }
-    } catch(e) {}
+  function _escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function startCostPoller() {
-    _pollCost();
-    state.costPollTimer = setInterval(_pollCost, 10000);
-  }
-
-  // ── Watch Polling ─────────────────────────────────────────────────────────
-  async function _pollWatch() {
-    try {
-      const r = await SFM.watchEntries();
-      if (!r.ok) return;
-      const watchEl  = document.getElementById('status-watch');
-      const watchTxt = document.getElementById('status-watch-text');
-      if (r.active > 0) {
-        watchEl.style.display = 'flex';
-        watchTxt.textContent = `Watch: ${r.active} active`;
-      } else {
-        watchEl.style.display = 'none';
-      }
-    } catch(e) {}
-  }
-
-  function startWatchPoller() {
-    state.watchPollTimer = setInterval(_pollWatch, 5000);
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  // Dark is the default (:root); light sets data-theme="light" on <html>.
+  function applyTheme(theme) {
+    const light = theme === 'light';
+    const html = document.documentElement;
+    if (light) html.setAttribute('data-theme', 'light'); else html.removeAttribute('data-theme');
+    window._sfmTheme = light ? 'light' : 'dark';
+    const tb = document.getElementById('btn-theme');
+    if (tb) {
+      tb.innerHTML = Icons.svg(light ? 'sun' : 'moon', 16);
+      tb.title = light ? 'Switch to dark theme' : 'Switch to light theme';
+    }
   }
 
   // ── Pane Resizing ─────────────────────────────────────────────────────────
@@ -284,30 +293,75 @@ const App = (() => {
   }
 
   // ── Global Keyboard Shortcuts ─────────────────────────────────────────────
+  // Where the user last clicked: 'list' (file list) or 'other' — decides
+  // whether Ctrl+C copies files or selected text.
+  let _lastZone = 'other';
+  document.addEventListener('pointerdown', e => {
+    const inList = e.target && e.target.closest && e.target.closest('#pane-filelist');
+    _lastZone = inList ? 'list' : 'other';
+    // Clicking a file drops any text selection left in the preview.
+    if (inList && e.target.closest('.file-item')) { const s = window.getSelection(); if (s && !s.isCollapsed) s.removeAllRanges(); }
+  }, true);
+
   function _initKeyboard() {
     document.addEventListener('keydown', e => {
       // Don't hijack keys while the user is typing in a text field —
       // otherwise Ctrl+V pastes files instead of text, Delete soft-deletes
       // the selected file mid-rename, Ctrl+Z runs file-op undo, etc.
       const t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      // A dialog / editor is open, or another page is shown:
+      // Delete, F2, Ctrl+V… must not act on the file list hidden behind it.
+      if (blocked()) return;
 
       const ctrl  = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const alt   = e.altKey;
-      const key   = e.key;
+      // Letters compared lower-case: with Caps Lock on, Ctrl+C reports 'C'.
+      const key   = (e.key && e.key.length === 1) ? e.key.toLowerCase() : e.key;
 
       // Prevent default for our shortcuts
       if (ctrl && key === 'z' && !shift) { e.preventDefault(); undo(); return; }
       if (ctrl && (key === 'y' || (key === 'z' && shift))) { e.preventDefault(); redo(); return; }
-      if (ctrl && key === 'c' && !shift) { FileTree.copySelection(); return; }
-      if (ctrl && key === 'x')           { FileTree.cutSelection();  return; }
+      if (ctrl && key === 'c' && !shift) {
+        // Selected words in a PDF, Word file, or text preview go to the
+        // Windows clipboard. A PDF selection often has no toString() because
+        // the words sit in positioned spans, so ask the text layer too.
+        // A click in the file list still copies the selected files.
+        const sel = window.getSelection();
+        const anchor = sel && sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+        const inPreview = !!(anchor && anchor.closest && anchor.closest('#preview-body, #fullview-wrap'));
+        const previewText = inPreview && window.PdfText && PdfText.selectedText ? PdfText.selectedText() : '';
+        // Copy it ourselves: WebView2 does not always fire the 'copy' event
+        // for a selection over the PDF text layer, so Ctrl+C did nothing.
+        if (previewText.trim()) { e.preventDefault(); PdfText.copyText(previewText); return; }
+        const onList = _lastZone === 'list' ||
+          (t && (t.id === 'filelist-list' || t.id === 'filelist-thumb'));
+        if (!onList && sel && !sel.isCollapsed && sel.toString().trim()) return;
+        if (sel && !sel.isCollapsed) sel.removeAllRanges();
+        e.preventDefault();
+        FileTree.copySelection(); return;
+      }
+      if (ctrl && key === 'x' && !shift) {
+        // Like Ctrl+C: selected words outside the list stay a text cut/copy.
+        const sel = window.getSelection();
+        if (_lastZone !== 'list' && sel && !sel.isCollapsed && sel.toString().trim()) return;
+        e.preventDefault(); FileTree.cutSelection(); return;
+      }
       if (ctrl && key === 'v')           { FileTree.pasteSelection(); return; }
-      if (ctrl && shift && key === 'N')  { e.preventDefault(); FileTree.newFolder(); return; }
-      if (ctrl && shift && key === 'Z')  { e.preventDefault(); FileTree.zipSelection(); return; }
+      if ((ctrl && !shift && key === 'l') || (alt && key === 'd') || key === 'F4') { e.preventDefault(); FileTree.editPath(); return; }
+      if (ctrl && !shift && key === 'f') {
+        e.preventDefault();
+        const si = document.getElementById('search-input');
+        if (si) { si.focus(); si.select(); }
+        return;
+      }
+      if (ctrl && shift && key === 'n')  { e.preventDefault(); FileTree.newFolder(); return; }
+      if (ctrl && shift && key === 'l')  { e.preventDefault(); FolderTools.openFromList(); return; }
+      if (ctrl && shift && key === 's')  { e.preventDefault(); Details.signSelected(); return; }
       if (ctrl && key === 'Enter')       { e.preventDefault(); FileTree.combineSelected(); return; }
       if (key === 'F5')                  { e.preventDefault(); FileTree.refresh(); return; }
-      if (key === 'F2')                  { e.preventDefault(); Details.beginRename(); return; }
+      if (key === 'F2')                  { e.preventDefault(); FileTree.startRename(); return; }
       if (key === 'Delete')              { FileTree.deleteSelection(); return; }
       if (alt && key === 'ArrowLeft')    { e.preventDefault(); navBack(); return; }
       if (alt && key === 'ArrowRight')   { e.preventDefault(); navForward(); return; }
@@ -319,22 +373,18 @@ const App = (() => {
     });
   }
 
+  // True while a modal / full-window editor is up or the Files page is hidden.
+  function blocked() {
+    if (state.currentPanel && state.currentPanel !== 'workspace') return true;
+    for (const ov of document.querySelectorAll('.modal-overlay, .acct-overlay')) {
+      if (!ov.isConnected || ov.classList.contains('hidden')) continue;
+      if (getComputedStyle(ov).display !== 'none') return true;
+    }
+    return false;
+  }
+
   // ── SFM Events from Python ────────────────────────────────────────────────
   function _initEventHandlers() {
-    // Long-op log lines
-    // Non-smart-split log events → console only (dialogs handle their own)
-    ['ocr_rename_log','split_ocr_log','report_log',
-     'apostille_log','watch_log'].forEach(ev => {
-      SFM.on(ev, ({ log }) => console.log(`[${ev}]`, log));
-    });
-    // smart_rename_log is handled inside Dialogs.openSmartSplitProgress — no global handler needed
-
-    // Long-op completions (smart_rename_done handled inside the progress dialog)
-    SFM.on('ocr_rename_done', r => {
-      setStatus('Ready');
-      if (r.ok) { toast('OCR rename complete', 'success'); FileTree.refresh(); }
-      else       { toast('OCR rename failed: ' + r.error, 'error', 5000); }
-    });
     SFM.on('compress_done', r => {
       setStatus('Ready');
       if (r.ok) toast(`Compressed — saved ${r.saved_str}`, 'success');
@@ -346,17 +396,12 @@ const App = (() => {
       if (r.ok) { toast('Conversion complete', 'success'); FileTree.refresh(); }
       else       { toast('Conversion failed', 'error'); }
     });
-    SFM.on('zip_done',   r => { setStatus('Ready'); if(r.ok) toast('Zip complete','success'); else toast('Zip failed: '+r.error,'error'); FileTree.refresh(); });
-    SFM.on('unzip_done', r => { setStatus('Ready'); if(r.ok) toast('Unzip complete','success'); else toast('Unzip failed: '+r.error,'error'); FileTree.refresh(); });
-    SFM.on('report_done',r => { setStatus('Ready'); if(r.ok) toast('Report saved','success'); else toast('Report failed: '+r.error,'error'); });
     SFM.on('qr_result',  r => {
       setStatus('Ready');
       if (r.ok) {
         const decoded = r.text || r.url || '';
         const pageInfo = r.page ? ` (page ${r.page})` : '';
-        // Put decoded text into rename bar so user can use it immediately
-        const ri = document.getElementById('rename-input');
-        if (ri && decoded) ri.value = decoded;
+        // (Use FileTree.startRename(path, decoded) to offer it as a file name.)
         // If it looks like a URL, offer to open it
         if (decoded.match(/^https?:\/\//i)) {
           toast(`QR decoded${pageInfo}: ${decoded.slice(0, 80)}`, 'success', 8000);
@@ -367,10 +412,6 @@ const App = (() => {
         toast('QR: ' + (r.error || 'No QR code found'), 'warning', 4000);
       }
     });
-    SFM.on('folder_create_done', r => {
-      setStatus('Ready');
-      toast(`${r.created.length} folders created`, 'success');
-    });
     SFM.on('ai_photo_done', r => {
       setStatus('Ready');
       if (r.ok) { toast('AI edit complete', 'success'); FileTree.refresh(); }
@@ -379,6 +420,7 @@ const App = (() => {
   }
 
   // ── Toolbar Wiring ────────────────────────────────────────────────────────
+  let _themeSave = Promise.resolve();
   function _initToolbar() {
     const wire = (id, fn) => { const el = document.getElementById(id); if(el) el.addEventListener('click', fn); };
 
@@ -398,64 +440,39 @@ const App = (() => {
     wire('btn-view-list',   () => FileTree.setViewMode('list'));
     wire('btn-view-thumb',  () => FileTree.setViewMode('thumb'));
     wire('btn-combine-pdf', () => FileTree.combineSelected());
-    wire('btn-smart-split', () => {
-      const p = state.focusedPath || state.selectedPaths[0];
-      if (!p) { toast('Select a PDF first', 'warning'); return; }
-      Dialogs.openSmartSplitProgress(p);
-    });
     wire('btn-compress-pdf', () => {
-      const p = state.focusedPath || state.selectedPaths[0];
-      if (!p) { toast('Select a PDF first', 'warning'); return; }
-      Dialogs.openCompressPdf(p);
+      const all = _fileSel().filter(p => _isPdfPath(p) || _isImagePath(p));
+      if (!all.length) { toast('Select a PDF or image first', 'warning'); return; }
+      ConvertTools.openCompress(all);
     });
-    wire('btn-zip',   () => FileTree.zipSelection());
-    wire('btn-unzip', () => FileTree.unzipSelection());
-    wire('btn-translate', () => Details.translateRename());
-    wire('btn-qr',    () => {
-      // If an image/PDF is selected, scan it directly
-      const selPath = state.focusedPath || state.selectedPaths[0];
-      const selExt  = (selPath || '').split('.').pop().toLowerCase();
-      const fileExts = new Set(['jpg','jpeg','png','bmp','webp','gif','tiff','tif','pdf']);
-      if (selPath && fileExts.has(selExt)) {
-        setStatus('Scanning QR from file…', true);
-        toast('Scanning QR from selected file…', 'info', 2000);
-        SFM.scanQrFromFile(selPath);
-      } else {
-        // No image/PDF selected — open click-overlay (screenshot + click on QR)
-        Dialogs.openQrOverlay();
-      }
+    wire('btn-convert', () => {
+      const all  = _fileSel();
+      const imgs = all.filter(p => typeof ConvertTools !== 'undefined' ? ConvertTools.isImage(p) : _isImagePath(p));
+      const pdfs = all.filter(p => typeof ConvertTools !== 'undefined' ? ConvertTools.isPdf(p) : _isPdfPath(p));
+      const focus = state.focusedPath;
+      if (imgs.length && ((focus && imgs.includes(focus)) || !pdfs.length)) { ConvertTools.openImagesToPdf(imgs); return; }
+      if (pdfs.length) { ConvertTools.openPdfToImages(pdfs.includes(focus) ? focus : pdfs[0]); return; }
+      toast('Select image(s) to make a PDF, or a PDF to save its pages as images', 'warning', 4500);
     });
+    syncFileTools();
+    // QR: native pick overlay — click a code anywhere on screen (qr.js / qr_pick.py)
+    wire('btn-qr',    () => QrScan.pick());
     wire('btn-more',  () => Dialogs.openMoreMenu());
     wire('btn-theme', () => {
-      const html = document.documentElement;
-      const isCurrentlyDark = html.getAttribute('data-theme') !== 'light';
-      if (isCurrentlyDark) {
-        // → light mode
-        html.setAttribute('data-theme', 'light');
-        document.getElementById('btn-theme').textContent = '☀️';
-        window._sfmTheme = 'light';
-        SFM.saveSettings({ theme: 'light' }).catch(() => {});
-      } else {
-        // → dark mode: REMOVE attribute so :root (dark) CSS applies
-        html.removeAttribute('data-theme');
-        document.getElementById('btn-theme').textContent = '🌙';
-        window._sfmTheme = 'dark';
-        SFM.saveSettings({ theme: 'dark' }).catch(() => {});
-      }
+      const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      // One save at a time: pywebview runs each call on its own thread, so two
+      // quick clicks could finish out of order and store the wrong theme.
+      _themeSave = _themeSave.then(() => SFM.saveSettings({ theme: next })).catch(() => {});
     });
     // Restore saved theme from settings
     SFM.getSettings().then(r => {
-      if (r.ok && r.settings && r.settings.theme === 'light') {
-        document.documentElement.setAttribute('data-theme', 'light');
-        const tb = document.getElementById('btn-theme');
-        if (tb) tb.textContent = '☀️';
-      }
+      if (r.ok && r.settings && r.settings.theme === 'light') applyTheme('light');
     }).catch(() => {});
-    wire('cost-chip', async () => {
-      await SFM.resetCost();
-      document.getElementById('cost-label').textContent = '$0.0000';
-      toast('Cost tracker reset', 'info', 1500);
-    });
+
+    // Brand mark in the sidebar
+    const logo = document.getElementById('sidebar-logo');
+    if (logo && !logo.firstChild) logo.innerHTML = Icons.logo(32);
 
     // Search
     const searchInput = document.getElementById('search-input');
@@ -493,18 +510,40 @@ const App = (() => {
     });
   }
 
+  // Highlighted rows only. A keyboard-focus ring is not a selection, so
+  // Convert / Compress / Zip / Merge / Split must not run on it.
+  function _fileSel() { return (state.selectedPaths || []).slice(); }
+  const _pathExt = p => (String(p || '').match(/\.[^.\\/]+$/) || [''])[0].toLowerCase();
+  const _isPdfPath = p => _pathExt(p) === '.pdf';
+  const _isImagePath = p => ['.jpg', '.jpeg', '.jfif', '.png', '.bmp', '.webp', '.gif', '.tif', '.tiff', '.heic', '.heif'].includes(_pathExt(p));
+
+  function _gateTool(id, on, need) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!el.dataset.titleOn) el.dataset.titleOn = el.title || '';
+    el.disabled = !on;
+    el.title = on ? el.dataset.titleOn : need;
+  }
+
+  function syncFileTools() {
+    const sel = _fileSel();
+    const media = sel.some(p => _isPdfPath(p) || _isImagePath(p));
+    _gateTool('btn-convert', media, 'Select image(s) or a PDF first');
+    _gateTool('btn-compress-pdf', media, 'Select a PDF or image first');
+    _gateTool('btn-zip', sel.length > 0, 'Select files or folders to zip');
+    _gateTool('btn-combine-pdf', media, 'Select PDF or image files first');
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
   // These initialisers were previously defined but never invoked, which left
-  // keyboard shortcuts, toolbar buttons, Python→JS event handlers (zip_done,
-  // unzip_done, report_done, …), pane resizers and status pollers all dead.
+  // keyboard shortcuts, toolbar buttons, Python→JS event handlers,
+  // pane resizers and status pollers all dead.
   function _boot() {
     const safe = (fn, name) => { try { fn(); } catch (e) { console.error('[App boot]', name, e); } };
     safe(_initToolbar,       '_initToolbar');
     safe(_initKeyboard,      '_initKeyboard');
     safe(_initEventHandlers, '_initEventHandlers');
     safe(_initPaneResizers,  '_initPaneResizers');
-    safe(startCostPoller,    'startCostPoller');
-    safe(startWatchPoller,   'startWatchPoller');
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _boot);
@@ -517,6 +556,7 @@ const App = (() => {
     state,
     navigate, toast, setStatus, setStatusFolder,
     setStatusSelection, pushUndo, undo, redo,
-    switchPanel, navBack, navForward, navUp,
+    switchPanel, navBack, navForward, navUp, applyTheme, syncFileTools,
+    normPath, parentPath, blocked,
   };
 })();
