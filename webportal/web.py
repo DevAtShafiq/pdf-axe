@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, quote
 from auth import FAILURE_WINDOW, MAX_FAILURES, AdminAccount, Sessions
 from config import Config
 from licensing import Licensing
+from releases import ReleaseError, ReleaseManager, as_dt
 from store import Store, iso
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -189,7 +190,8 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "") ->
     if admin:
         nav = f"""
         <nav class="admin-nav">
-          <a href="/admin">Keys</a><a href="/admin/activity">Activity</a>
+          <a href="/admin">Keys</a><a href="/admin/releases">Releases</a><a href="/admin/guides">Guides</a>
+          <a href="/admin/activity">Activity</a>
           <a href="/admin/import">Import</a><a href="/admin/settings">Settings</a>
           <form method="post" action="/admin/logout" class="inline">
             <input type="hidden" name="csrf" value="{e(csrf)}"><button class="link">Log out</button>
@@ -204,7 +206,7 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "") ->
 </head><body class="{'admin' if admin else 'public'}">
 <header class="top">
   <a class="brand" href="{'/admin' if admin else '/'}"><span class="logo">OA</span>Office Axe{' <small>Admin</small>' if admin else ''}</a>
-  {nav or '<nav class="pub-nav"><a href="/#tour">Tour</a><a href="/#features">Features</a><a href="/#pricing">Pricing</a><a class="btn primary sm" href="/download">Download</a></nav>'}
+  {nav or '<nav class="pub-nav"><a href="/#tour">Tour</a><a href="/document/">Document</a><a href="/pricing/">Pricing</a><a class="btn primary sm" href="/download">Download</a></nav>'}
 </header>
 <main>{body}</main>
 <footer class="foot">© Office Axe</footer>
@@ -232,6 +234,19 @@ class Portal:
         self.account = AdminAccount(self.cfg.admin_file, self.cfg.admin_user,
                                     store=self.store if hasattr(self.store, "get_meta") else None)
         self.sessions = Sessions(self.cfg.session_secret(), self.account)
+        # release manager: Firestore on the server (shared with installed apps' Update Now),
+        # a small JSON file on this PC
+        if hasattr(self.store, "db") and not isinstance(self.store, Store):
+            stamp = None
+            try:
+                from google.cloud import firestore as _fs   # the server stamps the time
+                stamp = lambda: _fs.SERVER_TIMESTAMP
+            except ImportError:
+                pass
+            self.releases = ReleaseManager(self.store.db, now=stamp)
+        else:
+            from minidb import MiniFirestore
+            self.releases = ReleaseManager(MiniFirestore(os.path.join(self.cfg.data_dir, "releases.json")))
 
     # WSGI entry
     def __call__(self, environ, start_response):
@@ -251,6 +266,14 @@ class Portal:
             return self.landing()
         if p == "/download":
             return self.download()
+        if p == "/document" and m == "GET":
+            return self.document_page()
+        if p == "/pricing" and m == "GET":
+            return self.pricing_page()
+        if p == "/login":                       # old release-manager addresses
+            return redirect("/admin/login")
+        if p == "/dashboard":
+            return redirect("/admin/releases")
         if p == "/media/office-axe-demo.mp4" and m in ("GET", "HEAD"):
             if not os.path.isfile(self.cfg.video_file):
                 return not_found()
@@ -290,6 +313,7 @@ class Portal:
       <a class="btn lg" href="#pricing">See plans</a>
     </div>
     <p class="muted small">Windows 10 and 11 · works offline · up to 5 PCs per subscription</p>
+    {self._release_strip()}
   </div>
   <img class="hero-shot" src="/static/img/workspace.jpg" alt="The Office Axe workspace" width="1200" height="567">
 </section>
@@ -312,6 +336,54 @@ class Portal:
       <li>Paste your key and click <strong>Activate on this PC</strong>.</li></ol>
 </section>"""
         return Response(page("Every office file job, in one app", body))
+
+    # ── pages the earlier OfficeAxe site had (same addresses) ────────────────
+    def document_page(self) -> Response:
+        guides = "".join(f'<article class="card guide"><h2>{e(g["title"])}</h2><div class="guide-body">{e(g["body"])}</div></article>'
+                         for g in self.releases.guides())
+        body = f"""
+<section class="narrow-wide">
+  <h1>How to use OfficeAxe</h1>
+  <p class="lead">Install the Windows app, open your documents, and update when a newer release is published.</p>
+  <ol class="howto">
+    <li><b>Download</b> — save the Windows installer. No account is required. <a href="/download">Download now</a></li>
+    <li><b>Run the installer</b> — open the .exe and follow the setup steps.</li>
+    <li><b>Use OfficeAxe</b> — the installed app checks for a newer version and shows <b>Update Now</b> when one is ready.</li>
+    <li><b>Activate</b> — click <b>Activate with license key</b>, paste your key and click <b>Activate on this PC</b>.</li>
+  </ol>
+  <h2>More documentation</h2>
+  {guides or '<p class="muted">Guides added by an administrator will appear here.</p>'}
+</section>"""
+        return Response(page("How to use OfficeAxe", body))
+
+    def pricing_page(self) -> Response:
+        body = """
+<section class="pricing">
+  <h1>OfficeAxe plans</h1>
+  <p class="muted">Prices are in Bangladeshi taka.</p>
+  <div class="plans">
+    <div class="plan"><h3>1 month</h3><div class="price">৳999<span>/ month</span></div>
+      <ul><li>All tools</li><li>Up to 5 PCs</li><li>No auto-renew</li></ul></div>
+    <div class="plan best"><div class="badge">Save ৳1,989</div><h3>1 year</h3>
+      <div class="price">৳9,999<span>/ year</span></div><div class="was">৳11,988</div>
+      <ul><li>All tools</li><li>Up to 5 PCs</li><li>Two months free</li></ul></div>
+  </div>
+  <p><a class="btn primary lg" href="/download">Download for Windows</a></p>
+</section>"""
+        return Response(page("OfficeAxe pricing", body))
+
+    def _release_strip(self) -> str:
+        try:
+            cur = self.releases.current()
+        except Exception:
+            cur = {}
+        if not cur.get("version"):
+            return ""
+        when = as_dt(cur.get("publishedAt"))
+        notes = str(cur.get("releaseNotes") or "").strip()
+        return (f'<p class="release-strip"><span class="pill active">v{e(cur["version"])}</span> '
+                f'Current release{" · " + when.strftime("%d %b %Y") if when else ""}</p>'
+                + (f'<details class="whatsnew"><summary>What’s new</summary><p class="notes">{e(notes)}</p></details>' if notes else ""))
 
     def _tour_html(self) -> str:
         try:
@@ -369,15 +441,19 @@ class Portal:
 </section>"""
 
     def download(self) -> Response:
-        url = self.cfg.download_url
-        if not url and hasattr(self.store, "current_release"):
-            # the release published in the OfficeAxe release manager (Firestore meta/current)
-            try:
-                url = (self.store.current_release() or {}).get("downloadUrl", "")
-            except Exception:
-                url = ""
+        cur = {}
+        try:
+            cur = self.releases.current()      # the live release (release manager)
+        except Exception:
+            pass
+        url = str(cur.get("downloadUrl") or "") or self.cfg.download_url
         if url and url.startswith(("https://", "http://")):
             self.store.count_download(iso(self.lic._now()))
+            if cur.get("downloadUrl"):
+                try:
+                    self.releases.log_download(cur)
+                except Exception:
+                    pass
             return redirect(url)
         f = self.cfg.download_file
         if f and os.path.isfile(f):
@@ -472,6 +548,49 @@ class Portal:
                             headers=[("Content-Disposition", 'attachment; filename="revoked_keys.json"')])
         if p == "/admin/activity":
             return self.activity_page(sess, csrf)
+        if p == "/admin/releases":
+            if m == "POST":
+                f = req.form
+                try:
+                    r = self.releases.create(f.get("version", ""), f.get("notes", ""), f.get("url", ""),
+                                             f.get("mandatory") == "1", self._who(sess),
+                                             publish=f.get("action") == "publish", allow_older=f.get("allow_older") == "1")
+                except ReleaseError as exc:
+                    return self.releases_page(req, sess, csrf, error=str(exc), form=f)
+                self.store.log(iso(self.lic._now()), actor, "release_" + ("publish" if f.get("action") == "publish" else "draft"),
+                               "", r["version"])
+                return redirect("/admin/releases")
+            return self.releases_page(req, sess, csrf)
+        mr = re.fullmatch(r"/admin/releases/([A-Za-z0-9]{1,40})/(edit|publish|delete)", p)
+        if mr and m == "POST":
+            rid, act, f, note = mr.group(1), mr.group(2), req.form, ""
+            try:
+                if act == "edit":
+                    r = self.releases.edit(rid, f.get("notes", ""), f.get("url", ""), f.get("mandatory") == "1", self._who(sess))
+                elif act == "publish":
+                    r = self.releases.publish(rid, self._who(sess))
+                else:
+                    r = self.releases.get(rid) or {}
+                    note = self.releases.delete(rid)
+                self.store.log(iso(self.lic._now()), actor, "release_" + act, "", str(r.get("version", rid)))
+            except ReleaseError as exc:
+                return self.releases_page(req, sess, csrf, error=str(exc))
+            return self.releases_page(req, sess, csrf, notice=note or {"edit": "Release saved.", "publish": "It's now the live update.",
+                                                                        "delete": "Release deleted."}[act])
+        if p == "/admin/guides":
+            if m == "POST":
+                try:
+                    g = self.releases.add_guide(req.form.get("title", ""), req.form.get("body", ""), self._who(sess))
+                    self.store.log(iso(self.lic._now()), actor, "guide_add", "", g["title"])
+                except ReleaseError as exc:
+                    return self.guides_page(req, sess, csrf, error=str(exc))
+                return redirect("/admin/guides")
+            return self.guides_page(req, sess, csrf)
+        mg = re.fullmatch(r"/admin/guides/([A-Za-z0-9]{1,40})/delete", p)
+        if mg and m == "POST":
+            self.releases.delete_guide(mg.group(1))
+            self.store.log(iso(self.lic._now()), actor, "guide_delete", "", mg.group(1))
+            return redirect("/admin/guides")
         if p == "/admin/import":
             return self.import_page(req, sess, csrf, actor)
         if p == "/admin/settings":
@@ -670,6 +789,114 @@ class Portal:
   </section>
 </div>"""
         return Response(page(k["holder"], body, sess, csrf))
+
+    # ── releases (the merged OfficeAxe release manager) ──────────────────────
+    def _who(self, sess) -> str:
+        return f"{sess['u']}@portal"
+
+    def releases_page(self, req, sess, csrf, error: str = "", form: Optional[dict] = None, notice: str = "") -> Response:
+        rm = self.releases
+        cur = rm.current()
+        rows = rm.list()
+        stats = rm.download_stats(30)
+        f = form or {}
+        fmt = lambda v: (as_dt(v).strftime("%d %b %Y, %H:%M UTC") if as_dt(v) else "")
+        live = f"""
+          <div class="live-release">
+            <div><span class="pill active">live</span> <b>OfficeAxe {e(cur.get('version', ''))}</b>
+              {'<span class="pill revoked">required update</span>' if cur.get('mandatory') else ''}</div>
+            <div class="muted small">Published {fmt(cur.get('publishedAt'))} · {e(cur.get('fileName') or '')}</div>
+            <p class="notes">{e(cur.get('releaseNotes', ''))}</p>
+            <div class="key">{e(cur.get('downloadUrl', ''))}</div>
+          </div>""" if cur else '<p class="muted">No release is live yet. Installed apps see no update until one is published.</p>'
+        def row(r):
+            st = "live" if r.get("isCurrent") or cur.get("releaseId") == r["id"] else ("published" if r.get("status") == "published" else "draft")
+            cls = {"live": "active", "published": "expired", "draft": ""}[st]
+            pub_btn = "" if st == "live" else f"""
+                <form method="post" action="/admin/releases/{r['id']}/publish" data-confirm="Make {e(r['version'])} the live update? Installed apps will offer it.">
+                  <input type="hidden" name="csrf" value="{e(csrf)}"><button class="btn sm primary">Set live</button></form>"""
+            return f"""
+            <details class="release-row">
+              <summary>
+                <span class="rel-ver">{e(r['version'])}</span> <span class="pill {cls}">{st}</span>
+                {'<span class="pill revoked">required</span>' if r.get('mandatory') else ''}
+                <span class="muted small">{fmt(r.get('publishedAt') or r.get('createdAt'))} · {e(r.get('updatedBy', ''))}</span>
+              </summary>
+              <p class="notes">{e(r.get('releaseNotes', ''))}</p>
+              <div class="muted small">{e(r.get('downloadUrl') or 'No download URL yet')}</div>
+              <form method="post" action="/admin/releases/{r['id']}/edit" class="stack" style="margin-top:12px">
+                <input type="hidden" name="csrf" value="{e(csrf)}">
+                <label>Release notes<textarea name="notes" maxlength="8000" required>{e(r.get('releaseNotes', ''))}</textarea></label>
+                <label>Download URL<input name="url" value="{e(r.get('downloadUrl', ''))}" placeholder="https://…/OfficeAxe-Setup.exe"></label>
+                <label class="check"><input type="checkbox" name="mandatory" value="1"{' checked' if r.get('mandatory') else ''}> Required update (no “Later” button)</label>
+                <div class="row-btns"><button class="btn sm">Save changes</button></div>
+              </form>
+              <div class="row-btns">{pub_btn}
+                <form method="post" action="/admin/releases/{r['id']}/delete" data-confirm="Delete release {e(r['version'])}?{' It is live: installed apps will see no update until another is published.' if st == 'live' else ''}">
+                  <input type="hidden" name="csrf" value="{e(csrf)}"><button class="btn sm danger">Delete</button></form>
+              </div>
+            </details>"""
+        hist = "".join(row(r) for r in rows) or '<p class="muted">No releases yet.</p>'
+        body = f"""
+{f'<div class="alert ok">{e(notice)}</div>' if notice else ''}
+<section class="stats">
+  <div><b>{e(cur.get('version', '—'))}</b><span>live version</span></div>
+  <div><b>{len(rows)}</b><span>releases</span></div>
+  <div><b>{stats['downloads']}</b><span>downloads, 30 days</span></div>
+  <div><b>{stats['problems']}</b><span>download problems, 30 days</span></div>
+  <div><b>{self.store.download_count()}</b><span>Download button clicks</span></div>
+</section>
+<div class="admin-grid">
+  <section class="card">
+    <h2>New release</h2>
+    {f'<div class="alert err">{e(error)}</div>' if error else ''}
+    <form method="post" action="/admin/releases" class="stack">
+      <input type="hidden" name="csrf" value="{e(csrf)}">
+      <label>Version<input name="version" required placeholder="e.g. 1.4.2" value="{e(f.get('version', ''))}"></label>
+      <label>What's new<textarea name="notes" maxlength="8000" required rows="5">{e(f.get('notes', ''))}</textarea></label>
+      <label>Download URL (the .exe installer)<input name="url" value="{e(f.get('url', ''))}" placeholder="https://…/OfficeAxe-Setup.exe"></label>
+      <label class="check"><input type="checkbox" name="mandatory" value="1"{' checked' if f.get('mandatory') else ''}> Required update (no “Later” button)</label>
+      <label class="check"><input type="checkbox" name="allow_older" value="1"> Publish anyway if it isn't newer than the live version</label>
+      <div class="row-btns">
+        <button class="btn" name="action" value="draft">Save draft</button>
+        <button class="btn primary" name="action" value="publish">Publish now</button>
+      </div>
+      <p class="muted small">Installed copies of OfficeAxe read the live release and show <b>Update Now</b>.
+        Upload the installer somewhere public first (Firebase Storage, Google Drive, GitHub releases…) and paste its link.</p>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Live release</h2>
+    {live}
+    <h2 style="margin-top:24px">History</h2>
+    <div class="release-list">{hist}</div>
+  </section>
+</div>"""
+        return Response(page("Releases", body, sess, csrf))
+
+    def guides_page(self, req, sess, csrf, error: str = "") -> Response:
+        items = "".join(f"""
+          <details class="release-row"><summary><b>{e(g['title'])}</b></summary>
+            <div class="guide-body">{e(g['body'])}</div>
+            <form method="post" action="/admin/guides/{e(g['id'])}/delete" data-confirm="Delete the guide “{e(g['title'])}”?">
+              <input type="hidden" name="csrf" value="{e(csrf)}"><button class="btn sm danger">Delete</button></form>
+          </details>""" for g in self.releases.guides()) or '<p class="muted">No guides yet.</p>'
+        body = f"""
+<div class="admin-grid">
+  <section class="card">
+    <h2>New guide</h2>
+    {f'<div class="alert err">{e(error)}</div>' if error else ''}
+    <form method="post" action="/admin/guides" class="stack">
+      <input type="hidden" name="csrf" value="{e(csrf)}">
+      <label>Title<input name="title" maxlength="200" required></label>
+      <label>Text<textarea name="body" maxlength="20000" rows="10" required></textarea></label>
+      <button class="btn primary">Add guide</button>
+    </form>
+    <p class="muted small">Guides appear on the public <a href="/document/">Document</a> page.</p>
+  </section>
+  <section class="card"><h2>Guides</h2>{items}</section>
+</div>"""
+        return Response(page("Guides", body, sess, csrf))
 
     def activity_page(self, sess, csrf) -> Response:
         rows = "".join(f"""<tr><td class="small">{fmt_time(a['at'])}</td><td>{e(a['actor'])}</td><td>{e(a['action'])}</td>

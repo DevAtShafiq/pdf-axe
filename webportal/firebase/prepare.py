@@ -27,7 +27,8 @@ PORTAL = os.path.dirname(HERE)
 ROOT = os.path.dirname(PORTAL)
 BUILD = os.path.join(HERE, "build")
 
-PORTAL_FILES = ["web.py", "auth.py", "config.py", "licensing.py", "store.py", "store_firestore.py", "wsgi.py"]
+PORTAL_FILES = ["web.py", "auth.py", "config.py", "licensing.py", "store.py", "store_firestore.py", "wsgi.py",
+                "releases.py", "minidb.py"]
 ROOT_FILES = ["license_keys.py", "ed25519_pure.py", "revoked_keys.json"]
 
 
