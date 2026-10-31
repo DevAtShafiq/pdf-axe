@@ -191,3 +191,13 @@ def test_prepare_builds_the_hosting_and_function_bundle(tmp_path, monkeypatch):
     cfg = json.load(open(os.path.join(ROOT, "webportal", "firebase", "firebase.json"), encoding="utf-8"))
     assert cfg["hosting"]["rewrites"][0]["function"]["functionId"] == "portal"
     assert "venv" in cfg["functions"][0]["ignore"]
+
+
+def test_download_button_follows_the_published_release(app):
+    portal, db = app
+    assert _call(portal, "GET", "/download")["status"] == 200          # nothing published: "coming soon"
+    db.collection("meta").document("current").set({"version": "1.4.0", "downloadUrl": "https://example.com/OfficeAxe-1.4.0.exe"})
+    r = _call(portal, "GET", "/download")
+    assert r["status"] == 303 and dict(r["headers"])["Location"] == "https://example.com/OfficeAxe-1.4.0.exe"
+    assert portal.store.download_count() == 1
+    assert "oa_meta" not in db.colls or "current" not in db.colls["oa_meta"].data   # never written by the portal

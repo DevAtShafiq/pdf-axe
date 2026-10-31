@@ -153,6 +153,13 @@ class FirestoreStore:
         return sum(1 for s in self._c("logins").where("ip", "==", ip).stream()
                    if not s.to_dict().get("ok") and s.to_dict().get("at", 0) >= since)
 
+    # ── the published installer (the separate release manager's data) ───────
+    def current_release(self) -> dict:
+        """meta/current of the OfficeAxe release manager (read only, not prefixed):
+        {version, downloadUrl, mandatory, releaseId, publishedAt}."""
+        snap = self.db.collection("meta").document("current").get()
+        return snap.to_dict() if snap.exists else {}
+
     # ── small settings (admin login) ─────────────────────────────────────────
     def get_meta(self, name: str) -> dict:
         snap = self._c("meta").document(name).get()

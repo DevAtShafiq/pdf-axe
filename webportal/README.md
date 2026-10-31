@@ -160,4 +160,5 @@ firebase deploy --only hosting,functions:officeaxe
 ```
 
 - `prepare.py` builds `webportal/firebase/build/`, which git ignores.
-- `firebase.json` also holds strict Firestore rules (no browser access). Deploy them with `--only firestore:rules` only if nothing else in the project uses Firestore from a browser.
+- `firestore.rules` holds strict rules (no browser access). They are **not** in `firebase.json`, because on the OFFICEAXE project the separate release manager uses Firestore from the browser (`releases`, `meta/current`). Only deploy them if nothing else uses Firestore from a browser.
+- The Download button follows the release published in that release manager (`meta/current` → `downloadUrl`) unless `OFFICEAXE_DOWNLOAD_URL` is set.
