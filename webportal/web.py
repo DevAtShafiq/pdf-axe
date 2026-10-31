@@ -267,8 +267,8 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "", de
 <meta property="og:image" content="/static/video/poster.jpg">
 <meta name="theme-color" content="#2f6bff">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/portal.css?v=5">
-<script src="/static/portal.js?v=5" defer></script>
+<link rel="stylesheet" href="/static/portal.css?v=6">
+<script src="/static/portal.js?v=7" defer></script>
 </head><body class="{'admin' if admin else 'public'}">
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
@@ -384,8 +384,10 @@ class Portal:
             cur = {}
         ver = str(cur.get("version") or "")
         feats = "".join(f"""
-          <article class="feat"><span class="feat-ic">{icon(k)}</span>
-            <h3>{e(t)}</h3><p>{e(d)}</p></article>""" for k, t, d in self.FEATURES)
+          <article class="feat" tabindex="0" role="button" aria-expanded="false" data-shot="/static/feat/{n:02d}.webp"
+                   aria-label="{e(t)} — show a screenshot"><span class="feat-ic">{icon(k)}</span>
+            <h3>{e(t)}</h3><p>{e(d)}</p><span class="feat-peek">{icon("eye", 14)}See it</span></article>"""
+                        for n, (k, t, d) in enumerate(self.FEATURES, 1))
         faq = [
             ("Which computers does it run on?", "Windows 10 and Windows 11 PCs."),
             ("Does it need the internet?", "No — your files are handled on your own PC. A license key is checked online "
@@ -667,14 +669,14 @@ class Portal:
                              "<p>The installer will be available here shortly.</p></section>"))
 
     def static(self, name: str) -> Response:
-        if not re.fullmatch(r"[A-Za-z0-9_\-/]+\.(css|js|jpg|png|svg|ico|vtt|json)", name) or ".." in name:
+        if not re.fullmatch(r"[A-Za-z0-9_\-/]+\.(css|js|jpg|png|webp|svg|ico|vtt|json)", name) or ".." in name:
             return not_found()
         path = os.path.join(STATIC, *name.split("/"))
         if not os.path.isfile(path):
             return not_found()
         with open(path, "rb") as fh:
             data = fh.read()
-        ctype = "text/vtt; charset=utf-8" if path.endswith(".vtt") else \
+        ctype = "text/vtt; charset=utf-8" if path.endswith(".vtt") else "image/webp" if path.endswith(".webp") else \
             (mimetypes.guess_type(path)[0] or "application/octet-stream")
         return Response(data, ctype=ctype, headers=[("Cache-Control", "public, max-age=3600")])
 

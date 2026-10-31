@@ -16,6 +16,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -50,6 +51,12 @@ SLIDES = [
     ("qr", 385.0, "Read QR codes on certificates and receipts"),
     ("zip", 408.6, "Zip folders and protect them with a password"),
 ]
+
+
+# close-up for each feature card on the home page (same order as web.Portal.FEATURES);
+# the last one is a fresh capture of the app's Subscription page (demo data), kept as is
+FEATURE_FRAMES = [36, 52, 76, 107, 124, 143, 169.5, 199.5, 238, 272.9, 314.9, 337.8, 362, 385, 408.6, 432]
+OUT_F = os.path.join(HERE, "static", "feat")
 
 
 def ffmpeg() -> str:
@@ -90,6 +97,12 @@ def main() -> int:
     frame(3.5, os.path.join(OUT_V, "poster.jpg"), "scale=1280:-2")
     for name, t, _ in SLIDES:
         frame(t, os.path.join(OUT_S, name + ".jpg"), "crop=iw:ih*0.84:0:0,scale=1280:-2")
+    os.makedirs(OUT_F, exist_ok=True)
+    from PIL import Image
+    for n, t in enumerate(FEATURE_FRAMES, 1):
+        png = os.path.join(tempfile.gettempdir(), f"oa_feat_{n:02d}.png")      # work file outside static/
+        frame(t, png, "crop=iw:ih*0.84:0:0,scale=960:-2")
+        Image.open(png).save(os.path.join(OUT_F, f"{n:02d}.webp"), "WEBP", quality=72, method=6)
     with open(os.path.join(OUT_S, "slides.json"), "w", encoding="utf-8") as fh:
         json.dump([{"name": n, "caption": c} for n, _, c in SLIDES], fh, indent=1, ensure_ascii=False)
     print("media written to", OUT_V, "and", OUT_S)

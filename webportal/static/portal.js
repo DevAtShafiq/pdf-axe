@@ -120,3 +120,73 @@ document.querySelectorAll('.billing').forEach(box => {
     box.querySelectorAll('.period-switch [data-period]').forEach(x => x.setAttribute('aria-checked', String(x === b)));
   }));
 });
+
+// Feature cards: a close-up of the real screen on hover, keyboard focus or tap.
+(() => {
+  const cards = [...document.querySelectorAll('.feat[data-shot]')];
+  if (!cards.length) return;
+  const pop = document.createElement('div');
+  pop.id = 'feat-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.innerHTML = '<img alt="" decoding="async"><div class="cap"></div>';
+  document.body.appendChild(pop);
+  const img = pop.querySelector('img'), cap = pop.querySelector('.cap');
+  const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  let current = null, hideTimer = 0, shownAt = 0;
+
+  function place(card) {
+    const r = card.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+    let left = r.left + window.scrollX + r.width / 2 - pw / 2;
+    left = Math.max(window.scrollX + 16, Math.min(left, window.scrollX + document.documentElement.clientWidth - pw - 16));
+    let top = r.top + window.scrollY - ph - 10;                    // above the card…
+    if (r.top - ph - 10 < 70) top = r.bottom + window.scrollY + 10; // …or below when there is no room
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+  function show(card) {
+    clearTimeout(hideTimer);
+    if (current !== card) shownAt = Date.now();
+    if (current && current !== card) current.setAttribute('aria-expanded', 'false');
+    current = card;
+    card.setAttribute('aria-expanded', 'true');
+    const title = card.querySelector('h3').textContent;
+    if (img.getAttribute('src') !== card.dataset.shot) img.src = card.dataset.shot;   // loaded only when asked for
+    img.alt = 'Office Axe — ' + title;
+    cap.textContent = title;
+    pop.classList.add('show');
+    place(card);
+    if (!img.complete) img.onload = () => current === card && place(card);
+  }
+  function hide(now) {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      pop.classList.remove('show');
+      if (current) current.setAttribute('aria-expanded', 'false');
+      current = null;
+    }, now ? 0 : 120);
+  }
+  cards.forEach(card => {
+    if (canHover) {
+      card.addEventListener('mouseenter', () => show(card));
+      card.addEventListener('mouseleave', () => hide());
+    }
+    card.addEventListener('focus', () => show(card));
+    card.addEventListener('blur', () => hide());
+    card.addEventListener('click', ev => {                           // tap / click toggles
+      ev.stopPropagation();
+      // the tap's own focus already opened it: a second tap closes it
+      if (current === card && pop.classList.contains('show') && !canHover && Date.now() - shownAt > 400) hide(true);
+      else show(card);
+    });
+    card.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); current === card ? hide(true) : show(card); }
+    });
+  });
+  if (canHover) {
+    pop.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+    pop.addEventListener('mouseleave', () => hide());
+  }
+  document.addEventListener('click', ev => { if (!pop.contains(ev.target)) hide(true); });
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape') hide(true); });
+  window.addEventListener('resize', () => current && place(current));
+})();
