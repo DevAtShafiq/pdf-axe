@@ -47,12 +47,24 @@ def password_problem(password: str) -> str:
 
 
 class AdminAccount:
-    """admin.json in the data folder: {"user", "password_hash", "changed_at"}."""
+    """The admin login {"user", "password_hash", "changed_at", "version"}.
 
-    def __init__(self, path: str, user: str):
-        self.path, self.user = path, user
+    Kept in admin.json in the data folder, or — on the server — in the
+    store's "admin" record (store.get_meta / set_meta). On a fresh server the
+    first password comes from OFFICEAXE_ADMIN_PASSWORD_HASH (a hash made with
+    ``manage.py hash-password``, kept in Secret Manager).
+    """
+
+    def __init__(self, path: str, user: str, store=None):
+        self.path, self.user, self.store = path, user, store
 
     def _read(self) -> dict:
+        if self.store is not None:
+            doc = self.store.get_meta("admin")
+            if doc:
+                return doc
+            boot = os.environ.get("OFFICEAXE_ADMIN_PASSWORD_HASH", "").strip()
+            return {"user": self.user, "password_hash": boot, "version": "env"} if boot else {}
         try:
             with open(self.path, encoding="utf-8") as fh:
                 return json.load(fh)
@@ -68,6 +80,9 @@ class AdminAccount:
             raise ValueError(problem)
         doc = {"user": self.user, "password_hash": hash_password(password), "changed_at": int(time.time()),
                "version": secrets.token_hex(8)}
+        if self.store is not None:
+            self.store.set_meta("admin", doc)
+            return
         tmp = f"{self.path}.{os.getpid()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(doc, fh)

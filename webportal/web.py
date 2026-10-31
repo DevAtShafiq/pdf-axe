@@ -218,11 +218,19 @@ def pill(status: str) -> str:
 # ── the app ───────────────────────────────────────────────────────────────────
 
 class Portal:
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Optional[Config] = None, store=None):
         self.cfg = config or Config()
-        self.store = Store(self.cfg.db_path)
+        if store is not None:
+            self.store = store
+        elif self.cfg.store_kind == "firestore":
+            from store_firestore import FirestoreStore
+            self.store = FirestoreStore()
+        else:
+            self.store = Store(self.cfg.db_path)
         self.lic = Licensing(self.store, self.cfg.load_seed())
-        self.account = AdminAccount(self.cfg.admin_file, self.cfg.admin_user)
+        # on the server the admin login lives in the database (no lasting files there)
+        self.account = AdminAccount(self.cfg.admin_file, self.cfg.admin_user,
+                                    store=self.store if hasattr(self.store, "get_meta") else None)
         self.sessions = Sessions(self.cfg.session_secret(), self.account)
 
     # WSGI entry
@@ -311,7 +319,7 @@ class Portal:
                 chapters = json.load(fh)
         except (OSError, ValueError):
             chapters = []
-        if not os.path.isfile(self.cfg.video_file):
+        if not (self.cfg.video_hosted or os.path.isfile(self.cfg.video_file)):
             return ""
         mmss = lambda t: f"{int(t) // 60}:{int(t) % 60:02d}"
         items = "".join(f'<li><button type="button" data-seek="{c["t"]}"><span class="ch-n">{c["n"]:02d}</span>'
@@ -397,10 +405,10 @@ class Portal:
 
     # ── admin ────────────────────────────────────────────────────────────────
     def _session(self, req: Request) -> Optional[dict]:
-        return self.sessions.read(req.cookies.get(Sessions.COOKIE, ""))
+        return self.sessions.read(req.cookies.get(self.cfg.cookie_name, ""))
 
     def _cookie(self, value: str, max_age: int) -> tuple:
-        attrs = f"{Sessions.COOKIE}={value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age={max_age}"
+        attrs = f"{self.cfg.cookie_name}={value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age={max_age}"
         if self.cfg.cookie_secure:
             attrs += "; Secure"
         return ("Set-Cookie", attrs)
@@ -748,5 +756,5 @@ class Portal:
         return Response(page("Settings", body, sess, csrf))
 
 
-def make_app(config: Optional[Config] = None) -> Portal:
-    return Portal(config)
+def make_app(config: Optional[Config] = None, store=None) -> Portal:
+    return Portal(config, store)

@@ -17,6 +17,14 @@ config.py — portal settings, all from environment variables (see README).
                                  default: <data>/downloads/OfficeAxe.zip if present
     OFFICEAXE_VIDEO_FILE         the demo video on the landing page
                                  default: promotion/office-axe-demo.mp4
+    OFFICEAXE_COOKIE_NAME        admin session cookie (Firebase Hosting: __session)
+    OFFICEAXE_VIDEO_HOSTED       1 = the video is served next to the portal (Hosting)
+    OFFICEAXE_STORE              sqlite (default, a file in the data folder) or
+                                 firestore (Firebase / Cloud Run)
+    OFFICEAXE_SESSION_SECRET     64 hex characters; required on a server with
+                                 several instances (else kept in the data folder)
+    OFFICEAXE_ADMIN_PASSWORD_HASH  first admin password on a new server
+                                 (manage.py hash-password)
 """
 from __future__ import annotations
 
@@ -55,6 +63,11 @@ class Config:
     download_file: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_DOWNLOAD_FILE") or "")
     video_file: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_VIDEO_FILE") or os.path.join(
         os.path.dirname(HERE), "promotion", "office-axe-demo.mp4"))
+    # Firebase Hosting passes only a cookie named "__session" on to the server
+    cookie_name: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_COOKIE_NAME") or "oa_admin")
+    # the tour video is served by Firebase Hosting, not by the portal
+    video_hosted: bool = field(default_factory=lambda: _flag("OFFICEAXE_VIDEO_HOSTED"))
+    store_kind: str = field(default_factory=lambda: (os.environ.get("OFFICEAXE_STORE") or "sqlite").lower())
     seed: bytes = b""
 
     def __post_init__(self):
@@ -86,7 +99,10 @@ class Config:
                                f"(looked for {path}).")
 
     def session_secret(self) -> bytes:
-        """Random per installation, kept in the data folder."""
+        """From OFFICEAXE_SESSION_SECRET, else random per installation, kept in the data folder."""
+        env = os.environ.get("OFFICEAXE_SESSION_SECRET", "").strip()
+        if env:
+            return bytes.fromhex(env)
         path = os.path.join(self.data_dir, "session_secret")
         try:
             with open(path, encoding="ascii") as fh:
