@@ -267,8 +267,8 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "", de
 <meta property="og:image" content="/static/video/poster.jpg">
 <meta name="theme-color" content="#2f6bff">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/portal.css?v=6">
-<script src="/static/portal.js?v=7" defer></script>
+<link rel="stylesheet" href="/static/portal.css?v=7">
+<script src="/static/portal.js?v=8" defer></script>
 </head><body class="{'admin' if admin else 'public'}">
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
@@ -384,9 +384,9 @@ class Portal:
             cur = {}
         ver = str(cur.get("version") or "")
         feats = "".join(f"""
-          <article class="feat" tabindex="0" role="button" aria-expanded="false" data-shot="/static/feat/{n:02d}.webp"
-                   aria-label="{e(t)} — show a screenshot"><span class="feat-ic">{icon(k)}</span>
-            <h3>{e(t)}</h3><p>{e(d)}</p><span class="feat-peek">{icon("eye", 14)}See it</span></article>"""
+          <article class="feat" tabindex="0" role="button" data-shot="/static/feat/{n:02d}.webp"
+                   aria-label="{e(t)} — see it in the app"><span class="feat-ic">{icon(k)}</span>
+            <h3>{e(t)}</h3><p>{e(d)}</p><span class="feat-peek">{icon("eye", 14)}See it in the app</span></article>"""
                         for n, (k, t, d) in enumerate(self.FEATURES, 1))
         faq = [
             ("Which computers does it run on?", "Windows 10 and Windows 11 PCs."),
