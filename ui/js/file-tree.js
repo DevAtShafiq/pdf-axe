@@ -903,12 +903,19 @@ const FileTree = (() => {
       }
 
       // ── Arrow navigation ──────────────────────────────────────────────────
+      // ↓ on the last item goes to the first, ↑ on the first goes to the last
+      // (Shift+arrow still stops at the ends so a range never wraps).
+      const n = _filtered.length;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        _focusIdx = Math.min(_focusIdx + 1, _filtered.length - 1);
+        if (!n) return;
+        if (_focusIdx >= n - 1 && !e.shiftKey) _focusIdx = 0;
+        else _focusIdx = Math.min(_focusIdx + 1, n - 1);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        _focusIdx = Math.max(_focusIdx - 1, 0);
+        if (!n) return;
+        if (_focusIdx <= 0 && !e.shiftKey) _focusIdx = _focusIdx === 0 ? n - 1 : 0;
+        else _focusIdx = Math.max(_focusIdx - 1, 0);
       } else if (e.key === 'Home') {
         e.preventDefault();
         _focusIdx = 0;
