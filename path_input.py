@@ -30,6 +30,8 @@ def clean(text: str) -> str:
         else:
             s = re.sub(r"^/(?=[A-Za-z]:)", "", p)                  # /C:/x → C:/x
     s = os.path.expandvars(s)
+    # %VAR% on every platform (posix expandvars only knows $VAR)
+    s = re.sub(r"%([^%\\/]+)%", lambda m: os.environ.get(m.group(1), m.group(0)), s)
     s = os.path.expanduser(s)
     if re.fullmatch(r"[A-Za-z]:", s):
         s += "\\"                                                 # "C:" means the drive root

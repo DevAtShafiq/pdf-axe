@@ -103,7 +103,8 @@ def test_unregister_skips_a_same_named_key_without_our_mark():
 def test_parse_and_group_args():
     a = shell_ipc.parse_args(["--merge", r"C:\x\a.pdf", "--junk", "--merge", r"C:\x\b.pdf", "--open"])
     assert [x["action"] for x in a] == ["merge", "merge"]
-    g = shell_ipc.group(a + [{"action": "merge", "path": r"C:\x\a.pdf"}, {"action": "open", "path": r"C:\y"}])
+    ab = os.path.abspath   # the test also runs on Linux CI, where C:\... is a relative path
+    g = shell_ipc.group(a + [{"action": "merge", "path": ab(r"C:\x\a.pdf")}, {"action": "open", "path": ab(r"C:\y")}])
     assert g == [{"action": "merge", "paths": [os.path.abspath(r"C:\x\a.pdf"), os.path.abspath(r"C:\x\b.pdf")]},
                  {"action": "open", "paths": [os.path.abspath(r"C:\y")]}]
 
