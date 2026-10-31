@@ -273,3 +273,25 @@ main { padding-top: 8px; }
   .plan { width: 100%; }
 }
 @media (max-width: 480px) { .foot-grid { grid-template-columns: 1fr; } .hero2 h1 { font-size: 30px; } }
+
+/* pricing (v5) */
+.period-switch { display: flex; width: max-content; margin: 0 auto 26px; padding: 4px; border-radius: 99px; background: #e7ecf5; gap: 4px; }
+.period-switch button { border: 0; background: none; padding: 8px 18px; border-radius: 99px; font: inherit; font-weight: 600;
+  color: var(--ink2); cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.period-switch button[aria-checked="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.period-switch .save { font-size: 11px; background: var(--green-bg); color: var(--green); border-radius: 99px; padding: 2px 8px; }
+.billing.js[data-period="monthly"] .plan[data-plan="yearly"],
+.billing.js[data-period="yearly"] .plan[data-plan="monthly"] { opacity: .55; transform: scale(.97); }
+.plan { transition: opacity .2s, transform .2s; }
+.per { color: var(--ink2); font-size: 14px; margin-top: 2px; }
+.plan ul.inc li { padding-left: 26px; }
+.plan ul.inc li::before { content: none; }
+.plan ul.inc .ic { position: absolute; left: 0; top: 7px; color: var(--green); }
+.table-scroll { overflow-x: auto; max-width: 860px; margin: 0 auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.compare { width: 100%; border-collapse: collapse; font-size: 15px; }
+.compare th, .compare td { padding: 11px 16px; border-bottom: 1px solid var(--line); text-align: left; }
+.compare thead th { background: #f6f8fc; font-size: 14px; }
+.compare .c { text-align: center; color: var(--ink2); }
+.compare .c .ic { color: var(--green); }
+.compare tr.grp th { background: #f6f8fc; color: var(--accent); font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; }
+.compare tbody tr:last-child td { border-bottom: 0; }

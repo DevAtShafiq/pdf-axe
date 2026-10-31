@@ -34,7 +34,7 @@ import license_keys  # noqa: E402
 
 ENV_DIR = "OFFICEAXE_ADMIN_DIR"
 DEFAULT_DAYS = 30
-DEFAULT_DEVICES = {"review": 1, "trial": 1, "full": 5}
+DEFAULT_DEVICES = {"review": 1, "trial": 1, "full": 2}
 
 
 def admin_dir() -> str:

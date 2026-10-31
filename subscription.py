@@ -55,7 +55,7 @@ import license_keys
 
 CURRENCY = "BDT"
 CURRENCY_SYMBOL = "৳"
-MAX_DEVICES = 5
+MAX_DEVICES = 2      # buy one, get one: one subscription, two PCs
 EXPIRING_SOON_DAYS = 7
 
 PLANS = {

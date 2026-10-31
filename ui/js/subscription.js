@@ -36,7 +36,7 @@ const Subscription = (() => {
     return isNaN(d) ? '—' : `${fmtDate(iso)}, ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
   };
   // devices included with a paid plan (a key may allow fewer)
-  const planDevices = () => (st && st.plan_devices) || 5;
+  const planDevices = () => (st && st.plan_devices) || 2;
   const planById = id => (st && st.plans || []).find(p => p.id === id) || null;
   const isActive = () => !!(st && (st.status === 'active' || st.status === 'expiring'));
 

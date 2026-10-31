@@ -28,7 +28,7 @@
     if (msg && !confirm(msg)) e.preventDefault();
   });
 
-  const DEVICES = { review: 1, trial: 1, full: 5 };
+  const DEVICES = { review: 1, trial: 1, full: 2 };
   document.addEventListener('change', e => {
     if (!e.target.matches('select[data-devices]')) return;
     const n = e.target.form.querySelector('input[name="devices"]');
@@ -111,3 +111,12 @@
     btn.setAttribute('aria-expanded', String(open));
   });
 })();
+
+// Pricing: Monthly / Yearly switch
+document.querySelectorAll('.billing').forEach(box => {
+  box.classList.add('js');
+  box.querySelectorAll('.period-switch [data-period]').forEach(b => b.addEventListener('click', () => {
+    box.dataset.period = b.dataset.period;
+    box.querySelectorAll('.period-switch [data-period]').forEach(x => x.setAttribute('aria-checked', String(x === b)));
+  }));
+});
