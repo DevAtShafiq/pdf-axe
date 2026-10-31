@@ -369,9 +369,16 @@ class Portal:
 </section>"""
 
     def download(self) -> Response:
-        if self.cfg.download_url:
+        url = self.cfg.download_url
+        if not url and hasattr(self.store, "current_release"):
+            # the release published in the OfficeAxe release manager (Firestore meta/current)
+            try:
+                url = (self.store.current_release() or {}).get("downloadUrl", "")
+            except Exception:
+                url = ""
+        if url and url.startswith(("https://", "http://")):
             self.store.count_download(iso(self.lic._now()))
-            return redirect(self.cfg.download_url)
+            return redirect(url)
         f = self.cfg.download_file
         if f and os.path.isfile(f):
             self.store.count_download(iso(self.lic._now()))
