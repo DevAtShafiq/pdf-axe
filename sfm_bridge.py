@@ -124,9 +124,10 @@ from recorder_bridge import RecorderBridgeMixin  # noqa: E402  (screen recording
 from doc_preview_bridge import DocPreviewBridgeMixin  # noqa: E402  (PDF text layer, Word/Excel previews)
 from subscription_bridge import SubscriptionBridgeMixin  # noqa: E402  (subscription, devices, payments + access gate)
 from shell_bridge import ShellBridgeMixin  # noqa: E402  (File Explorer right-click menu + handed-over files)
+from dragdrop_bridge import DragDropBridgeMixin  # noqa: E402  (drag files out to / in from Windows)
 
 
-class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, StudioBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin, ShellBridgeMixin, SubscriptionBridgeMixin):
+class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, StudioBridgeMixin, ArchiveBridgeMixin, RecorderBridgeMixin, DocPreviewBridgeMixin, ShellBridgeMixin, DragDropBridgeMixin, SubscriptionBridgeMixin):
     """
     Singleton exposed to JavaScript as window.pywebview.api.
     The pywebview window reference is injected after creation via set_window().

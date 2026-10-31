@@ -173,6 +173,7 @@ def main() -> None:
     def _on_loaded():
         bridge.set_window(window)
         _allow_media_permissions(window)
+        bridge.dnd_attach(window)          # files dropped from Explorer (dragdrop_bridge.py)
         # Maximise — pywebview exposes this on the window object
         try:
             window.maximize()

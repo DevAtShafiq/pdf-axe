@@ -662,6 +662,7 @@ const FileTree = (() => {
       tw.addEventListener('dblclick', e => e.stopPropagation());
       tw.addEventListener('mousedown', e => e.stopPropagation());
     }
+    el.addEventListener('mousedown', e => _onItemMouseDown(e, idx, entry));
     el.addEventListener('click', e => _handleRowClick(e, idx, entry));
     el.addEventListener('dblclick', e => _handleRowDblClick(e, entry));
     el.addEventListener('contextmenu', e => _handleRowCtx(e, entry));
@@ -669,9 +670,136 @@ const FileTree = (() => {
   }
 
   function _bindTileEvents(el, idx, entry) {
+    el.addEventListener('mousedown', e => _onItemMouseDown(e, idx, entry));
     el.addEventListener('click', e => _handleRowClick(e, idx, entry));
     el.addEventListener('dblclick', e => _handleRowDblClick(e, entry));
     el.addEventListener('contextmenu', e => _handleRowCtx(e, entry));
+  }
+
+  // ── Drag and drop (like Windows Explorer) ─────────────────────────────────
+  // Out: dragging a selected row starts a real Windows drag (dragdrop_bridge.py):
+  //   drop it on Explorer, the desktop, WhatsApp, a browser upload box, Word…
+  //   The target decides: copy by default, Shift = move, Alt = shortcut.
+  // In: files dropped on the list (from Explorer, or rows dragged here) are
+  //   copied into the current folder — or into the folder row they are dropped
+  //   on. Shift = move. Same-named items are never replaced (they get "(2)").
+  const DRAG_THRESHOLD = 6;
+  let _dragStart = null, _dragging = false, _pendingDrop = null;
+
+  function _onItemMouseDown(e, idx, entry) {
+    if (e.button !== 0 || _edit) return;
+    if (e.target.closest && e.target.closest('.twisty, input, textarea')) return;
+    _dragStart = { x: e.clientX, y: e.clientY, idx, entry };
+  }
+  function _onDocMouseMove(e) {
+    if (!_dragStart || _dragging) return;
+    if (!(e.buttons & 1)) { _dragStart = null; return; }
+    if (Math.abs(e.clientX - _dragStart.x) + Math.abs(e.clientY - _dragStart.y) < DRAG_THRESHOLD) return;
+    const { idx, entry } = _dragStart;
+    _dragStart = null;
+    // Explorer drags the selection when the row is part of it, else just this row
+    if (!_selected.has(entry.path)) {
+      _selected.clear(); _selected.add(entry.path);
+      _focusIdx = idx; _shiftAnchor = idx;
+      _renderCurrent(); _selectionChanged();
+    }
+    const paths = _filtered.filter(x => _selected.has(x.path)).map(x => x.path);
+    if (!paths.length) return;
+    _dragging = true;
+    document.body.classList.add('is-dragging-out');
+    const folder = _currentFolder;
+    SFM.dragOut(paths).then(r => {
+      if (r && r.ok && r.effect === 'move' && _samePath(folder, _currentFolder)) refresh();
+    }).catch(() => {}).finally(() => {
+      _dragging = false;
+      document.body.classList.remove('is-dragging-out');
+    });
+  }
+
+  function _dropFolderAt(e) {
+    const row = e.target.closest && e.target.closest('.file-item.is-dir, .thumb-tile');
+    if (row && row.dataset.path) {
+      const entry = _filtered.find(x => x.path === row.dataset.path);
+      if (entry && entry.is_dir) return { path: entry.path, el: row };
+    }
+    return { path: _currentFolder, el: null };
+  }
+  function _markDropTarget(el) {
+    document.querySelectorAll('.drop-target').forEach(x => { if (x !== el) x.classList.remove('drop-target'); });
+    if (el) el.classList.add('drop-target');
+  }
+  function _hasFiles(e) {
+    const t = e.dataTransfer && e.dataTransfer.types;
+    return !!t && Array.from(t).includes('Files');
+  }
+  function _initDragDrop() {
+    document.addEventListener('mousemove', _onDocMouseMove, true);
+    document.addEventListener('mouseup', () => { _dragStart = null; }, true);
+    const pane = $('pane-filelist');
+    if (!pane) return;
+    pane.addEventListener('dragover', e => {
+      if (!_hasFiles(e) || !_currentFolder) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = e.shiftKey ? 'move' : 'copy';
+      const t = _dropFolderAt(e);
+      _markDropTarget(t.el);
+      pane.classList.toggle('drop-here', !t.el);
+    });
+    pane.addEventListener('dragleave', e => {
+      if (!pane.contains(e.relatedTarget)) { _markDropTarget(null); pane.classList.remove('drop-here'); }
+    });
+    pane.addEventListener('drop', e => {
+      if (!_hasFiles(e)) return;
+      e.preventDefault();
+      const t = _dropFolderAt(e);
+      _markDropTarget(null); pane.classList.remove('drop-here');
+      _pendingDrop = { folder: t.path, move: !!e.shiftKey, at: Date.now() };
+    });
+    // anywhere else on the page: never let the window open a dropped file
+    document.addEventListener('dragover', e => { if (_hasFiles(e)) e.preventDefault(); });
+    document.addEventListener('drop', e => { if (_hasFiles(e)) e.preventDefault(); });
+    if (SFM.on) SFM.on('files_dropped', d => _onFilesDropped((d && d.paths) || []));
+  }
+
+  async function _onFilesDropped(paths) {
+    const p = _pendingDrop && Date.now() - _pendingDrop.at < 5000 ? _pendingDrop : null;
+    _pendingDrop = null;
+    if (!p || !p.folder || !paths.length) return;          // dropped outside the file list
+    const folder = p.folder, move = p.move;
+    const dirOf = x => x.replace(/[\\/][^\\/]*$/, '');
+    const nameOf = x => x.replace(/^.*[\\/]/, '');
+    // dropping items onto the folder they are already in does nothing (like Explorer)
+    const items = paths.filter(x => !_samePath(dirOf(x), folder) && !_samePath(x, folder));
+    if (!items.length) return;
+    const clash = [];
+    for (const x of items) {
+      const r = await SFM.call('path_exists', folder.replace(/[\\/]+$/, '') + '\\' + nameOf(x)).catch(() => null);
+      if (r && r.exists) clash.push(nameOf(x));
+    }
+    const target = nameOf(folder.replace(/[\\/]+$/, '')) || folder;
+    if (clash.length && !(await Dialogs.confirm({
+      title: clash.length === 1 ? 'Item already exists' : `${clash.length} items already exist`,
+      icon: 'alert-triangle', tone: 'warning',
+      okLabel: move ? 'Move and keep both' : 'Copy and keep both',
+      message: `“${target}” already has ${clash.length === 1 ? `“${clash[0]}”` : `${clash.length} items with these names`}. ` +
+               'Nothing is replaced: the new ' + (clash.length === 1 ? 'one gets' : 'ones get') + ' a “(2)” name.',
+    }))) return;
+    App.setStatus(move ? 'Moving…' : 'Copying…', true);
+    const r = move ? await SFM.moveFiles(items, folder) : await SFM.copyFiles(items, folder);
+    App.setStatus('Ready');
+    const done = (r && r.results || []).filter(x => x.ok && !x.unchanged);
+    pushFileOpUndo(move, done);
+    if (r && r.ok) App.toast(`${move ? 'Moved' : 'Copied'} ${done.length} item${done.length === 1 ? '' : 's'} to “${_esc(target)}”`, 'success');
+    else App.toast(`${move ? 'Move' : 'Copy'} failed${done.length ? ` for some items (${done.length} done)` : ''}: ${_esc((r && r.error) || 'unknown error')}`, 'error', 6000);
+    if (_samePath(folder, _currentFolder) || items.some(x => _samePath(dirOf(x), _currentFolder)) || _expanded.size) {
+      await refresh();
+      if (_samePath(folder, _currentFolder)) {
+        const added = new Set(done.map(x => _normPath(x.dst)));
+        _selected = new Set(_filtered.filter(x => added.has(_normPath(x.path))).map(x => x.path));
+        _focusIdx = _filtered.findIndex(x => _selected.has(x.path)); _shiftAnchor = _focusIdx;
+        _renderCurrent(); _selectionChanged(); _scrollFocusedIntoView();
+      }
+    }
   }
 
   const SLOW_CLICK_RENAME = false;
@@ -1889,6 +2017,7 @@ const FileTree = (() => {
   // ── Init ────────────────────────────────────────────────────────────────────────────
   function init() {
     _initKeyboardNav();
+    _initDragDrop();
     _initThumbZoom();
     _initSortHeader();
 

@@ -1997,3 +1997,9 @@ mark.hl { background: transparent; color: var(--accent-text); font-weight: var(-
 .file-item .twisty:hover { background: var(--bg-active); color: var(--text-primary); }
 
 .file-item .size.is-pending { color: var(--text-disabled); }
+
+/* drag and drop */
+.file-item.drop-target, .thumb-tile.drop-target { background: var(--accent-subtle); box-shadow: inset 0 0 0 2px var(--accent); }
+#pane-filelist.drop-here .pane-body { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-subtle); }
+body.is-dragging-out #pane-filelist .file-item.selected { opacity: .65; }
+.file-item img, .thumb-tile img { -webkit-user-drag: none; }

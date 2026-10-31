@@ -69,6 +69,8 @@ datas = [
     ("license_client.py",    "."),   # online key checks against the portal
     ("path_input.py",        "."),   # typed / pasted paths (breadcrumb box)
     ("folder_size.py",       "."),   # folder sizes for the Size column
+    ("drag_out.py",          "."),   # drag files out to other apps (OLE)
+    ("dragdrop_bridge.py",   "."),
     ("revoked_keys.json",    "."),   # withdrawn key ids (dashboard writes it)
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
@@ -128,6 +130,8 @@ hiddenimports = [
     "license_client",
     "path_input",
     "folder_size",
+    "drag_out",
+    "dragdrop_bridge",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",

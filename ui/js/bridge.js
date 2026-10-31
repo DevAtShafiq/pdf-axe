@@ -126,6 +126,7 @@ const SFM = (() => {
     getClipboardText:    ()                        => call('get_clipboard_text'),
     folderSizes:         (paths, jobId='')         => call('folder_sizes', paths, jobId),
     folderSizesCancel:   ()                        => call('folder_sizes_cancel'),
+    dragOut:             (paths)                   => call('dnd_drag_out', paths),
     resolveUserPath:     (text)                    => call('resolve_user_path', text),
     // PDF thumbnails / pages
     getPdfThumb:         (path, page=0, dpi=72)    => call('get_pdf_thumbnail', path, page, dpi),
