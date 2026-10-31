@@ -1184,8 +1184,8 @@ const PdfTools = (() => {
       }
       async function sharpen(s, cssW) {
         if (s.blank) { img.removeAttribute('src'); img.style.visibility = 'hidden'; load.hidden = true; return; }
-        const want = cssW * (window.devicePixelRatio || 1);
-        const w = VIEW_STEPS.find(x => x >= want) || VIEW_STEPS[VIEW_STEPS.length - 1];
+        // exactly the pixels the page covers on screen (up to 3200): shown 1:1, sharp
+        const w = Math.max(200, Math.min(3200, Math.round(cssW * (window.devicePixelRatio || 1))));
         const key = `${s.path}|${s.page}|${w}`;
         if (viewImg.has(key)) { setSrc(viewImg.get(key)); return; }
         const my = ++token;

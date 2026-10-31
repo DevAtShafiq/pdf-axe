@@ -801,6 +801,7 @@ input[type="range"] { accent-color: var(--accent); }
 /* PDF preview pages */
 #pdf-canvas-wrap {
   flex: 1; overflow: auto;
+  scrollbar-gutter: stable;          /* pages appearing must not change the width (sharp 1:1 redraws) */
   display: flex; flex-direction: column; align-items: center;
   padding: var(--space-4) var(--space-3) 72px;
   gap: var(--space-3);

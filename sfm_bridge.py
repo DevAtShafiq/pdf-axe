@@ -1077,20 +1077,27 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
             _log.error("get_pdf_page_count error: %s", exc, exc_info=True)
             return _err(str(exc))
 
-    def get_pdf_page_as_png(self, path: str, page: int, dpi: int = 150) -> dict:
+    def get_pdf_page_as_png(self, path: str, page: int, dpi: int = 150, width_px: int = 0) -> dict:
         """Render a PDF page for the preview panel.
 
-        The preview used to cap a portrait page to a square of A4's width and
-        then stretch that bitmap, which made the type look soft next to Acrobat.
-        The requested dpi is kept on both axes.
+        width_px: draw the page exactly this many pixels wide — the size it is
+        shown at on screen (CSS width × screen scaling). The browser then shows
+        the bitmap 1:1, so text is as crisp as in Acrobat; any resizing of a
+        bitmap (shrinking a 144-dpi minimum, or stretching a 300-dpi cap when
+        zoomed in) makes small type soft. Without width_px the dpi is used.
         """
-        _log.info("get_pdf_page_as_png: %s page=%d dpi=%d", path, page, dpi)
+        _log.info("get_pdf_page_as_png: %s page=%d dpi=%d width_px=%s", path, page, dpi, width_px)
         try:
-            dpi = max(72, min(int(dpi or 150), 320))
-            # Long side: tabloid (17in) at this dpi, so height does not
-            # shrink the zoom the way an A4-width square did.
-            cap = int(dpi * 17)
-            pil = _fo.pil_image_for_pdf_page(path, page, cap, cap, max_zoom=dpi / 72.0)
+            width_px = int(width_px or 0)
+            if width_px > 0:
+                w = max(120, min(width_px, 9000))
+                pil = _fo.pil_image_for_pdf_page(path, page, w, w * 30, max_zoom=w)   # zoom = w / page width
+            else:
+                dpi = max(72, min(int(dpi or 150), 320))
+                # Long side: tabloid (17in) at this dpi, so height does not
+                # shrink the zoom the way an A4-width square did.
+                cap = int(dpi * 17)
+                pil = _fo.pil_image_for_pdf_page(path, page, cap, cap, max_zoom=dpi / 72.0)
             if pil is None:
                 _log.error("get_pdf_page_as_png: returned None")
                 return _err("Could not render page")

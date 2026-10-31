@@ -367,12 +367,17 @@ const Dialogs = (() => {
         const availW = Math.max(120, wrap.clientWidth - 32);
         const cssGuess = fit ? availW : Math.round(availW * (typeof zoom === 'number' ? zoom : 1));
         const dpi = Math.max(144, Math.min(300, Math.round((cssGuess * dpr) / 8.5)));
-        const r = await SFM.getPdfPage(path, p, dpi);
+        let r = await SFM.getPdfPage(path, p, dpi, Math.round(cssGuess * dpr));
         if (!r.ok) { inner.textContent = r.error; return; }
         let dw, dh;
         if (fit) {
           const d = _fitDims(r.width, r.height);
           dw = d.w; dh = d.h;
+          // fitted to the height (portrait): draw again at exactly the shown width
+          if (Math.abs(r.width - dw * dpr) > 2) {
+            const r2 = await SFM.getPdfPage(path, p, dpi, Math.round(dw * dpr));
+            if (r2 && r2.ok) r = r2;
+          }
         } else {
           dw = cssGuess;
           dh = Math.round(cssGuess * (r.height / Math.max(1, r.width)));

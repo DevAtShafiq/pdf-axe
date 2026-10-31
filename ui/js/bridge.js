@@ -130,7 +130,7 @@ const SFM = (() => {
     resolveUserPath:     (text)                    => call('resolve_user_path', text),
     // PDF thumbnails / pages
     getPdfThumb:         (path, page=0, dpi=72)    => call('get_pdf_thumbnail', path, page, dpi),
-    getPdfPage:          (path, page, dpi=150)     => call('get_pdf_page_as_png', path, page, dpi),
+    getPdfPage:          (path, page, dpi=150, widthPx=0) => call('get_pdf_page_as_png', path, page, dpi, widthPx),
     getPdfPageCount:     (path)                    => call('get_pdf_page_count', path),
     // Previews
     getImagePreview:     (path, maxDim=1200)       => call('get_image_preview', path, maxDim),

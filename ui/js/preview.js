@@ -167,6 +167,9 @@ const Preview = (() => {
     pdfWrap().innerHTML = '';
     const cssW = _previewCssWidth();
     const dpi = _previewDpi(cssW);
+    // pixels the page covers on screen: drawn 1:1, never resized (sharp text)
+    const px = Math.round(cssW * Math.min(window.devicePixelRatio || 1, 3));
+    _shownW = cssW;
     for (let i = 0; i < _pdfCount; i++) {
       const placeholder = document.createElement('div');
       placeholder.style.cssText = `width:${cssW}px;height:${Math.round(cssW * 1.294)}px;background:var(--bg-surface);margin:0 auto;border-radius:2px;box-shadow:var(--shadow-lg)`;
@@ -180,7 +183,7 @@ const Preview = (() => {
         const page = +slot.dataset.pageSlot;
         obs.unobserve(slot);
         try {
-          const r = await SFM.getPdfPage(pdfSrc, page, dpi);
+          const r = await SFM.getPdfPage(pdfSrc, page, dpi, px);
           if (tok !== _token || !slot.isConnected) continue;
           if (r.ok) {
             const img = document.createElement('img');
@@ -198,6 +201,22 @@ const Preview = (() => {
     pdfWrap().querySelectorAll('[data-page-slot]').forEach(s => obs.observe(s));
     _updatePageNav();
   }
+
+  // Pane resized (window, splitter): redraw at the new size so pages stay 1:1.
+  let _shownW = 0, _resizeTimer = 0;
+  function _watchPaneSize() {
+    if (typeof ResizeObserver === 'undefined' || !pdfWrap()) return;
+    new ResizeObserver(() => {
+      if (_view !== 'pdf' || !_pdfSrc) return;
+      clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(() => {
+        // only a real change of the pane (not a scrollbar coming and going)
+        if (Math.abs(_previewCssWidth() - _shownW) > 24) _loadVisiblePages();
+      }, 250);
+    }).observe(pdfWrap());
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _watchPaneSize);
+  else setTimeout(_watchPaneSize, 0);
 
   function _previewCssWidth() {
     const pane = pdfWrap();
