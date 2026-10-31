@@ -25,6 +25,8 @@ from http.cookies import SimpleCookie
 from typing import Optional
 from urllib.parse import parse_qs, quote
 
+CONTACT_EMAIL = os.environ.get("OFFICEAXE_CONTACT_EMAIL", "").strip()
+
 from auth import FAILURE_WINDOW, MAX_FAILURES, AdminAccount, Sessions
 from config import Config
 from licensing import Licensing
@@ -185,31 +187,97 @@ def fmt_time(s: str) -> str:
         return e(s)
 
 
-def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "") -> str:
-    nav = ""
+ICONS = {
+    "folder": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    "list": '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
+    "eye": '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    "rename": '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+    "undo": '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    "pdf": '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 15h8M8 18h5"/>',
+    "compress": '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
+    "merge": '<path d="M8 3v6a4 4 0 0 0 4 4h0a4 4 0 0 1 4 4v4M16 3v6a4 4 0 0 1-4 4"/>',
+    "layers": '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5M2 17l10 5 10-5"/>',
+    "sign": '<path d="M3 17c3 0 4-6 7-6s1 6 4 6 3-3 4-3"/><path d="M3 21h18"/>',
+    "brush": '<path d="M9.5 14.5 3 21M14 4l6 6-8 8-6-6z"/>',
+    "id": '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5.5 17c.8-1.8 2-2.7 3.5-2.7s2.7.9 3.5 2.7M15 9h4M15 13h4"/>',
+    "sparkles": '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+    "qr": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M17 20h4M20 17v4"/>',
+    "lock": '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    "record": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
+    "key": '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14 9l2 2"/>',
+    "download": '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+    "play": '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z" fill="currentColor"/>',
+    "check": '<path d="M20 6 9 17l-5-5"/>',
+    "windows": '<path d="M3 5.5 10.5 4.5v7H3zM12 4.3 21 3v8.5h-9zM3 13h7.5v7L3 19zM12 13h9v8l-9-1.2z"/>',
+    "wifi-off": '<path d="M2 2l20 20M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 4.5-2.6M19 12.5a10 10 0 0 0-2.3-1.6M12 20h.01"/>',
+    "monitor": '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    "menu": '<path d="M4 6h16M4 12h16M4 18h16"/>',
+}
+
+
+def icon(name: str, size: int = 22) -> str:
+    return (f'<svg class="ic" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            f'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{ICONS.get(name, "")}</svg>')
+
+
+def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "", description: str = "",
+         active: str = "") -> str:
+    desc = description or ("Office Axe is a Windows app for office documents: convert to PDF, compress, merge, "
+                           "arrange pages, sign, make folders in bulk, passport photos and more.")
     if admin:
+        links = [("/admin", "Keys"), ("/admin/releases", "Releases"), ("/admin/guides", "Guides"),
+                 ("/admin/activity", "Activity"), ("/admin/import", "Import"), ("/admin/settings", "Settings")]
+        on = ' class="on"'
+        items = "".join(f'<a href="{h}"{on if active == h else ""}>{t}</a>' for h, t in links)
         nav = f"""
-        <nav class="admin-nav">
-          <a href="/admin">Keys</a><a href="/admin/releases">Releases</a><a href="/admin/guides">Guides</a>
-          <a href="/admin/activity">Activity</a>
-          <a href="/admin/import">Import</a><a href="/admin/settings">Settings</a>
+        <nav class="admin-nav" id="site-nav">
+          {items}
           <form method="post" action="/admin/logout" class="inline">
             <input type="hidden" name="csrf" value="{e(csrf)}"><button class="link">Log out</button>
           </form>
         </nav>"""
+    else:
+        links = [("/#features", "Features"), ("/#tour", "Tour"), ("/pricing/", "Pricing"), ("/document/", "Guides")]
+        items = "".join(f'<a href="{h}">{t}</a>' for h, t in links)
+        nav = f"""
+        <nav class="pub-nav" id="site-nav">{items}
+          <a class="btn primary sm" href="/download">{icon("download", 16)}Download</a>
+        </nav>"""
+    foot = "" if admin else f"""
+<footer class="site-foot">
+  <div class="foot-grid">
+    <div>
+      <a class="brand" href="/"><span class="logo">OA</span>Office Axe</a>
+      <p class="muted small">A Windows app for everyday office documents — PDFs, Word, Excel, PowerPoint, photos and folders.</p>
+    </div>
+    <div><h4>Product</h4><a href="/#features">Features</a><a href="/#tour">Video tour</a><a href="/pricing/">Pricing</a><a href="/download">Download</a></div>
+    <div><h4>Help</h4><a href="/document/">Guides</a><a href="/#activate">Activate a key</a><a href="/#faq">Questions</a></div>
+    <div><h4>Pay with</h4><p class="muted small">bKash · Nagad · Visa / Mastercard</p>
+      {f'<h4>Contact</h4><a href="mailto:{e(CONTACT_EMAIL)}">{e(CONTACT_EMAIL)}</a>' if CONTACT_EMAIL else ''}</div>
+  </div>
+  <div class="foot-bottom">© {datetime.now().year} Office Axe · Prices in Bangladeshi taka</div>
+</footer>"""
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(title)} · Office Axe</title>
-<link rel="stylesheet" href="/static/portal.css?v=3">
-<script src="/static/portal.js?v=3" defer></script>
+<meta name="description" content="{e(desc)}">
+<meta property="og:title" content="{e(title)} · Office Axe">
+<meta property="og:description" content="{e(desc)}">
+<meta property="og:image" content="/static/video/poster.jpg">
+<meta name="theme-color" content="#2f6bff">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/portal.css?v=4">
+<script src="/static/portal.js?v=4" defer></script>
 </head><body class="{'admin' if admin else 'public'}">
+<a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="{'/admin' if admin else '/'}"><span class="logo">OA</span>Office Axe{' <small>Admin</small>' if admin else ''}</a>
-  {nav or '<nav class="pub-nav"><a href="/#tour">Tour</a><a href="/document/">Document</a><a href="/pricing/">Pricing</a><a class="btn primary sm" href="/download">Download</a></nav>'}
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">{icon("menu", 22)}</button>
+  {nav}
 </header>
-<main>{body}</main>
-<footer class="foot">© Office Axe</footer>
+<main id="main">{body}</main>
+{foot}
 </body></html>"""
 
 
@@ -289,60 +357,121 @@ class Portal:
         return not_found()
 
     # ── public ───────────────────────────────────────────────────────────────
+    FEATURES = [
+        ("folder", "One workspace", "Browse folders, preview PDFs, Word, Excel and photos, and search as you type."),
+        ("list", "A folder for every student", "Paste a list of names and get a numbered folder for each one."),
+        ("eye", "Instant preview", "See any document or image before you open it — pages, text and details."),
+        ("rename", "Smart rename", "Rename one file or hundreds, with templates and suggestions."),
+        ("undo", "Undo everything", "Cut, copy, paste and delete with Ctrl+Z and Ctrl+Y, like Windows Explorer."),
+        ("pdf", "Convert to PDF", "Word, Excel, PowerPoint and photos to PDF — or PDF pages back to images."),
+        ("compress", "Compress to a size", "Shrink a PDF to the size an upload form accepts, with an estimate first."),
+        ("merge", "Merge, split, extract", "Combine PDFs and images, split by pages, or pull out the pages you need."),
+        ("layers", "Arrange pages", "Rotate, reorder, delete and zoom into pages; read QR codes on them."),
+        ("sign", "Fill, sign and add a photo", "Fill PDF forms, sign, add a passport photo and save a signed copy."),
+        ("brush", "Mark up images", "Highlight, draw, add text and arrows on scans and screenshots."),
+        ("id", "Passport and visa photos", "Crop to exact sizes like 35 × 45 mm with a face guide."),
+        ("sparkles", "AI suit and tie", "Put a formal suit on a photo for applications (uses OpenAI when you choose it)."),
+        ("qr", "Read QR codes", "From a file or anywhere on screen, with link safety checks."),
+        ("lock", "ZIP and passwords", "Zip folders, unzip archives and lock PDFs or ZIPs with a password."),
+        ("record", "Screen recorder", "Record the screen or take screenshots, with your microphone if you like."),
+        ("key", "One plan, five PCs", "A subscription works on up to five computers; keys activate in seconds."),
+    ]
+
     def landing(self) -> Response:
-        feats = [
-            ("workspace", "One workspace for all your files", "Browse, preview and search documents, PDFs and images without opening five different programs."),
-            ("folders", "Hundreds of folders in seconds", "Paste a list of names and Office Axe creates a numbered folder for each one."),
-            ("compress", "Compress, merge, split, protect", "Every everyday PDF job in one place, with a size estimate before you start."),
-            ("arrange", "Arrange pages visually", "Rotate scans, drag pages into order, delete and undo — Ctrl+Z works everywhere."),
-            ("protect", "Passwords and ZIPs", "Lock PDFs and archives with a password, or open them again in one click."),
+        try:
+            cur = self.releases.current()
+        except Exception:
+            cur = {}
+        ver = str(cur.get("version") or "")
+        feats = "".join(f"""
+          <article class="feat"><span class="feat-ic">{icon(k)}</span>
+            <h3>{e(t)}</h3><p>{e(d)}</p></article>""" for k, t, d in self.FEATURES)
+        faq = [
+            ("Which computers does it run on?", "Windows 10 and Windows 11 PCs."),
+            ("Does it need the internet?", "No — your files are handled on your own PC. A license key is checked online "
+             "now and then; without internet Office Axe keeps working for 7 days after the last check."),
+            ("How many PCs can I use?", "One subscription covers up to 5 PCs. A review or trial key may allow fewer."),
+            ("Are my documents uploaded anywhere?", "No. Office Axe works on the files on your PC. Only the optional "
+             "“AI suit and tie” tool sends the photo you choose to OpenAI to create the new picture."),
+            ("How do updates work?", "When a new version is published, the installed app shows “Update Now”."),
+            ("How do I pay?", "With bKash, Nagad or a Visa / Mastercard card. Plans are prepaid and don't renew by themselves."),
         ]
-        cards = "".join(f"""
-          <article class="feature">
-            <img src="/static/img/{k}.jpg" alt="{e(t)}" loading="lazy" width="1200" height="567">
-            <h3>{e(t)}</h3><p>{e(d)}</p>
-          </article>""" for k, t, d in feats)
+        faq_html = "".join(f'<details class="faq-item"><summary>{e(q)}</summary><p>{e(a)}</p></details>' for q, a in faq)
         body = f"""
-<section class="hero">
-  <div>
-    <h1>Every office file job, in one app.</h1>
-    <p class="lead">Office Axe turns Word, Excel, PowerPoint and images into PDFs, compresses and merges
-      PDFs, makes folders in bulk and keeps everything organised, with undo for every action.</p>
+<section class="hero2">
+  <div class="hero-copy">
+    <p class="eyebrow">{icon("windows", 16)} Windows desktop app</p>
+    <h1>Every office file job, <span class="hl">in one app</span>.</h1>
+    <p class="lead">Convert Word, Excel, PowerPoint and photos to PDF, compress and merge PDFs, sign forms,
+      make student folders in bulk and keep everything organised — with undo for every action.</p>
     <div class="cta">
-      <a class="btn primary lg" href="/download">Download for Windows</a>
-      <a class="btn lg" href="#pricing">See plans</a>
+      <a class="btn primary lg" href="/download">{icon("download", 18)}Download for Windows{f'<span class="ver">v{e(ver)}</span>' if ver else ''}</a>
+      <a class="btn lg" href="#tour">{icon("play", 18)}Watch the tour</a>
     </div>
-    <p class="muted small">Windows 10 and 11 · works offline · up to 5 PCs per subscription</p>
+    <ul class="ticks">
+      <li>{icon("check", 16)}Windows 10 &amp; 11</li><li>{icon("check", 16)}Works with your files offline</li>
+      <li>{icon("check", 16)}Up to 5 PCs per plan</li>
+    </ul>
     {self._release_strip()}
   </div>
-  <img class="hero-shot" src="/static/img/workspace.jpg" alt="The Office Axe workspace" width="1200" height="567">
+  <div class="hero-media"><img src="/static/img/workspace.jpg" alt="The Office Axe workspace" width="1200" height="567" fetchpriority="high"></div>
 </section>
+
+<section id="features" class="section">
+  <div class="section-head"><p class="eyebrow">Features</p><h2>Everything an office does with documents</h2>
+    <p class="muted">Seventeen tools in one window — each shown in the video tour below.</p></div>
+  <div class="feat-grid">{feats}</div>
+</section>
+
 {self._tour_html()}
 {self._slider_html()}
-<section id="features" class="features">{cards}</section>
-<section id="pricing" class="pricing">
-  <h2>Simple plans</h2>
-  <div class="plans">
-    <div class="plan"><h3>Monthly</h3><div class="price">৳999<span>/ month</span></div>
-      <ul><li>All tools</li><li>Up to 5 PCs</li><li>No auto-renew</li></ul></div>
-    <div class="plan best"><div class="badge">Save ৳1,989</div><h3>Yearly</h3>
-      <div class="price">৳9,999<span>/ year</span></div><div class="was">৳11,988</div>
-      <ul><li>All tools</li><li>Up to 5 PCs</li><li>Two months free</li></ul></div>
-  </div>
+
+<section id="pricing" class="section alt">
+  <div class="section-head"><p class="eyebrow">Pricing</p><h2>Simple plans, all tools included</h2>
+    <p class="muted">Prices in Bangladeshi taka. Prepaid — no automatic renewal.</p></div>
+  {self._plans_html()}
 </section>
-<section class="steps">
-  <h2>Have a license key?</h2>
-  <ol><li>Download and open Office Axe.</li><li>Click <strong>Activate with license key</strong>.</li>
-      <li>Paste your key and click <strong>Activate on this PC</strong>.</li></ol>
+
+<section id="activate" class="section">
+  <div class="section-head"><p class="eyebrow">Getting started</p><h2>Install and activate in a minute</h2></div>
+  <ol class="steps3">
+    <li><span class="n">1</span><h3>Download</h3><p>Save the Windows installer and run it. No account is needed.</p></li>
+    <li><span class="n">2</span><h3>Activate</h3><p>Open Office Axe, click <b>Activate with license key</b> and paste your key.</p></li>
+    <li><span class="n">3</span><h3>Work</h3><p>Everything is ready. When an update is out, the app shows <b>Update Now</b>.</p></li>
+  </ol>
+</section>
+
+<section id="faq" class="section alt">
+  <div class="section-head"><p class="eyebrow">Questions</p><h2>Good to know</h2></div>
+  <div class="faq">{faq_html}</div>
+</section>
+
+<section class="cta-band">
+  <h2>Ready to try Office Axe?</h2>
+  <a class="btn primary lg" href="/download">{icon("download", 18)}Download for Windows</a>
 </section>"""
         return Response(page("Every office file job, in one app", body))
+
+    def _plans_html(self) -> str:
+        return """
+  <div class="plans">
+    <div class="plan"><h3>Monthly</h3><div class="price">৳999<span>/ month</span></div>
+      <ul><li>All 17 tools</li><li>Up to 5 PCs</li><li>Updates included</li><li>No auto-renew</li></ul>
+      <a class="btn wide-btn" href="/download">Get started</a></div>
+    <div class="plan best"><div class="badge">Save 17%</div><h3>Yearly</h3>
+      <div class="price">৳9,999<span>/ year</span></div><div class="was">৳11,988</div>
+      <ul><li>All 17 tools</li><li>Up to 5 PCs</li><li>Updates included</li><li>Two months free</li></ul>
+      <a class="btn primary wide-btn" href="/download">Get started</a></div>
+  </div>
+  <p class="muted small center">Pay with bKash, Nagad or Visa / Mastercard inside the app.</p>"""
 
     # ── pages the earlier OfficeAxe site had (same addresses) ────────────────
     def document_page(self) -> Response:
         guides = "".join(f'<article class="card guide"><h2>{e(g["title"])}</h2><div class="guide-body">{e(g["body"])}</div></article>'
                          for g in self.releases.guides())
         body = f"""
-<section class="narrow-wide">
+<section class="section narrow-wide">
+  <p class="eyebrow">Guides</p>
   <h1>How to use OfficeAxe</h1>
   <p class="lead">Install the Windows app, open your documents, and update when a newer release is published.</p>
   <ol class="howto">
@@ -357,18 +486,11 @@ class Portal:
         return Response(page("How to use OfficeAxe", body))
 
     def pricing_page(self) -> Response:
-        body = """
-<section class="pricing">
-  <h1>OfficeAxe plans</h1>
-  <p class="muted">Prices are in Bangladeshi taka.</p>
-  <div class="plans">
-    <div class="plan"><h3>1 month</h3><div class="price">৳999<span>/ month</span></div>
-      <ul><li>All tools</li><li>Up to 5 PCs</li><li>No auto-renew</li></ul></div>
-    <div class="plan best"><div class="badge">Save ৳1,989</div><h3>1 year</h3>
-      <div class="price">৳9,999<span>/ year</span></div><div class="was">৳11,988</div>
-      <ul><li>All tools</li><li>Up to 5 PCs</li><li>Two months free</li></ul></div>
-  </div>
-  <p><a class="btn primary lg" href="/download">Download for Windows</a></p>
+        body = f"""
+<section class="section">
+  <div class="section-head"><p class="eyebrow">Pricing</p><h1>OfficeAxe plans</h1>
+    <p class="muted">Prices are in Bangladeshi taka. Prepaid — no automatic renewal.</p></div>
+  {self._plans_html()}
 </section>"""
         return Response(page("OfficeAxe pricing", body))
 
@@ -398,9 +520,9 @@ class Portal:
                         f'<span class="ch-title">{e(c["title"])}</span><span class="ch-time">{mmss(c["t"])}</span>'
                         f'</button></li>' for c in chapters)
         return f"""
-<section id="tour" class="tour">
-  <h2>Watch the 8-minute tour</h2>
-  <p class="muted">Every feature, filmed in the real app. Jump to any chapter.</p>
+<section id="tour" class="section tour">
+  <div class="section-head"><p class="eyebrow">Video tour</p><h2>Watch the 8-minute tour</h2>
+  <p class="muted">Every feature, filmed in the real app. Jump to any chapter.</p></div>
   <div class="tour-grid">
     <div class="video-wrap">
       <video id="tour-video" controls preload="metadata" playsinline poster="/static/video/poster.jpg">
@@ -430,8 +552,8 @@ class Portal:
         dots = "".join(f'<button type="button" class="dot" aria-label="Show slide {i + 1}"'
                        f'{"" if i else current} data-go="{i}"></button>' for i in range(n))
         return f"""
-<section class="showcase" aria-labelledby="showcase-title">
-  <h2 id="showcase-title">A closer look</h2>
+<section class="section showcase" aria-labelledby="showcase-title">
+  <div class="section-head"><p class="eyebrow">Screens</p><h2 id="showcase-title">A closer look</h2></div>
   <div class="slider" id="slider" role="region" aria-roledescription="carousel" aria-label="App screenshots" tabindex="0">
     <div class="slides" aria-live="polite">{figs}</div>
     <button type="button" class="slider-btn prev" aria-label="Previous slide">&#8249;</button>
@@ -722,7 +844,7 @@ class Portal:
     </table></div>
   </section>
 </div>"""
-        return Response(page("Keys", body, sess, csrf))
+        return Response(page("Keys", body, sess, csrf, active="/admin"))
 
     def key_page(self, req, sess, csrf, key_id: str) -> Response:
         k = self.lic.key_view(key_id)
@@ -872,7 +994,7 @@ class Portal:
     <div class="release-list">{hist}</div>
   </section>
 </div>"""
-        return Response(page("Releases", body, sess, csrf))
+        return Response(page("Releases", body, sess, csrf, active="/admin/releases"))
 
     def guides_page(self, req, sess, csrf, error: str = "") -> Response:
         items = "".join(f"""
@@ -896,7 +1018,7 @@ class Portal:
   </section>
   <section class="card"><h2>Guides</h2>{items}</section>
 </div>"""
-        return Response(page("Guides", body, sess, csrf))
+        return Response(page("Guides", body, sess, csrf, active="/admin/guides"))
 
     def activity_page(self, sess, csrf) -> Response:
         rows = "".join(f"""<tr><td class="small">{fmt_time(a['at'])}</td><td>{e(a['actor'])}</td><td>{e(a['action'])}</td>
@@ -906,7 +1028,7 @@ class Portal:
         body = f"""<section class="card"><h1>Activity</h1><div class="table-wrap"><table>
           <thead><tr><th>When</th><th>Who</th><th>What</th><th>Key</th><th>Details</th></tr></thead>
           <tbody>{rows}</tbody></table></div></section>"""
-        return Response(page("Activity", body, sess, csrf))
+        return Response(page("Activity", body, sess, csrf, active="/admin/activity"))
 
     def import_page(self, req, sess, csrf, actor) -> Response:
         msg = ""
@@ -944,7 +1066,7 @@ class Portal:
     <button class="btn">Import pasted keys</button>
   </form>
 </section>"""
-        return Response(page("Import", body, sess, csrf))
+        return Response(page("Import", body, sess, csrf, active="/admin/import"))
 
     def settings_page(self, req, sess, csrf) -> Response:
         msg = ""
@@ -987,7 +1109,7 @@ class Portal:
     <p class="muted small">Changing it logs you out everywhere.</p>
   </section>
 </div>"""
-        return Response(page("Settings", body, sess, csrf))
+        return Response(page("Settings", body, sess, csrf, active="/admin/settings"))
 
 
 def make_app(config: Optional[Config] = None, store=None) -> Portal:
