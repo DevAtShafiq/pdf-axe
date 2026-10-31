@@ -99,3 +99,15 @@
   go(0);
   schedule();
 })();
+
+// Phone menu
+(() => {
+  const btn = document.querySelector('.nav-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const top = btn.closest('.top');
+    const open = !top.classList.contains('nav-open');
+    top.classList.toggle('nav-open', open);
+    btn.setAttribute('aria-expanded', String(open));
+  });
+})();
