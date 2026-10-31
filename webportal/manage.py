@@ -38,15 +38,19 @@ def main(argv=None) -> int:
 
     if a.cmd == "hash-password":
         from auth import hash_password, password_problem
-        pw = getpass.getpass("Admin password for the server: ")
-        if pw != getpass.getpass("Repeat it: "):
-            print("The passwords don't match.")
-            return 1
-        if password_problem(pw):
-            print(password_problem(pw))
-            return 1
-        print(hash_password(pw))
-        return 0
+        # messages go to the screen (stderr); only the hash goes to stdout (a file)
+        for _ in range(3):
+            pw = getpass.getpass("New website admin password (at least 10 characters): ")
+            if password_problem(pw):
+                print("  " + password_problem(pw) + " Try again.", file=sys.stderr)
+                continue
+            if pw != getpass.getpass("Type the same password again: "):
+                print("  The two passwords don't match. Try again.", file=sys.stderr)
+                continue
+            print(hash_password(pw))
+            return 0
+        print("  No password was saved.", file=sys.stderr)
+        return 1
 
     if a.cmd == "set-password":
         acct = AdminAccount(cfg.admin_file, cfg.admin_user)
