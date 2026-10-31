@@ -22,6 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PROMO = os.path.join(ROOT, "promotion")
 VIDEO = os.path.join(PROMO, "office-axe-demo.mp4")
+VIDEO_HQ = os.path.join(PROMO, "office-axe-demo-1440p.mp4")      # not in git; sharper stills
 OUT_V = os.path.join(HERE, "static", "video")
 OUT_S = os.path.join(HERE, "static", "slides")
 
@@ -101,8 +102,14 @@ def main() -> int:
     from PIL import Image
     for n, t in enumerate(FEATURE_FRAMES, 1):
         png = os.path.join(tempfile.gettempdir(), f"oa_feat_{n:02d}.png")      # work file outside static/
-        frame(t, png, "crop=iw:ih*0.84:0:0,scale=960:-2")
-        Image.open(png).save(os.path.join(OUT_F, f"{n:02d}.webp"), "WEBP", quality=72, method=6)
+        # the whole app window, sharp: from the 1440p master when it is there
+        src = VIDEO_HQ if os.path.isfile(VIDEO_HQ) else VIDEO
+        subprocess.run([ff, "-loglevel", "error", "-y", "-ss", f"{t:.2f}", "-i", src, "-frames:v", "1",
+                        "-vf", "crop=iw:ih*0.86:0:0,scale=1800:-2", png], check=True)
+        im = Image.open(png).convert("RGB")
+        im.save(os.path.join(OUT_F, f"{n:02d}.webp"), "WEBP", quality=74, method=6)
+        im.resize((900, round(im.height * 900 / im.width)), Image.LANCZOS).save(
+            os.path.join(OUT_F, f"{n:02d}-900.webp"), "WEBP", quality=72, method=6)        # phones
     with open(os.path.join(OUT_S, "slides.json"), "w", encoding="utf-8") as fh:
         json.dump([{"name": n, "caption": c} for n, _, c in SLIDES], fh, indent=1, ensure_ascii=False)
     print("media written to", OUT_V, "and", OUT_S)
