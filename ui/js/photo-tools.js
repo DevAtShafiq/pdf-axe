@@ -574,6 +574,7 @@ const AiPhoto = (() => {
   // ── run ──────────────────────────────────────────────────────────────────
   async function run(path, action = 'wear_suit', opts) {
     if (!path) return { ok: false, error: 'No image selected' };
+    if (!App.aiSuitOn()) return { ok: false, error: 'AI suit & tie is not available' };
     if (jobFor(path)) { App.toast('An AI edit is already running for this photo', 'warning'); return { ok: false, error: 'busy' }; }
     const label = LABELS[action] || action;
     const o = Object.assign(getOpts(), opts || {});

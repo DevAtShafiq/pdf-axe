@@ -32,10 +32,6 @@
   "caption": "Crop passport and visa photos to the exact size"
  },
  {
-  "name": "ai-suit",
-  "caption": "Put a suit and tie on a photo with AI"
- },
- {
   "name": "qr",
   "caption": "Read QR codes on certificates and receipts"
  },

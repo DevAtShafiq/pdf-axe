@@ -250,7 +250,7 @@ const Details = (() => {
     const imgExts = ['.jpg','.jpeg','.png','.bmp','.webp'];
     const isImg   = imgExts.includes((entry.ext||'').toLowerCase());
     $('ai-photo-section').classList.toggle('hidden', !isImg);
-    if (isImg && typeof AiPhoto !== 'undefined') AiPhoto.onShowFile(entry);
+    if (isImg && App.aiSuitOn() && typeof AiPhoto !== 'undefined') AiPhoto.onShowFile(entry);
   }
 
   // Shared AI photo runner (also used by the context menu). The flow — plan

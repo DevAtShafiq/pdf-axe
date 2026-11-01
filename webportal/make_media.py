@@ -33,7 +33,7 @@ CHAPTERS = [
     (88.5, "Smart rename"), (109.5, "Organise with undo"), (126.7, "Convert anything to PDF"),
     (159.2, "Compress to a target size"), (179.9, "Merge, split and extract"), (219.0, "Arrange pages"),
     (243.8, "Fill, sign and add a photo"), (301.9, "Mark up images"), (327.9, "Passport and visa photos"),
-    (347.6, "AI suit and tie"), (376.4, "Read QR codes"), (393.6, "ZIP and passwords"),
+    (376.4, "Read QR codes"), (393.6, "ZIP and passwords"),
     (423.6, "Screen recorder"), (445.1, "Subscription and settings"),
 ]
 DURATION = 478.77
@@ -48,13 +48,12 @@ SLIDES = [
     ("fill-sign", 272.9, "Fill forms, sign and add a passport photo"),
     ("markup", 314.9, "Highlight and mark up scans"),
     ("passport", 337.8, "Crop passport and visa photos to the exact size"),
-    ("ai-suit", 362.0, "Put a suit and tie on a photo with AI"),
     ("qr", 385.0, "Read QR codes on certificates and receipts"),
     ("zip", 408.6, "Zip folders and protect them with a password"),
 ]
 
 
-# close-up for each feature card on the home page (same order as web.Portal.FEATURES);
+# close-up for each feature card on the home page (same order as web.Portal._ALL_FEATURES);
 # the last one is a fresh capture of the app's Subscription page (demo data), kept as is
 FEATURE_FRAMES = [36, 52, 76, 107, 124, 143, 169.5, 199.5, 238, 272.9, 314.9, 337.8, 362, 385, 408.6, 432]
 OUT_F = os.path.join(HERE, "static", "feat")

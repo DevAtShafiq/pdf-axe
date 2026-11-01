@@ -257,6 +257,7 @@ const SFM = (() => {
     setRenameLang:       (lang)                    => call('set_rename_lang', lang),
     renameWithTemplate:  (path, name, save=false, lang='') => call('rename_with_template', path, name, save, lang),
     saveRenameTemplate:  (tpl)                     => call('save_rename_template', tpl),
+    features:            ()                        => call('features'),
     // AI photo
     runAiPhoto:          (path, action, opts={})   => call('run_ai_photo_action', path, action, opts),
     aiPhotoActions:      ()                        => call('ai_photo_actions'),

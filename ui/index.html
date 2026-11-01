@@ -48,7 +48,7 @@
 <link rel="stylesheet" href="subscription.css">
 <link rel="stylesheet" href="folder-tools.css">
 </head>
-<body>
+<body class="no-ai-suit">
 
 <div id="app">
 
@@ -363,8 +363,8 @@
 
           <!-- AI Photo Editor (images only) -->
           <div class="detail-section hidden" id="ai-photo-section">
-            <div class="detail-section-title">AI photo edit</div>
-            <div class="ai-card">
+            <div class="detail-section-title"><span class="ai-suit-only">AI photo edit</span><span class="ai-suit-off">Photo</span></div>
+            <div class="ai-card ai-suit-only">
               <div class="ai-card-head">
                 <span class="ai-card-icon"><i data-icon="shirt" data-size="16"></i></span>
                 <div class="ai-card-text">
@@ -411,7 +411,7 @@
               <div id="ai-photo-status" class="ai-status"></div>
             </div>
             <div class="qa-list ai-more">
-              <button class="qa-btn hidden" id="ai-compare" title="Before / after slider"><span class="icon"><i data-icon="compare"></i></span> Compare with original</button>
+              <button class="qa-btn hidden ai-suit-only" id="ai-compare" title="Before / after slider"><span class="icon"><i data-icon="compare"></i></span> Compare with original</button>
               <button class="qa-btn" id="ai-crop"><span class="icon"><i data-icon="crop"></i></span> Crop…</button>
               <button class="qa-btn" id="ai-photo-size" title="Crop to an official passport / visa / ID photo size"><span class="icon"><i data-icon="user"></i></span> Photo size…</button>
             </div>

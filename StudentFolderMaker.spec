@@ -39,6 +39,7 @@ datas = [
     ("main_webview.py", "."),
     ("file_ops.py",     "."),
     ("ai_photo_editor.py",     "."),
+    ("features.py",            "."),
     ("qr_screen_capture.py",   "."),
     ("rename_templates.py",    "."),   # document-name templates (F2 rename suggestions)
     ("student_folder_maker.py","."),   # lazily imported for rename templates
@@ -90,6 +91,7 @@ hiddenimports = [
     # ── App modules ──────────────────────────────────────────────────────────
     "file_ops",
     "ai_photo_editor",
+    "features",
     "qr_screen_capture",
     "rename_templates",
     "excel_grid",

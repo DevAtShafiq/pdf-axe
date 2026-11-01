@@ -538,12 +538,21 @@ const App = (() => {
   // These initialisers were previously defined but never invoked, which left
   // keyboard shortcuts, toolbar buttons, Python→JS event handlers,
   // pane resizers and status pollers all dead.
+  // Optional features (features.py). The page starts with them hidden.
+  const aiSuitOn = () => !document.body.classList.contains('no-ai-suit');
+  function _initFeatures() {
+    SFM.features().then(r => {
+      document.body.classList.toggle('no-ai-suit', !(r && r.ok && r.ai_suit));
+    }).catch(() => {});
+  }
+
   function _boot() {
     const safe = (fn, name) => { try { fn(); } catch (e) { console.error('[App boot]', name, e); } };
     safe(_initToolbar,       '_initToolbar');
     safe(_initKeyboard,      '_initKeyboard');
     safe(_initEventHandlers, '_initEventHandlers');
     safe(_initPaneResizers,  '_initPaneResizers');
+    safe(_initFeatures,      '_initFeatures');
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _boot);
@@ -557,6 +566,6 @@ const App = (() => {
     navigate, toast, setStatus, setStatusFolder,
     setStatusSelection, pushUndo, undo, redo,
     switchPanel, navBack, navForward, navUp, applyTheme, syncFileTools,
-    normPath, parentPath, blocked,
+    normPath, parentPath, blocked, aiSuitOn,
   };
 })();

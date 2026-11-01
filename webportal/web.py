@@ -357,7 +357,7 @@ class Portal:
         return not_found()
 
     # ── public ───────────────────────────────────────────────────────────────
-    FEATURES = [
+    _ALL_FEATURES = [
         ("folder", "One workspace", "Browse folders, preview PDFs, Word, Excel and photos, and search as you type."),
         ("list", "A folder for every student", "Paste a list of names and get a numbered folder for each one."),
         ("eye", "Instant preview", "See any document or image before you open it — pages, text and details."),
@@ -376,6 +376,9 @@ class Portal:
         ("record", "Screen recorder", "Record the screen or take screenshots, with your microphone if you like."),
         ("key", "Buy one, get one", "One subscription works on 2 PCs — your office PC and one more; keys activate in seconds."),
     ]
+    # Built but not offered (features.py in the app): left off the site.
+    # Each card keeps its screenshot number (static/feat/NN.webp).
+    FEATURES = [(n, k, t, d) for n, (k, t, d) in enumerate(_ALL_FEATURES, 1) if t not in ("AI suit and tie",)]
 
     def landing(self) -> Response:
         try:
@@ -387,14 +390,13 @@ class Portal:
           <article class="feat" tabindex="0" role="button" data-shot="/static/feat/{n:02d}.webp"
                    aria-label="{e(t)} — see it in the app"><span class="feat-ic">{icon(k)}</span>
             <h3>{e(t)}</h3><p>{e(d)}</p><span class="feat-peek">{icon("eye", 14)}See it in the app</span></article>"""
-                        for n, (k, t, d) in enumerate(self.FEATURES, 1))
+                        for n, k, t, d in self.FEATURES)
         faq = [
             ("Which computers does it run on?", "Windows 10 and Windows 11 PCs."),
             ("Does it need the internet?", "No — your files are handled on your own PC. A license key is checked online "
              "now and then; without internet Office Axe keeps working for 7 days after the last check."),
             ("How many PCs can I use?", "Buy one, get one: one subscription covers 2 PCs. A review or trial key may allow 1."),
-            ("Are my documents uploaded anywhere?", "No. Office Axe works on the files on your PC. Only the optional "
-             "“AI suit and tie” tool sends the photo you choose to OpenAI to create the new picture."),
+            ("Are my documents uploaded anywhere?", "No. Office Axe works on the files on your PC."),
             ("How do updates work?", "When a new version is published, the installed app shows “Update Now”."),
             ("How do I pay?", "With bKash, Nagad or a Visa / Mastercard card. Plans are prepaid and don't renew by themselves."),
         ]
@@ -463,7 +465,7 @@ class Portal:
                        "Fill forms, sign, add a photo", "Edit text and pictures in a PDF", "Protect a PDF with a password"]),
         ("Convert and compress", ["Word, Excel, PowerPoint and photos to PDF", "PDF pages to images",
                                   "Compress a PDF to a target size"]),
-        ("Photo and AI", ["Passport and visa photo sizes", "Mark up images", "AI suit and tie (uses OpenAI when you choose it)"]),
+        ("Photos", ["Passport and visa photo sizes", "Mark up images"]),
         ("QR, ZIP and recorder", ["Read QR codes from files or the screen", "ZIP / unzip with passwords",
                                   "Screen recorder and screenshots"]),
     ]
@@ -472,7 +474,7 @@ class Portal:
         """The plan card(s). The switch only changes what is shown (JS); without
         JS both prices are visible."""
         inc = "".join(f'<li>{icon("check", 16)}{e(x)}</li>' for x in [
-            "2 PCs — buy one, get one", "All 17 tools", "Free updates during your plan", "Works with your files offline",
+            "2 PCs — buy one, get one", "All 16 tools", "Free updates during your plan", "Works with your files offline",
             "Manage your PCs in the app", "Pay with bKash, Nagad or card"])
         return f"""
   <div class="billing" data-period="yearly">
@@ -573,7 +575,7 @@ class Portal:
 </section>
 {self._pricing_details_html()}"""
         return Response(page("OfficeAxe pricing", body, description="Office Axe plans: ৳999 a month or ৳9,999 a year, "
-                                                                      "2 PCs per subscription, all 17 tools."))
+                                                                      "2 PCs per subscription, all 16 tools."))
 
     def _release_strip(self) -> str:
         try:

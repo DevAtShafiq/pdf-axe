@@ -41,6 +41,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import file_ops as _fo
+import features as _features
 import media_convert as _mc
 from pdf_tools_bridge import PdfToolsBridgeMixin
 from annotate_bridge import AnnotateBridgeMixin
@@ -1874,6 +1875,10 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         except Exception as exc:
             return _err(str(exc))
 
+    def features(self) -> dict:
+        """Which optional features this build offers (features.py)."""
+        return _ok(**_features.flags())
+
     def log_js(self, level: str = "info", msg: str = "") -> dict:
         try:
             import logging
@@ -1958,6 +1963,8 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
 
     def ai_photo_actions(self) -> dict:
         """List the AI photo actions as [{key, label}, ...] plus option choices."""
+        if not _features.AI_SUIT_ENABLED:
+            return _err(_features.AI_SUIT_OFF_MESSAGE, disabled=True)
         try:
             import ai_photo_editor as _ape
             return _ok(actions=_ape.ai_photo_actions(), options=_ape.ai_photo_options(),
@@ -1982,6 +1989,8 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
 
     def ai_photo_estimate(self, path: str, opts: dict = None) -> dict:
         """Estimated USD + output file name for running Wear Suit on *path*."""
+        if not _features.AI_SUIT_ENABLED:
+            return _err(_features.AI_SUIT_OFF_MESSAGE, disabled=True)
         try:
             import ai_photo_editor as _ape
             o = _ape.normalize_options(opts or {})
@@ -2008,6 +2017,8 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
         The original file is never overwritten (a new <name>_suit<ext> is written).
         opts: {suit_color, tie, quality, job_id, out_path}.
         """
+        if not _features.AI_SUIT_ENABLED:
+            return _err(_features.AI_SUIT_OFF_MESSAGE, disabled=True)
         opts = opts or {}
         if not path or not os.path.isfile(path):
             return _err(f"File not found: {path}")

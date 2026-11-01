@@ -90,6 +90,10 @@
 .crop-hint .kbd { height: 16px; font-size: 10px; }
 
 /* ── AI photo section (details pane) ────────────────────────── */
+/* AI suit & tie is switched off in features.py: body.no-ai-suit hides it */
+body.no-ai-suit .ai-suit-only { display: none !important; }
+body:not(.no-ai-suit) .ai-suit-off { display: none !important; }
+
 .ai-card {
   display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-xl);

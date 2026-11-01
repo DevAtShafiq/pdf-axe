@@ -105,6 +105,23 @@ def test_landing_page_and_download_placeholder(portal):
     assert c.get("/static/../config.py")["status"] == 404
 
 
+def test_ai_suit_is_off_the_site(portal):
+    app, _ = portal
+    c = Client(app)
+    for page in ("/", "/pricing"):
+        body = c.get(page)["body"]
+        assert "suit" not in body.lower() and "OpenAI" not in body, page
+    home = c.get("/")["body"]
+    assert "All 16 tools" in c.get("/pricing")["body"]
+    assert "/static/feat/12.webp" in home and "/static/feat/13.webp" not in home   # cards keep their screenshots
+    assert "/static/feat/14.webp" in home
+    import json, os
+    static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "webportal", "static")
+    for rel in ("video/chapters.json", "slides/slides.json"):
+        with open(os.path.join(static, rel), encoding="utf-8") as f:
+            assert "suit" not in f.read().lower(), rel
+
+
 def test_tour_video_streams_with_ranges(tmp_path):
     video = tmp_path / "demo.mp4"
     video.write_bytes(bytes(range(256)) * 40)          # 10 240 bytes stand-in

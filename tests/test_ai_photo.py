@@ -246,7 +246,9 @@ def test_cost_tracking(isolated_env, monkeypatch):
 # ── bridge gate behaviour ────────────────────────────────────────────────────
 
 def _bridge(monkeypatch):
+    import features
     import sfm_bridge
+    monkeypatch.setattr(features, "AI_SUIT_ENABLED", True)   # switched off in the shipped app
     b = sfm_bridge.SFMBridge()
     events, threads = [], []
     monkeypatch.setattr(b, "_emit", lambda ev, payload=None: events.append((ev, payload)))
