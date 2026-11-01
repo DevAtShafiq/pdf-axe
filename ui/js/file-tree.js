@@ -551,11 +551,7 @@ const FileTree = (() => {
   // ── Breadcrumb ────────────────────────────────────────────────────────────
   function _renderBreadcrumb(path) {
     const bc = $('breadcrumb');
-    if (!bc._editBound) {
-      bc._editBound = true;
-      bc.addEventListener('click', e => { if (e.target === bc) editPath(); });
-      bc.title = 'Click empty space to type or paste a path (Ctrl+L)';
-    }
+    _bindPathBar();
     bc.innerHTML = '';
     const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
     // Deep paths: show the drive, an ellipsis for the middle, and the last two
@@ -603,6 +599,34 @@ const FileTree = (() => {
       }
     });
   }
+
+  function _bindPathBar() {
+    const bc = $('breadcrumb');
+    if (!bc || bc._editBound) return;
+    bc._editBound = true;
+    // empty space, or the "No folder open" text before any folder is shown
+    bc.addEventListener('click', e => {
+      if (e.target === bc || !_currentFolder || (e.target.id === 'bc-root')) editPath();
+    });
+    bc.title = 'Click to type or paste a folder or file path (Ctrl+L)';
+  }
+
+  // Paste anywhere outside a text box: a copied path opens (also on a fresh start,
+  // before any folder is open). Files on the clipboard are still pasted by Ctrl+V.
+  function _initPastePath() {
+    document.addEventListener('paste', e => {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (App.blocked && App.blocked()) return;
+      const text = (e.clipboardData && e.clipboardData.getData('text') || '').trim();
+      if (!text || text.length > 1024 || !/^["'“]?(?:[A-Za-z]:|\\\\|%|~|file:)/i.test(text)) return;
+      if (_pasteHandledAt && Date.now() - _pasteHandledAt < 800) return;   // Ctrl+V already did it
+      e.preventDefault();
+      _pasteHandledAt = Date.now();
+      openPath(text);
+    });
+  }
+  let _pasteHandledAt = 0;
 
   // ── Type or paste a path (click empty space in the breadcrumb, Ctrl+L, Alt+D, F4)
   function editPath() {
@@ -1226,7 +1250,8 @@ const FileTree = (() => {
       const t = await SFM.getClipboardText().catch(() => null);
       const text = t && t.ok ? String(t.text || '').trim() : '';
       if (text && text.length < 1024 && /^["'“]?(?:[A-Za-z]:|\\\\|%|~|file:)/i.test(text)) {
-        if (await openPath(text, { silent: false })) return;
+        _pasteHandledAt = Date.now();
+        await openPath(text, { silent: false });
         return;
       }
     }
@@ -2018,6 +2043,10 @@ const FileTree = (() => {
   function init() {
     _initKeyboardNav();
     _initDragDrop();
+    _bindPathBar();
+    _initPastePath();
+    // keyboard ready at once: Ctrl+V / Ctrl+L / typing work before the first click
+    setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) listEl()?.focus(); }, 300);
     _initThumbZoom();
     _initSortHeader();
 

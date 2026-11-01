@@ -108,6 +108,29 @@ def _allow_media_permissions(window) -> None:
         logging.getLogger("sfm").warning("media permission hook failed: %s", exc)
 
 
+def _focus_page(window) -> None:
+    """Give the web page the keyboard focus when the window opens. Without it
+    WebView2 gets no keys until the user clicks, so e.g. Ctrl+V of a copied path
+    did nothing right after starting the app. Best effort."""
+    try:
+        form = window.native
+        wv = getattr(getattr(form, "browser", None), "webview", None)
+        if form is None or wv is None:
+            return
+        from System import Action  # type: ignore
+
+        def _do():
+            try:
+                form.Activate()
+                wv.Focus()
+            except Exception:
+                pass
+        form.BeginInvoke(Action(_do))
+    except Exception as exc:  # pragma: no cover - platform specific
+        import logging
+        logging.getLogger("sfm").warning("focus on start failed: %s", exc)
+
+
 def main() -> None:
     # Helper-process mode: the QR button re-launches this EXE with --qr-pick to
     # show the native "click a QR code" overlay (qr_pick.py). No webview here.
@@ -174,6 +197,7 @@ def main() -> None:
         bridge.set_window(window)
         _allow_media_permissions(window)
         bridge.dnd_attach(window)          # files dropped from Explorer (dragdrop_bridge.py)
+        _focus_page(window)                # keys (Ctrl+V a path…) work before the first click
         # Maximise — pywebview exposes this on the window object
         try:
             window.maximize()
