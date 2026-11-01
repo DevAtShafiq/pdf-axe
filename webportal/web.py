@@ -267,7 +267,7 @@ def page(title: str, body: str, admin: Optional[dict] = None, csrf: str = "", de
 <meta property="og:image" content="/static/video/poster.jpg">
 <meta name="theme-color" content="#2f6bff">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/portal.css?v=7">
+<link rel="stylesheet" href="/static/portal.css?v=8">
 <script src="/static/portal.js?v=8" defer></script>
 </head><body class="{'admin' if admin else 'public'}">
 <a class="skip" href="#main">Skip to content</a>
