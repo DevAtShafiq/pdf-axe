@@ -551,7 +551,7 @@ const FileTree = (() => {
   // ── Breadcrumb ────────────────────────────────────────────────────────────
   function _renderBreadcrumb(path) {
     const bc = $('breadcrumb');
-    _bindPathBar();
+    _bindBreadcrumbEdit();
     bc.innerHTML = '';
     const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
     // Deep paths: show the drive, an ellipsis for the middle, and the last two
@@ -600,15 +600,17 @@ const FileTree = (() => {
     });
   }
 
-  function _bindPathBar() {
+  // Bound at start-up too: before any folder is open the breadcrumb has never
+  // been rendered, so clicking "No folder open" used to do nothing.
+  function _bindBreadcrumbEdit() {
     const bc = $('breadcrumb');
     if (!bc || bc._editBound) return;
     bc._editBound = true;
-    // empty space, or the "No folder open" text before any folder is shown
     bc.addEventListener('click', e => {
-      if (e.target === bc || !_currentFolder || (e.target.id === 'bc-root')) editPath();
+      // Empty space, or the "No folder open" placeholder → type / paste a path
+      if (e.target === bc || (!_currentFolder && !e.target.closest('.breadcrumb-input'))) editPath();
     });
-    bc.title = 'Click to type or paste a folder or file path (Ctrl+L)';
+    bc.title = 'Click empty space to type or paste a path (Ctrl+L)';
   }
 
   // Paste anywhere outside a text box: a copied path opens (also on a fresh start,
@@ -2041,9 +2043,9 @@ const FileTree = (() => {
 
   // ── Init ────────────────────────────────────────────────────────────────────────────
   function init() {
+    _bindBreadcrumbEdit();
     _initKeyboardNav();
     _initDragDrop();
-    _bindPathBar();
     _initPastePath();
     // keyboard ready at once: Ctrl+V / Ctrl+L / typing work before the first click
     setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) listEl()?.focus(); }, 300);
