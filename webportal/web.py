@@ -491,8 +491,9 @@ class Portal:
       <div class="plan best" data-plan="yearly">
         <div class="badge">Best value · Save 17%</div>
         <h3>Yearly</h3>
+        <div class="was"><s>৳11,988</s> / year</div>
         <div class="price">৳9,999<span>/ year</span></div>
-        <div class="per">≈ ৳833 a month · <s>৳11,988</s></div>
+        <div class="per">≈ ৳833 a month</div>
         <p class="muted small">Billed once a year · prepaid, no auto-renew</p>
         <ul class="inc">{inc}</ul>
         <a class="btn primary wide-btn" href="/download">{icon("download", 16)}Download and buy yearly</a>

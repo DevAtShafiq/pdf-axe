@@ -284,6 +284,8 @@ main { padding-top: 8px; }
 .billing.js[data-period="yearly"] .plan[data-plan="monthly"] { opacity: .55; transform: scale(.97); }
 .plan { transition: opacity .2s, transform .2s; }
 .per { color: var(--ink2); font-size: 14px; margin-top: 2px; }
+.was { color: var(--ink2); font-size: 15px; margin-bottom: -2px; }
+.was s { text-decoration-thickness: 2px; text-decoration-color: #d64545; }
 .plan ul.inc li { padding-left: 26px; }
 .plan ul.inc li::before { content: none; }
 .plan ul.inc .ic { position: absolute; left: 0; top: 7px; color: var(--green); }
