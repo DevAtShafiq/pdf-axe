@@ -82,6 +82,8 @@ datas = [
     ("doc_convert.py",       "."),   # Word / HWP(X) → PDF
     ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
     ("app_paths.py",         "."),   # settings/temp folder (LOCALAPPDATA when installed)
+    ("motw.py",              "."),   # unblock own DLLs marked as downloaded
+    ("pyi_rth_unblock.py",   "."),
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -136,6 +138,7 @@ hiddenimports = [
     "drag_out",
     "dragdrop_bridge",
     "app_paths",
+    "motw",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
@@ -243,7 +246,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=["pyi_rth_sfm_dirs.py", "pyi_rth_pyzbar.py"],
+    runtime_hooks=["pyi_rth_unblock.py", "pyi_rth_sfm_dirs.py", "pyi_rth_pyzbar.py"],
     excludes=excludes,
     noarchive=False,
     optimize=0,
@@ -280,3 +283,8 @@ coll = COLLECT(
     upx_exclude=["webview*", "clr*", "*.dll"],
     name="OfficeAxe",
 )
+
+# .NET reads <exe>.config next to the EXE: loadFromRemoteSources lets pythonnet
+# load Python.Runtime.dll from a folder Windows marked as downloaded.
+import shutil as _shutil
+_shutil.copyfile("OfficeAxe.exe.config", os.path.join(DISTPATH, "OfficeAxe", "OfficeAxe.exe.config"))
