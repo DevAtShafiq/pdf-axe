@@ -22,21 +22,22 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PROMO = os.path.join(ROOT, "promotion")
 VIDEO = os.path.join(PROMO, "office-axe-demo.mp4")
-VIDEO_HQ = os.path.join(PROMO, "office-axe-demo-1440p.mp4")      # not in git; sharper stills
+# The 1440p master (not in git) still has the AI suit chapter, so stills come
+# from the edited 1080p video only.
 OUT_V = os.path.join(HERE, "static", "video")
 OUT_S = os.path.join(HERE, "static", "slides")
 
-# Chapter card start times in office-axe-demo.mp4 (from the editor's
-# timeline: chapter t0 minus the 2.4 s title card).
+# Chapter card start times in office-axe-demo.mp4 (16 chapters: the AI suit
+# chapter was cut out with promotion/remove_chapter.py, 28.8 s).
 CHAPTERS = [
     (10.6, "The workspace"), (43.1, "A folder for every student"), (64.0, "Instant preview"),
     (88.5, "Smart rename"), (109.5, "Organise with undo"), (126.7, "Convert anything to PDF"),
     (159.2, "Compress to a target size"), (179.9, "Merge, split and extract"), (219.0, "Arrange pages"),
     (243.8, "Fill, sign and add a photo"), (301.9, "Mark up images"), (327.9, "Passport and visa photos"),
-    (376.4, "Read QR codes"), (393.6, "ZIP and passwords"),
-    (423.6, "Screen recorder"), (445.1, "Subscription and settings"),
+    (347.6, "Read QR codes"), (364.8, "ZIP and passwords"),
+    (394.8, "Screen recorder"), (416.3, "Subscription and settings"),
 ]
-DURATION = 478.77
+DURATION = 449.97
 
 # slide name, time, caption
 SLIDES = [
@@ -48,14 +49,15 @@ SLIDES = [
     ("fill-sign", 272.9, "Fill forms, sign and add a passport photo"),
     ("markup", 314.9, "Highlight and mark up scans"),
     ("passport", 337.8, "Crop passport and visa photos to the exact size"),
-    ("qr", 385.0, "Read QR codes on certificates and receipts"),
-    ("zip", 408.6, "Zip folders and protect them with a password"),
+    ("qr", 356.2, "Read QR codes on certificates and receipts"),
+    ("zip", 379.8, "Zip folders and protect them with a password"),
 ]
 
 
 # close-up for each feature card on the home page (same order as web.Portal._ALL_FEATURES);
 # the last one is a fresh capture of the app's Subscription page (demo data), kept as is
-FEATURE_FRAMES = [36, 52, 76, 107, 124, 143, 169.5, 199.5, 238, 272.9, 314.9, 337.8, 362, 385, 408.6, 432]
+# 13 = the hidden AI suit feature: no longer in the video, its old image is kept.
+FEATURE_FRAMES = [36, 52, 76, 107, 124, 143, 169.5, 199.5, 238, 272.9, 314.9, 337.8, None, 356.2, 379.8, 403.2]
 OUT_F = os.path.join(HERE, "static", "feat")
 
 
@@ -100,9 +102,11 @@ def main() -> int:
     os.makedirs(OUT_F, exist_ok=True)
     from PIL import Image
     for n, t in enumerate(FEATURE_FRAMES, 1):
+        if t is None:
+            continue
         png = os.path.join(tempfile.gettempdir(), f"oa_feat_{n:02d}.png")      # work file outside static/
-        # the whole app window, sharp: from the 1440p master when it is there
-        src = VIDEO_HQ if os.path.isfile(VIDEO_HQ) else VIDEO
+        # the whole app window
+        src = VIDEO
         subprocess.run([ff, "-loglevel", "error", "-y", "-ss", f"{t:.2f}", "-i", src, "-frames:v", "1",
                         "-vf", "crop=iw:ih*0.86:0:0,scale=1800:-2", png], check=True)
         im = Image.open(png).convert("RGB")
