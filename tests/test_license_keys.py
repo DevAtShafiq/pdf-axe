@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Signed license keys (license_keys.py), their use in SubscriptionManager and
-the admin dashboard core. Every key pair is made fresh in a temp folder; no
+"""Signed license keys (license_keys.py), and their use in SubscriptionManager. Every key pair is made fresh in a temp folder; no
 private key is stored in the repo."""
 from __future__ import annotations
 
-import csv
 import json
 import os
 import secrets
@@ -15,7 +13,6 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "dashboard"))
 
 import ed25519_pure  # noqa: E402
 import license_keys as lk  # noqa: E402
@@ -139,46 +136,3 @@ def test_old_random_keys_still_take_the_old_path(tmp_path):
     m, _ = _mgr(tmp_path)
     r = m.activate_key("OAXE-ABCD-EFGH-JKLM-NPQR")
     assert not r["ok"] and r.get("server_needed")
-
-
-# ── dashboard core ────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def admin(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFFICEAXE_ADMIN_DIR", str(tmp_path / "admin"))
-    import admin_core
-    return admin_core
-
-
-def test_dashboard_issue_list_revoke_export(admin, tmp_path):
-    with pytest.raises(RuntimeError):
-        admin.issue("review", "Nobody")
-    first = admin.init()
-    assert first["created"] and admin.init()["created"] is False        # never replaced
-    assert admin.init()["public_key_hex"] == first["public_key_hex"]
-    pub = bytes.fromhex(first["public_key_hex"])
-
-    row = admin.issue("review", "Employee", note="for the review")
-    assert row["days"] == 30 and row["max_devices"] == 1 and row["status"] == "active"
-    info = lk.parse(row["key"], pub, revoked=set())
-    assert info["key_id"] == row["key_id"] and info["holder"] == "Employee"
-    admin.issue("full", "Client", days=365, plan="yearly")
-    assert {r["holder"] for r in admin.list_keys()} == {"Client", "Employee"}
-
-    assert admin.set_revoked(row["key_id"])["status"] == "revoked"
-    out = admin.write_revoked_list(str(tmp_path / "revoked_keys.json"))
-    assert out["count"] == 1
-    assert lk.revoked_ids(out["path"]) == {row["key_id"]}
-    assert admin.set_revoked(row["key_id"], False)["status"] == "active"
-
-    n = admin.export_csv(str(tmp_path / "keys.csv"))
-    with open(tmp_path / "keys.csv", encoding="utf-8-sig") as fh:
-        data = list(csv.DictReader(fh))
-    assert n == 2 and {d["holder"] for d in data} == {"Employee", "Client"}
-
-    with pytest.raises(ValueError):
-        admin.issue("review", "  ")
-    with pytest.raises(ValueError):
-        admin.issue("review", "X", days=0)
-    # the private key lives only in the admin folder
-    assert os.path.isfile(tmp_path / "admin" / "signing_key.json")

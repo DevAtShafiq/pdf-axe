@@ -28,6 +28,97 @@
     if (msg && !confirm(msg)) e.preventDefault();
   });
 
+  // ── Key files folder (Settings). The chosen folder is remembered in this
+  // browser (IndexedDB); Chrome/Edge only. Anything else falls back to Downloads.
+  const FS_OK = 'showDirectoryPicker' in window;
+  function idb(mode, fn) {
+    return new Promise((res, rej) => {
+      const open = indexedDB.open('oa-portal', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('kv');
+      open.onerror = () => rej(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction('kv', mode);
+        const req = fn(tx.objectStore('kv'));
+        tx.oncomplete = () => res(req && req.result);
+        tx.onerror = () => rej(tx.error);
+      };
+    });
+  }
+  const getFolder = () => FS_OK ? idb('readonly', st => st.get('keysFolder')).catch(() => null) : Promise.resolve(null);
+  const setFolder = h => idb('readwrite', st => h ? st.put(h, 'keysFolder') : st.delete('keysFolder'));
+
+  async function showFolder() {
+    const el = document.querySelector('[data-keys-folder]');
+    if (!el) return;
+    if (!FS_OK) {
+      el.textContent = 'Downloads (this browser can’t pick a folder — use Chrome or Edge)';
+      document.querySelectorAll('[data-keys-folder-pick]').forEach(b => b.disabled = true);
+      return;
+    }
+    const h = await getFolder();
+    el.textContent = h ? h.name : 'Downloads (default)';
+  }
+  document.addEventListener('click', async e => {
+    if (e.target.closest('[data-keys-folder-pick]')) {
+      try {
+        const h = await window.showDirectoryPicker({ id: 'oa-keys', mode: 'readwrite' });
+        await setFolder(h); await showFolder(); toast('Key files will save to “' + h.name + '”');
+      } catch (err) { if (err && err.name !== 'AbortError') toast('Couldn’t use that folder'); }
+    } else if (e.target.closest('[data-keys-folder-clear]')) {
+      await setFolder(null).catch(() => {}); await showFolder(); toast('Key files will go to Downloads');
+    } else if (e.target.closest('[data-save-to-folder]')) {
+      const b = e.target.closest('[data-save-to-folder]');
+      const h = await getFolder();
+      if (h && await h.requestPermission({ mode: 'readwrite' }) === 'granted' && await writeKey(h, b.dataset.saveToFolder)) {
+        b.remove(); toast('Saved to “' + h.name + '”');
+      } else downloadKey(b.dataset.saveToFolder);
+    }
+  });
+  showFolder();
+
+  function downloadKey(url) {
+    const a = document.createElement('a');
+    a.href = url; a.download = '';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  async function writeKey(dir, url) {
+    try {
+      const r = await fetch(url, { credentials: 'same-origin' });
+      if (!r.ok) return false;
+      const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'OfficeAxe-key.txt';
+      const fh = await dir.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(await r.text()); await w.close();
+      return true;
+    } catch { return false; }
+  }
+
+  // A key was just made: save its text file to the PC straight away — into
+  // the chosen folder when the browser still allows it, else to Downloads.
+  const auto = document.querySelector('[data-autodownload]');
+  if (auto) {
+    const url = auto.dataset.autodownload;
+    try { history.replaceState(null, '', location.pathname); } catch {}   // reload must not save twice
+    (async () => {
+      const h = await getFolder();
+      let perm = 'denied';
+      if (h) { try { perm = await h.queryPermission({ mode: 'readwrite' }); } catch {} }
+      if (h && perm === 'granted' && await writeKey(h, url)) {
+        auto.textContent = 'Key made and saved to “' + h.name + '”. Copy it or the message below and send it.';
+      } else if (h && perm === 'prompt') {
+        // The browser wants one click before writing to the folder again.
+        auto.innerHTML = '';
+        auto.append('Key made. ');
+        const b = document.createElement('button');
+        b.className = 'btn sm primary'; b.type = 'button'; b.dataset.saveToFolder = url;
+        b.textContent = 'Save key file to “' + h.name + '”';
+        auto.append(b);
+      } else {
+        downloadKey(url);
+      }
+    })();
+  }
+
   const DEVICES = { review: 1, trial: 1, full: 2 };
   document.addEventListener('change', e => {
     if (!e.target.matches('select[data-devices]')) return;

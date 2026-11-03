@@ -8,8 +8,8 @@ on activation and then about once a day. The portal enforces the device limit
 across PCs and revocation at once. Its answers are signed with the owner's
 key and echo a fresh nonce, so a fake server can't approve anything.
 
-No internet → the app keeps working for ``GRACE_DAYS`` after the last good
-check. With no portal address set, keys work fully offline as before.
+No answer from the portal → the key keeps working until it expires (see
+LOCK_WHEN_UNREACHABLE). With no portal address set, keys work fully offline as before.
 """
 from __future__ import annotations
 
@@ -27,6 +27,11 @@ import license_keys
 SERVER_URL = "https://officeaxe-8a44f.web.app"
 ENV_SERVER = "OFFICEAXE_LICENSE_SERVER"
 GRACE_DAYS = 7
+# When the portal can't be reached at all (no answer — not a "revoked" or
+# "too many PCs" answer, which always blocks): False = keys keep working until
+# their own expiry date, so a lost or moved portal never locks out paying
+# customers. True = lock once GRACE_DAYS pass without a good check.
+LOCK_WHEN_UNREACHABLE = False
 CHECK_EVERY_HOURS = 24
 RESPONSE_CONTEXT = b"OfficeAxe-portal-v1:"
 

@@ -2,7 +2,7 @@
 """
 license_keys.py — signed license keys that any PC can check offline.
 
-The owner makes keys with the admin dashboard (dashboard/). Each key carries
+The owner makes keys in the web portal's admin (webportal/). Each key carries
 its own details and an Ed25519 signature made with the owner's private key,
 which never leaves the owner's PC. The app only holds the public key below,
 so it can tell a real key from a made-up or edited one without a server.
@@ -13,10 +13,10 @@ Payload (version 1, big-endian):
     version u8 | type u8 | plan u8 | max_devices u8 | key_id 6 bytes
     | issued_at u32 (unix s) | expires_at u32 (unix s) | name_len u8 | name (UTF-8)
 
-What a key can't do without a server (also stated in the dashboard):
+What a key can't do without a server (also stated in the portal):
 * The device limit is only counted on each PC, not across PCs.
 * Revoking a key takes effect when an app update ships with the key's id in
-  revoked_keys.json (the dashboard writes that file).
+  revoked_keys.json (exported from the portal).
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ PREFIX = "OAXE"
 VERSION = 1
 SIG_CONTEXT = b"OfficeAxe-license-v1:"
 
-# The owner's public key (dashboard/admin_core.py init prints it). Keys signed
+# The owner's public key (the portal's Settings page shows it). Keys signed
 # by any other private key are rejected.
 PUBLIC_KEY_HEX = "7056198f4c704f0adde2b4b156e0b7135823a7988784b45fe1a7659afbbbf3a2"
 

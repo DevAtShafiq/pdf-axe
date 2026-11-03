@@ -378,7 +378,7 @@ class SubscriptionManager:
                     grace = _parse((sub.get("online") or {}).get("grace_until"))
                     if block:
                         key_problem = block.get("message") or "This license key can’t be used any more."
-                    elif grace and grace <= now:
+                    elif grace and grace <= now and license_client.LOCK_WHEN_UNREACHABLE:
                         check_needed = True
                         key_problem = ("Office Axe couldn’t confirm your license key for "
                                        f"{license_client.GRACE_DAYS} days. Connect to the internet "
@@ -726,7 +726,7 @@ class SubscriptionManager:
             return {"ok": True, "state": self.state()}
 
     def _activate_signed_key(self, key: str) -> dict:
-        """A key made with the admin dashboard: checked offline, works on any PC."""
+        """A signed key made in the portal admin: checked offline, works on any PC."""
         try:
             info = self._check_key(key)
         except license_keys.KeyError_ as exc:

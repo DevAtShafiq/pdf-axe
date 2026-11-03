@@ -5,13 +5,13 @@ the app's own code.
 
 | File | What it is |
 |---|---|
-| `office-axe-demo.mp4` | **The final video** (7 min 59 s, 17 chapters), 1920×1080, compact (53 MB) — the copy kept in git |
+| `office-axe-demo.mp4` | **The final video** (7 min 30 s, 16 chapters — the AI suit chapter was cut with `remove_chapter.py`), 1920×1080, compact (69 MB) — the copy kept in git |
 | `office-axe-demo-1440p.mp4` | Full-quality master, 2560×1440 (154 MB) — **local only** (too big for GitHub) |
 | `office-axe-demo-1080p.mp4` | High-quality 1920×1080 (103 MB) — **local only** |
 | `narration.srt` | Subtitles (same timing as the burned-in captions) |
 | `NARRATION.md` | Narration script with start/end times, plus plain text for a human voice-over |
 | `narration.json` | Script as data: lines, chapter titles and taglines, callout texts, voice |
-| `STORYBOARD.md` | The 17 chapters as filmed, and how the recording is kept safe |
+| `STORYBOARD.md` | The 17 chapters as filmed (the AI suit chapter is no longer in the final video), and how the recording is kept safe |
 | `chapters.py` | **The storyboard as code**: one setup + act function per chapter |
 | `record_demo.py` | Films the real app, one take per chapter (separate demo instance, real mouse/keyboard) |
 | `desktop.py` | Real mouse / keyboard input and window placement (Win32) |

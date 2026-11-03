@@ -72,7 +72,7 @@ datas = [
     ("folder_size.py",       "."),   # folder sizes for the Size column
     ("drag_out.py",          "."),   # drag files out to other apps (OLE)
     ("dragdrop_bridge.py",   "."),
-    ("revoked_keys.json",    "."),   # withdrawn key ids (dashboard writes it)
+    ("revoked_keys.json",    "."),   # withdrawn key ids (exported from the portal)
     ("archive_tools.py",     "."),
     ("archive_bridge.py",    "."),
     ("recorder_bridge.py",   "."),   # screen recording + screenshots (JS bridge)
