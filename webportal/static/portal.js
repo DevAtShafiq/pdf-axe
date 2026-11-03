@@ -28,6 +28,16 @@
     if (msg && !confirm(msg)) e.preventDefault();
   });
 
+  // A key was just made: save its text file to the PC straight away.
+  const auto = document.querySelector('[data-autodownload]');
+  if (auto) {
+    const a = document.createElement('a');
+    a.href = auto.dataset.autodownload; a.download = '';
+    document.body.appendChild(a); a.click(); a.remove();
+    // Reloading the page must not save it twice.
+    try { history.replaceState(null, '', location.pathname); } catch {}
+  }
+
   const DEVICES = { review: 1, trial: 1, full: 2 };
   document.addEventListener('change', e => {
     if (!e.target.matches('select[data-devices]')) return;

@@ -224,6 +224,16 @@ def test_make_view_revoke_release_and_export(portal):
     page = c.get(r["location"])["body"]
     assert "Acme &lt;Ltd&gt;" in page and "<Ltd>" not in page              # escaped
     key = app.store.get_key(key_id)["key"]
+    # the new key's page saves a .txt record to the PC at once
+    assert f'data-autodownload="/admin/keys/{key_id}/download"' in page
+    assert "data-autodownload" not in c.get(f"/admin/keys/{key_id}")["body"]
+    f = c.get(f"/admin/keys/{key_id}/download")
+    h = dict(f["headers"])
+    assert h["Content-Type"].startswith("text/plain")
+    assert f'OfficeAxe-key-Acme-Ltd-{key_id}.txt' in h["Content-Disposition"]
+    assert key in f["body"] and "Acme <Ltd>" in f["body"] and "first client" in f["body"]
+    assert Client(app).get(f"/admin/keys/{key_id}/download")["location"] == "/admin/login"   # admins only
+
     assert lk.parse(key, ed25519_pure.public_key(seed), revoked=set())["max_devices"] == 2
     # validation errors come back on the form
     assert "Enter who the key is for" in c.post("/admin/keys", {"csrf": csrf, "type": "review", "holder": ""})["body"]

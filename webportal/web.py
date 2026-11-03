@@ -730,6 +730,16 @@ class Portal:
             except ValueError as exc:
                 return self.keys_page(req, sess, csrf, error=str(exc), form=f)
             return redirect(f"/admin/keys/{row['key_id']}?new=1")
+        md = re.fullmatch(r"/admin/keys/([0-9a-f]{12})/download", p)
+        if md and m == "GET":
+            k = self.lic.key_view(md.group(1))
+            if not k:
+                return not_found()
+            safe = re.sub(r"[^A-Za-z0-9_-]+", "-", k["holder"]).strip("-")[:40] or "key"
+            return Response(self._key_file(k), ctype="text/plain; charset=utf-8",
+                            headers=[("Content-Disposition",
+                                      f'attachment; filename="OfficeAxe-key-{safe}-{k["key_id"]}.txt"'),
+                                     ("Cache-Control", "no-store")])
         mk = re.fullmatch(r"/admin/keys/([0-9a-f]{12})(?:/(revoke|restore|note|release))?", p)
         if mk:
             key_id, act = mk.group(1), mk.group(2)
@@ -929,15 +939,33 @@ class Portal:
 </div>"""
         return Response(page("Keys", body, sess, csrf, active="/admin"))
 
+    @staticmethod
+    def _key_message(k: dict) -> str:
+        label = {"review": "review ", "trial": "trial ", "full": ""}.get(k["type"], "")
+        pcs = f" on up to {k['max_devices']} PCs" if k["max_devices"] > 1 else ""
+        return (f"Hi {k['holder']},\n\nHere is your Office Axe {label}key, valid until {fmt_date(k['expires_at'])}"
+                f"{pcs}:\n\n{k['key']}\n\n"
+                "To use it: open Office Axe → \"Activate with license key\" → paste the key → Activate on this PC.")
+
+    def _key_file(self, k: dict) -> str:
+        """The text file saved to the admin's PC when a key is made (a local record)."""
+        lines = ["Office Axe license key", "=" * 22, "",
+                 f"For:      {k['holder']}",
+                 f"Type:     {k['type']}{' · ' + k['plan'] if k['plan'] else ''}",
+                 f"Key id:   {k['key_id']}",
+                 f"Issued:   {fmt_date(k['issued_at'])}",
+                 f"Expires:  {fmt_date(k['expires_at'])}",
+                 f"PCs:      up to {k['max_devices']}"]
+        if k.get("note"):
+            lines.append(f"Note:     {k['note']}")
+        lines += ["", "Key:", k["key"], "", "-" * 22, "Message to send:", "", self._key_message(k), ""]
+        return "\r\n".join(lines)
+
     def key_page(self, req, sess, csrf, key_id: str) -> Response:
         k = self.lic.key_view(key_id)
         if not k:
             return not_found()
-        label = {"review": "review ", "trial": "trial ", "full": ""}.get(k["type"], "")
-        pcs = f" on up to {k['max_devices']} PCs" if k["max_devices"] > 1 else ""
-        msg = (f"Hi {k['holder']},\n\nHere is your Office Axe {label}key, valid until {fmt_date(k['expires_at'])}"
-               f"{pcs}:\n\n{k['key']}\n\n"
-               "To use it: open Office Axe → \"Activate with license key\" → paste the key → Activate on this PC.")
+        msg = self._key_message(k)
         devs = "".join(f"""
           <tr class="{'released' if d['released'] else ''}">
             <td>{e(d['name'] or 'PC')}<div class="muted small">{e(d['os'])} · {e(d['device_id'])}</div></td>
@@ -947,7 +975,9 @@ class Portal:
                 <input type="hidden" name="csrf" value="{e(csrf)}"><input type="hidden" name="device_id" value="{e(d['device_id'])}">
                 <button class="btn sm danger">Remove PC</button></form>'''}</td>
           </tr>""" for d in k["devices"]) or '<tr><td colspan="4" class="empty">Not activated on any PC yet.</td></tr>'
-        new = '<div class="alert ok">Key made. Copy it or the message below and send it.</div>' if req.query.get("new") else ""
+        dl = f"/admin/keys/{key_id}/download"
+        new = (f'<div class="alert ok" data-autodownload="{dl}">Key made and saved to your Downloads folder as a text file. '
+               'Copy it or the message below and send it.</div>') if req.query.get("new") else ""
         rev_btn = (f'<form method="post" action="/admin/keys/{key_id}/restore"><input type="hidden" name="csrf" value="{e(csrf)}">'
                    f'<button class="btn">Restore key</button></form>') if k["revoked"] else (
                    f'<form method="post" action="/admin/keys/{key_id}/revoke" data-confirm="Revoke the key for {e(k["holder"])}? '
@@ -975,6 +1005,7 @@ class Portal:
     <div class="row-btns">
       <button class="btn primary" data-copy="{e(k['key'])}">Copy key</button>
       <button class="btn" data-copy="{e(msg)}">Copy message</button>
+      <a class="btn" href="/admin/keys/{key_id}/download">Download key file</a>
       {rev_btn}
     </div>
     <form method="post" action="/admin/keys/{key_id}/note" class="stack" style="margin-top:18px">
