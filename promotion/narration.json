@@ -23,7 +23,6 @@
     {"id": "c10b",   "section": "studio",    "anchor": ["click", "Signature"], "text": "Draw your signature and drop it on the line. Fit a passport photo into the photo box, then save a signed copy."},
     {"id": "c11",    "section": "annotate",  "text": "Mark up scans and photos with highlights, boxes and arrows."},
     {"id": "c12",    "section": "photo",     "text": "Make passport and visa photos at the exact size — here, thirty-five by forty-five millimetres — with a face guide, a file-size limit and a four-by-six print sheet."},
-    {"id": "c13",    "section": "ai",        "text": "Need a formal photo? With your own OpenAI key, the AI tool dresses a casual portrait in a suit and tie. Then compare before and after."},
     {"id": "c14",    "section": "qr",        "text": "Click QR, then click any QR code on your screen. Links open in your browser, and text is shown right away."},
     {"id": "c15",    "section": "zip",       "text": "Zip files with a password, or lock a PDF so it needs a password to open."},
     {"id": "c16",    "section": "recorder",  "text": "There's a built-in screen recorder, and you can grab a screenshot of any region."},
@@ -43,11 +42,10 @@
     "studio":    {"n": 10, "title": "Fill, sign, add a photo",  "tagline": "A full PDF editor"},
     "annotate":  {"n": 11, "title": "Mark up images",           "tagline": "Highlights, boxes, arrows"},
     "photo":     {"n": 12, "title": "Passport & visa photos",   "tagline": "Exact sizes, face guide"},
-    "ai":        {"n": 13, "title": "AI suit & tie",            "tagline": "A formal photo in one click"},
-    "qr":        {"n": 14, "title": "Read QR codes",            "tagline": "Click any code on screen"},
-    "zip":       {"n": 15, "title": "ZIP & passwords",          "tagline": "Share files safely"},
-    "recorder":  {"n": 16, "title": "Screen recorder",          "tagline": "Videos and screenshots"},
-    "account":   {"n": 17, "title": "Subscription & settings",  "tagline": "Plans, devices, preferences"}
+    "qr":        {"n": 13, "title": "Read QR codes",            "tagline": "Click any code on screen"},
+    "zip":       {"n": 14, "title": "ZIP & passwords",          "tagline": "Share files safely"},
+    "recorder":  {"n": 15, "title": "Screen recorder",          "tagline": "Videos and screenshots"},
+    "account":   {"n": 16, "title": "Subscription & settings",  "tagline": "Plans, devices, preferences"}
   },
   "callouts": {
     "thumbnails":       "Thumbnail view",

@@ -638,7 +638,7 @@ def logo(size):
     return im
 
 
-def intro_card(dt, dur):
+def intro_card(dt, dur, n_features=17, minutes=6):
     img = background()
     d = ImageDraw.Draw(img, "RGBA")
     k1, k2, k3 = ease_out(dt / 0.8), ease_out((dt - 0.35) / 0.8), ease_out((dt - 0.75) / 0.8)
@@ -649,7 +649,7 @@ def intro_card(dt, dur):
            fill=(205, 220, 245, int(255 * k3)), anchor="mm")
     lw = 300 * U * ease_out((dt - 1.0) / 0.7)
     d.rounded_rectangle([OW / 2 - lw / 2, 640 * U, OW / 2 + lw / 2, 646 * U], radius=3, fill=ACCENT)
-    d.text((OW / 2, 722 * U), "17 features in 6 minutes  ·  Windows", font=font(30), fill=(160, 180, 210, int(255 * k3)), anchor="mm")
+    d.text((OW / 2, 722 * U), f"{n_features} features in {minutes} minutes  ·  Windows", font=font(30), fill=(160, 180, 210, int(255 * k3)), anchor="mm")
     return img
 
 
@@ -788,7 +788,8 @@ def write_srt(captions, path):
 
 # ── render ────────────────────────────────────────────────────────────────────
 def render(run, script, voice_dir, out_path, srt_path, preview=False, only=None):
-    takes = load_takes(run, only)
+    # a chapter left out of the script (e.g. AI suit & tie, switched off) is skipped
+    takes = [t for t in load_takes(run, only) if t["key"] in script["sections"]]
     if not takes:
         raise SystemExit("no successful takes found in " + run)
     tl = build_timeline(takes, script, voice_dir)
@@ -863,7 +864,7 @@ def render(run, script, voice_dir, out_path, srt_path, preview=False, only=None)
             if s["kind"] == "card":
                 dt, dur = t - s["t0"], s["t1"] - s["t0"]
                 if s["card"] == "intro":
-                    img = intro_card(dt, dur)
+                    img = intro_card(dt, dur, len(script["sections"]), round(tl["duration"] / 60))
                 elif s["card"] == "outro":
                     img = outro_card(dt, dur, script)
                     if dt < 0.6 and last_video.get("img") is not None:

@@ -423,7 +423,7 @@ class Portal:
 
 <section id="features" class="section">
   <div class="section-head"><p class="eyebrow">Features</p><h2>Everything an office does with documents</h2>
-    <p class="muted">Seventeen tools in one window — each shown in the video tour below.</p></div>
+    <p class="muted">Sixteen tools in one window — each shown in the video tour below.</p></div>
   <div class="feat-grid">{feats}</div>
 </section>
 
@@ -608,11 +608,11 @@ class Portal:
   <p class="muted">Every feature, filmed in the real app. Jump to any chapter.</p></div>
   <div class="tour-grid">
     <div class="video-wrap">
-      <video id="tour-video" controls preload="metadata" playsinline poster="/static/video/poster.jpg">
-        <source src="/media/office-axe-demo.mp4" type="video/mp4">
-        <track kind="captions" src="/static/video/captions.vtt" srclang="en" label="English">
-        <track kind="chapters" src="/static/video/chapters.vtt" srclang="en" label="Chapters">
-        Your browser can't play this video. <a href="/media/office-axe-demo.mp4">Download it</a> instead.
+      <video id="tour-video" controls preload="metadata" playsinline poster="/static/video/poster.jpg?v=2">
+        <source src="/media/office-axe-demo.mp4?v=2" type="video/mp4">
+        <track kind="captions" src="/static/video/captions.vtt?v=2" srclang="en" label="English">
+        <track kind="chapters" src="/static/video/chapters.vtt?v=2" srclang="en" label="Chapters">
+        Your browser can't play this video. <a href="/media/office-axe-demo.mp4?v=2">Download it</a> instead.
       </video>
     </div>
     <ol class="chapters" aria-label="Chapters">{items}</ol>
