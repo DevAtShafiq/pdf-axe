@@ -119,42 +119,29 @@ thirty-five by forty-five millimetres — with a face guide,
 a file-size limit and a four-by-six print sheet.
 
 31
-00:05:50,486 --> 00:05:53,831
-Need a formal photo? With your own OpenAI key,
-
-32
-00:05:53,831 --> 00:05:57,904
-the AI tool dresses a casual portrait in a suit and tie.
-
-33
-00:05:57,904 --> 00:06:00,086
-Then compare before and after.
-
-34
-00:06:19,312 --> 00:06:24,784
+00:05:50,512 --> 00:05:55,984
 Click QR, then click any QR code on your screen. Links open in your browser,
 
-35
-00:06:24,784 --> 00:06:26,872
+32
+00:05:55,984 --> 00:05:58,072
 and text is shown right away.
 
-36
-00:06:36,480 --> 00:06:41,904
+33
+00:06:07,680 --> 00:06:13,104
 Zip files with a password, or lock a PDF so it needs a password to open.
 
-37
-00:07:06,530 --> 00:07:11,162
+34
+00:06:37,730 --> 00:06:42,362
 There's a built-in screen recorder, and you can grab a screenshot of any region.
 
-38
-00:07:27,956 --> 00:07:33,007
+35
+00:06:59,156 --> 00:07:04,207
 Your plan, devices and payment history live on the Subscription page,
 
-39
-00:07:33,007 --> 00:07:36,668
+36
+00:07:04,207 --> 00:07:07,868
 and Settings keeps your folders, theme and AI key.
 
-40
-00:07:52,357 --> 00:07:55,837
+37
+00:07:23,557 --> 00:07:27,037
 Office Axe. Student documents, sorted.
-
