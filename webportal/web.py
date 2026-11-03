@@ -1209,6 +1209,15 @@ class Portal:
     <h2>Offline revoked list</h2>
     <p class="muted">Apps check revocations online. For PCs that stay offline, ship this file with the next app build as <code>revoked_keys.json</code>.</p>
     <a class="btn" href="/admin/revoked_keys.json">Download revoked_keys.json</a>
+    <h2>Key files folder</h2>
+    <p class="muted">Each new key is saved to your PC as a .txt file. Pick the folder it goes into on this computer
+      (Chrome or Edge). Without a folder it goes to your Downloads.</p>
+    <div class="key" id="keys-folder-name" data-keys-folder>Downloads (default)</div>
+    <div class="row-btns">
+      <button type="button" class="btn primary" data-keys-folder-pick>Choose folder…</button>
+      <button type="button" class="btn" data-keys-folder-clear>Use Downloads</button>
+    </div>
+    <p class="muted small" id="keys-folder-note">When the browser asks, choose “Allow on every visit” so files save without asking again.</p>
   </section>
   <section class="card">
     <h2>Change password</h2>
