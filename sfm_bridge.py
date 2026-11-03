@@ -24,8 +24,11 @@ import time
 import logging
 from typing import Any
 
-# ── file logger (writes to sfm_debug.log next to this script) ────────────────
-_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sfm_debug.log")
+# ── file logger (sfm_debug.log next to this script, or the user's data folder
+#    when installed — Program Files isn't writable) ──────────────────────────
+from app_paths import data_dir as _data_dir
+
+_LOG_PATH = os.path.join(_data_dir(os.path.dirname(os.path.abspath(__file__))), "sfm_debug.log")
 logging.basicConfig(
     filename=_LOG_PATH,
     level=logging.DEBUG,
@@ -1889,7 +1892,7 @@ class SFMBridge(PdfToolsBridgeMixin, AnnotateBridgeMixin, PdfEditBridgeMixin, St
 
     # ── Settings / API key ───────────────────────────────────────────────────
 
-    _SETTINGS_FILE = os.path.join(_HERE, "sfm_settings.json")
+    _SETTINGS_FILE = os.path.join(_data_dir(_HERE), "sfm_settings.json")
 
     def _load_settings(self) -> dict:
         try:

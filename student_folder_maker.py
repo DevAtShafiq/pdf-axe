@@ -418,9 +418,11 @@ _DOCUMENT_RENAME_USER_PAIRS: list[tuple[str, str]] = []
 
 
 def document_rename_user_file_path() -> str:
-    """Portable: next to the .exe when frozen, else next to this script."""
+    """Portable: next to the .exe when frozen (the user's data folder when
+    installed), else next to this script."""
+    from app_paths import data_dir
     if getattr(sys, "frozen", False):
-        base = os.path.dirname(sys.executable)
+        base = data_dir(os.path.dirname(sys.executable))
     else:
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "document_name_templates.txt")
@@ -434,9 +436,11 @@ import json as _json
 
 
 def _settings_path() -> str:
-    """Path to the JSON settings file (next to exe when frozen, else next to script)."""
+    """Path to the JSON settings file (next to exe when frozen — the user's data
+    folder when installed — else next to script)."""
+    from app_paths import data_dir
     if getattr(sys, "frozen", False):
-        base = os.path.dirname(sys.executable)
+        base = data_dir(os.path.dirname(sys.executable))
     else:
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "sfm_settings.json")

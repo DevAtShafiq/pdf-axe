@@ -428,9 +428,11 @@ def _normalize_query(s: str) -> str:
 # ---------------------------------------------------------------------------
 
 def default_base_dir() -> str:
-    """Portable: next to the .exe when frozen, else next to this script."""
+    """Portable: next to the .exe when frozen (the user's data folder when
+    installed), else next to this script."""
+    from app_paths import data_dir
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+        return data_dir(os.path.dirname(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
 

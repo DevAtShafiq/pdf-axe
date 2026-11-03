@@ -114,9 +114,11 @@ FREE_KEY = "free"
 
 
 def app_dir() -> str:
-    """Folder the office can edit: next to the EXE (frozen) or this file."""
+    """Folder the office can edit: next to the EXE (frozen) or this file;
+    the user's data folder when installed."""
+    from app_paths import data_dir
     if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
+        return data_dir(os.path.dirname(os.path.abspath(sys.executable)))
     return os.path.dirname(os.path.abspath(__file__))
 
 

@@ -81,6 +81,7 @@ datas = [
     ("docx_edit.py",         "."),   # Word quick edits
     ("doc_convert.py",       "."),   # Word / HWP(X) → PDF
     ("screen_pick.py",       "."),   # screenshot region overlay (EXE --screen-pick)
+    ("app_paths.py",         "."),   # settings/temp folder (LOCALAPPDATA when installed)
     ("pyi_rth_sfm_dirs.py",    "."),
     ("pyi_rth_pyzbar.py",      "."),
 ] + _ui_files + _user_data
@@ -134,6 +135,7 @@ hiddenimports = [
     "folder_size",
     "drag_out",
     "dragdrop_bridge",
+    "app_paths",
     # ── PyWebView (EdgeChromium on Windows) ──────────────────────────────────
     "webview",
     "webview.platforms",
