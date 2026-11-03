@@ -726,7 +726,7 @@ class SubscriptionManager:
             return {"ok": True, "state": self.state()}
 
     def _activate_signed_key(self, key: str) -> dict:
-        """A key made with the admin dashboard: checked offline, works on any PC."""
+        """A signed key made in the portal admin: checked offline, works on any PC."""
         try:
             info = self._check_key(key)
         except license_keys.KeyError_ as exc:
