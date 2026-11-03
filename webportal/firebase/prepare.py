@@ -3,7 +3,8 @@
 prepare.py — put together what Firebase deploys, in webportal/firebase/build/:
 
     build/public/      Firebase Hosting: static/ (css, js, images, captions)
-                       and media/office-axe-demo.mp4 (the tour video)
+                       media/office-axe-demo.mp4 (the tour video) and
+                       files/OfficeAxe-Setup.exe (the Windows installer)
     build/functions/   the Cloud Function: main.py, requirements.txt, the
                        portal code, license_keys.py, ed25519_pure.py,
                        revoked_keys.json and a .env with the public settings
@@ -45,6 +46,12 @@ def build(download_url: str = "", venv: bool = False) -> dict:
     video = os.path.join(ROOT, "promotion", "office-axe-demo.mp4")
     if os.path.isfile(video):
         _copy(video, os.path.join(pub, "media", "office-axe-demo.mp4"))
+    # the Windows installer (installer/OfficeAxe.iss); a copy already in build/ stays when it isn't built here
+    setup = os.path.join(ROOT, "installer", "Output", "OfficeAxe-Setup.exe")
+    if os.path.isfile(setup):
+        _copy(setup, os.path.join(pub, "files", "OfficeAxe-Setup.exe"))
+    elif not os.path.isfile(os.path.join(pub, "files", "OfficeAxe-Setup.exe")):
+        print("warning: installer/Output/OfficeAxe-Setup.exe not found; /files/OfficeAxe-Setup.exe won't be deployed")
     # Function
     _copy(os.path.join(HERE, "main.py"), os.path.join(fn, "main.py"))
     _copy(os.path.join(HERE, "requirements.txt"), os.path.join(fn, "requirements.txt"))

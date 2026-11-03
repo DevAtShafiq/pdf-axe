@@ -440,7 +440,7 @@ class Portal:
 <section id="activate" class="section">
   <div class="section-head"><p class="eyebrow">Getting started</p><h2>Install and activate in a minute</h2></div>
   <ol class="steps3">
-    <li><span class="n">1</span><h3>Download</h3><p>Save the Windows installer and run it. No account is needed.</p></li>
+    <li><span class="n">1</span><h3>Download</h3><p>Save <b>OfficeAxe-Setup.exe</b> and run it. If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>. No account is needed.</p></li>
     <li><span class="n">2</span><h3>Activate</h3><p>Open Office Axe, click <b>Activate with license key</b> and paste your key.</p></li>
     <li><span class="n">3</span><h3>Work</h3><p>Everything is ready. When an update is out, the app shows <b>Update Now</b>.</p></li>
   </ol>
@@ -556,8 +556,10 @@ class Portal:
   <h1>How to use OfficeAxe</h1>
   <p class="lead">Install the Windows app, open your documents, and update when a newer release is published.</p>
   <ol class="howto">
-    <li><b>Download</b> — save the Windows installer. No account is required. <a href="/download">Download now</a></li>
-    <li><b>Run the installer</b> — open the .exe and follow the setup steps.</li>
+    <li><b>Download</b> — save <b>OfficeAxe-Setup.exe</b>. No account is required. <a href="/download">Download now</a></li>
+    <li><b>Run the installer</b> — open OfficeAxe-Setup.exe and follow the steps. If Windows says
+      “Windows protected your PC” (unknown publisher), click <b>More info</b>, then <b>Run anyway</b>.
+      Office Axe then opens from the Start menu or the desktop shortcut.</li>
     <li><b>Use OfficeAxe</b> — the installed app checks for a newer version and shows <b>Update Now</b> when one is ready.</li>
     <li><b>Activate</b> — click <b>Activate with license key</b>, paste your key and click <b>Activate on this PC</b>.</li>
   </ol>
