@@ -101,14 +101,34 @@ _PDF_DOC_CACHE_LOCK = threading.Lock()
 _PDF_DOC_CACHE_MAX = 6                   # keep at most 6 open documents
 
 
+_PDF_DOC_SIG: dict[str, tuple] = {}     # abs_path -> (mtime_ns, size) when opened
+# PDFs up to this size are read into memory, so the preview holds no file
+# handle: another program can save over the file and Office Axe can rename it.
+_PDF_DOC_STREAM_MAX = 96 * 1024 * 1024
+
+
+def _pdf_file_sig(path: str):
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
 def _get_cached_fitz_doc(fitz, path: str):
-    """Return a cached fitz.Document for *path*, opening it if needed (LRU, max 6)."""
+    """Return a cached fitz.Document for *path*, opening it if needed (LRU, max 6).
+
+    The cached document is reopened when the file changed on disk (mtime/size).
+    """
     abs_path = os.path.abspath(path)
+    sig = _pdf_file_sig(abs_path)
     with _PDF_DOC_CACHE_LOCK:
         if abs_path in _PDF_DOC_CACHE:
             doc = _PDF_DOC_CACHE[abs_path]
             try:
                 _ = len(doc)  # raises if doc was closed/corrupt
+                if sig is not None and _PDF_DOC_SIG.get(abs_path) not in (None, sig):
+                    raise ValueError("file changed on disk")
                 try:
                     _PDF_DOC_CACHE_ORDER.remove(abs_path)
                 except ValueError:
@@ -117,23 +137,39 @@ def _get_cached_fitz_doc(fitz, path: str):
                 return doc
             except Exception:
                 _PDF_DOC_CACHE.pop(abs_path, None)
+                _PDF_DOC_SIG.pop(abs_path, None)
                 try:
                     _PDF_DOC_CACHE_ORDER.remove(abs_path)
                 except ValueError:
+                    pass
+                try:
+                    doc.close()
+                except Exception:
                     pass
         # Evict LRU entries when at capacity
         while len(_PDF_DOC_CACHE_ORDER) >= _PDF_DOC_CACHE_MAX:
             old_path = _PDF_DOC_CACHE_ORDER.pop(0)
             old_doc = _PDF_DOC_CACHE.pop(old_path, None)
+            _PDF_DOC_SIG.pop(old_path, None)
             if old_doc is not None:
                 try:
                     old_doc.close()
                 except Exception:
                     pass
         try:
-            doc = fitz.open(path)
+            if sig is not None and 0 < sig[1] <= _PDF_DOC_STREAM_MAX:
+                with open(abs_path, "rb") as f:
+                    data = f.read()
+                try:
+                    doc = fitz.open(stream=data, filetype="pdf")
+                except Exception:
+                    doc = fitz.open(path)        # not a PDF by content (e.g. XPS)
+            else:
+                doc = fitz.open(path)
             _PDF_DOC_CACHE[abs_path] = doc
             _PDF_DOC_CACHE_ORDER.append(abs_path)
+            if sig is not None:
+                _PDF_DOC_SIG[abs_path] = sig
             return doc
         except Exception:
             return None
@@ -4877,7 +4913,7 @@ def pdf_smart_split_merge_rename(
         """KR-EN stem from template pair, sanitised for Windows filenames."""
         if not en and not ko:
             return f"{fallback_prefix}_{page_idx + 1:03d}"
-        _INVALID = set('\\\/:"*?<>|')
+        _INVALID = set('\\/:"*?<>|')
         parts: list[str] = []
         ko_b, en_b = ko.strip(), en.strip()
         if ko_b:
@@ -6858,18 +6894,21 @@ def _win_expand_cmd(cmd: str) -> str:
 
 
 def _win_substitute_file_in_command(cmd: str, path: str) -> str:
-    """Replace %1 / %L / %V etc. with a quoted path; append path if no placeholder."""
+    """Replace %1 / %L / %u etc. with one quoted path; append the path if none was present.
+
+    Quoted placeholders such as ``"%u"`` must be replaced as a whole. Replacing
+    only the ``%u`` inside the quotes turns them into ``""C:\\path with spaces""``,
+    which later splits into several arguments.
+    """
     np = os.path.normpath(path)
     quoted = f'"{np}"'
     s = _win_expand_cmd(cmd)
     if not s:
         return quoted
-    if any(x in s for x in ('"', "%1", "%L", "%V", "%*", "%u", "%U")):
-        s = s.replace('"%1"', quoted).replace('"%L"', quoted).replace('"%V"', quoted).replace('"%*"', quoted)
-        s = s.replace("%1", quoted).replace("%L", quoted).replace("%V", quoted)
-        s = s.replace("%*", quoted)
-        s = s.replace("%u", quoted).replace("%U", quoted)
-    if np not in s and quoted.strip('"') not in s:
+    for token in ("%1", "%L", "%V", "%*", "%u", "%U"):
+        s = s.replace(f'"{token}"', quoted)
+        s = s.replace(token, quoted)
+    if np not in s:
         s = f"{s.rstrip()} {quoted}"
     return s
 
@@ -6963,20 +7002,124 @@ def _win_enum_openwith_list_exes(ext: str) -> list[str]:
     return out
 
 
+def _win_load_indirect(src: str) -> str:
+    """Resolve a ``@{package?ms-resource://...}`` string to display text."""
+    src = (src or "").strip()
+    if not src.startswith("@"):
+        return src
+    try:
+        import ctypes
+        from ctypes import wintypes
+        shlwapi = ctypes.WinDLL("shlwapi", use_last_error=True)
+        shlwapi.SHLoadIndirectString.argtypes = [
+            wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.UINT, ctypes.c_void_p,
+        ]
+        shlwapi.SHLoadIndirectString.restype = ctypes.c_long
+        buf = ctypes.create_unicode_buffer(1024)
+        if shlwapi.SHLoadIndirectString(src, buf, len(buf), None) == 0 and buf.value.strip():
+            return buf.value.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _win_file_description(exe: str) -> str:
+    """FileDescription from an exe's version resource, or ''."""
+    if not exe or not os.path.isfile(exe):
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        ver = ctypes.WinDLL("version", use_last_error=True)
+        ver.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+        ver.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+        ver.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+        ver.GetFileVersionInfoW.restype = wintypes.BOOL
+        ver.VerQueryValueW.argtypes = [
+            ctypes.c_void_p, wintypes.LPCWSTR,
+            ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT),
+        ]
+        ver.VerQueryValueW.restype = wintypes.BOOL
+        size = ver.GetFileVersionInfoSizeW(exe, None)
+        if not size:
+            return ""
+        buf = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(exe, 0, size, buf):
+            return ""
+        ptr = ctypes.c_void_p()
+        ulen = wintypes.UINT()
+        if not ver.VerQueryValueW(buf, "\\VarFileInfo\\Translation", ctypes.byref(ptr), ctypes.byref(ulen)):
+            return ""
+        pair = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_uint16))
+        sub = "\\StringFileInfo\\%04x%04x\\FileDescription" % (pair[0], pair[1])
+        if not ver.VerQueryValueW(buf, sub, ctypes.byref(ptr), ctypes.byref(ulen)) or not ulen.value:
+            return ""
+        return ctypes.wstring_at(ptr, ulen.value).rstrip("\x00").strip()
+    except Exception:
+        return ""
+
+
+def _tidy_app_name(desc: str) -> str:
+    s = " ".join((desc or "").split()).strip(" .")
+    low = s.lower()
+    if not s or "operating system" in low:
+        return ""
+    if low in ("windows wordpad application", "wordpad"):
+        return "WordPad"
+    if low == "windows explorer":
+        return "File Explorer"
+    return s
+
+
+def _label_is_junk(label: str) -> bool:
+    s = (label or "").strip()
+    if not s or s.startswith("@") or s.startswith("AppX") or s.startswith("{"):
+        return True
+    return len(s) > 36 and " " not in s
+
+
+def _label_is_file_type(label: str) -> bool:
+    low = (label or "").lower().strip()
+    return low.endswith((
+        " document", " file", " worksheet", " folder", " source file", " spreadsheet",
+    ))
+
+
+def _app_label(label: str, exe: str) -> str:
+    """Prefer the installed program's name over a file-type or AppX id."""
+    desc = _tidy_app_name(_win_file_description(exe))
+    if _label_is_junk(label):
+        return desc or _label_for_openwith_exe(exe)
+    if desc and _label_is_file_type(label):
+        return desc
+    return label
+
+
 def _win_progid_friendly_name(progid: str) -> str:
     import winreg
 
+    name = ""
     try:
         with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, progid) as k:
             try:
                 d = winreg.QueryValue(k, None)
-                if d and isinstance(d, str) and not d.startswith("@"):
-                    return d.strip() or progid
+                if d and isinstance(d, str) and d.strip() and not d.startswith("@"):
+                    name = d.strip()
             except OSError:
                 pass
     except OSError:
         pass
-    return progid
+    if _label_is_junk(name):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, progid + r"\Application") as k:
+                app, _ = winreg.QueryValueEx(k, "ApplicationName")
+                if isinstance(app, str):
+                    resolved = _win_load_indirect(app)
+                    if resolved and not resolved.startswith("@"):
+                        name = resolved
+        except OSError:
+            pass
+    return name or progid
 
 
 def _win_read_open_command(progid_or_path: str, *, under_applications: bool = False) -> str | None:
@@ -7029,6 +7172,29 @@ def _win_resolve_exe(argv0: str) -> str | None:
     return None
 
 
+def _skip_unusable_opener(exe: str, path: str) -> bool:
+    """Python registered for a photo or PDF tries to execute the file and exits."""
+    base = os.path.basename(exe or "").lower()
+    if base not in ("python.exe", "pythonw.exe"):
+        return False
+    return os.path.splitext(path)[1].lower() not in (".py", ".pyw", ".pyz")
+
+
+def _normalize_open_argv(argv: list[str], path: str) -> list[str]:
+    """Turn a parsed Open command into something CreateProcess / ShellExecute can run.
+
+    Explorer's zip handler is ``Explorer.exe /idlist,%I,%L``. ``%I`` is filled in
+    only by the shell, so launching that string does not open the archive.
+    """
+    if not argv:
+        return argv
+    exe = argv[0]
+    rest = " ".join(str(a) for a in argv[1:])
+    if os.path.basename(exe).lower() == "explorer.exe" and ("%I" in rest or "/idlist" in rest.lower()):
+        return [exe, os.path.normpath(path)]
+    return argv
+
+
 def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[tuple[str, list[str]]]:
     """Build the right-click 'Open with X' submenu for a file.
 
@@ -7044,7 +7210,17 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
     if not ext:
         return []
     seen_exes: set[str] = set()
+    seen_bases: set[str] = set()
     items: list[tuple[str, list[str]]] = []
+
+    def _take(exe: str) -> bool:
+        key = exe.lower()
+        base = os.path.basename(key)
+        if key in seen_exes or base in seen_bases:
+            return False
+        seen_exes.add(key)
+        seen_bases.add(base)
+        return True
 
     # 1) UserChoice ProgID (default app)
     try:
@@ -7059,10 +7235,9 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
                     argv = [resolved]
                 if argv:
                     exe = _win_resolve_exe(argv[0])
-                    if exe and exe.lower() not in seen_exes:
-                        seen_exes.add(exe.lower())
+                    if exe and not _skip_unusable_opener(exe, path) and _take(exe):
                         argv[0] = exe
-                        items.append((_win_progid_friendly_name(progid), argv))
+                        items.append((_app_label(_win_progid_friendly_name(progid), exe), _normalize_open_argv(argv, path)))
     except Exception:
         pass
 
@@ -7082,12 +7257,10 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
             if not argv:
                 continue
             exe = _win_resolve_exe(argv[0])
-            if not exe or exe.lower() in seen_exes:
+            if not exe or _skip_unusable_opener(exe, path) or not _take(exe):
                 continue
-            seen_exes.add(exe.lower())
             argv[0] = exe
-            label = _win_progid_friendly_name(progid)
-            items.append((label, argv))
+            items.append((_app_label(_win_progid_friendly_name(progid), exe), _normalize_open_argv(argv, path)))
     except Exception:
         pass
 
@@ -7105,16 +7278,14 @@ def windows_open_with_menu_commands(path: str, *, max_items: int = 22) -> list[t
                     argv = [resolved]
                 if argv:
                     exe = _win_resolve_exe(argv[0])
-                    if exe and exe.lower() not in seen_exes:
-                        seen_exes.add(exe.lower())
+                    if exe and not _skip_unusable_opener(exe, path) and _take(exe):
                         argv[0] = exe
-                        items.append((_label_for_openwith_exe(exe_hint), argv))
+                        items.append((_app_label(_label_for_openwith_exe(exe_hint), exe), _normalize_open_argv(argv, path)))
                         continue
             # Fallback: try to resolve the exe by name and pass the path directly.
             exe = _win_resolve_exe(exe_hint)
-            if exe and exe.lower() not in seen_exes:
-                seen_exes.add(exe.lower())
-                items.append((_label_for_openwith_exe(exe_hint), [exe, path]))
+            if exe and not _skip_unusable_opener(exe, path) and _take(exe):
+                items.append((_app_label(_label_for_openwith_exe(exe_hint), exe), [exe, path]))
     except Exception:
         pass
 
@@ -8603,6 +8774,190 @@ def adjust_image_save(
         return False, str(exc)
 
 
+# ── Image compression & format conversion ────────────────────────────────────
+
+_IMG_FMT_ALIASES = {
+    "jpg": ("JPEG", ".jpg"), "jpeg": ("JPEG", ".jpg"),
+    "png": ("PNG", ".png"),
+    "webp": ("WEBP", ".webp"),
+    "bmp": ("BMP", ".bmp"),
+    "tif": ("TIFF", ".tiff"), "tiff": ("TIFF", ".tiff"),
+}
+
+
+def _free_image_path(base: str, suffix: str, ext: str) -> str:
+    """Return ``base+suffix+ext``, or ``base+suffix-2+ext``, ``-3``… if taken."""
+    cand = f"{base}{suffix}{ext}"
+    n = 2
+    while os.path.exists(cand):
+        cand = f"{base}{suffix}-{n}{ext}"
+        n += 1
+    return cand
+
+
+def _flatten_alpha(img, bg=(255, 255, 255)):
+    """Convert any mode to RGB, compositing transparency onto a solid background."""
+    Image = get_pillow()
+    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        canvas = Image.new("RGB", rgba.size, bg)
+        canvas.paste(rgba, mask=rgba.split()[-1])
+        return canvas
+    if img.mode != "RGB":
+        return img.convert("RGB")
+    return img
+
+
+def _save_image_as(img, out_path: str, pil_fmt: str, quality: int, dpi=None) -> None:
+    """Save *img* in *pil_fmt* with size-oriented encoder options."""
+    kw = {}
+    if dpi:
+        kw["dpi"] = dpi
+    has_alpha = "A" in img.getbands() or "transparency" in img.info
+    if pil_fmt == "JPEG":
+        img = _flatten_alpha(img)
+        kw.update(quality=int(quality), optimize=True, progressive=True)
+    elif pil_fmt == "WEBP":
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA" if has_alpha else "RGB")
+        kw.update(quality=int(quality), method=6)
+    elif pil_fmt == "PNG":
+        if img.mode not in ("RGB", "RGBA", "L", "LA", "P", "1"):
+            img = img.convert("RGBA" if has_alpha else "RGB")
+        if quality < 60 and img.mode in ("RGB", "RGBA"):
+            # Palette quantization: big savings for screenshots / graphics.
+            colors = max(16, min(256, int(quality * 4)))
+            try:
+                if img.mode == "RGBA":
+                    img = img.quantize(colors=colors, method=2)  # FASTOCTREE keeps alpha
+                else:
+                    img = img.quantize(colors=colors)
+            except Exception:
+                pass
+        kw.update(optimize=True, compress_level=9)
+    elif pil_fmt == "BMP":
+        if img.mode not in ("RGB", "L", "1", "P") or has_alpha:
+            img = _flatten_alpha(img)
+    elif pil_fmt == "TIFF":
+        kw["compression"] = "tiff_lzw"
+    img.save(out_path, format=pil_fmt, **kw)
+
+
+def _load_oriented(path: str):
+    """Open an image, apply its EXIF orientation, return (image, dpi)."""
+    Image = get_pillow()
+    from PIL import ImageOps
+
+    with Image.open(path) as src:
+        dpi = src.info.get("dpi")
+        img = ImageOps.exif_transpose(src)
+        img.load()
+    return img, dpi
+
+
+def compress_image(
+    path: str,
+    quality: int = 70,
+    max_edge: int = 0,
+    fmt: str = "",
+    out_path: str = "",
+) -> tuple:
+    """Re-encode an image to a smaller file. The original is never touched.
+
+    quality  : 1-95 for JPEG/WEBP; PNG is palette-quantized when < 60.
+    max_edge : downscale so the longest edge is <= this (0 = keep size).
+    fmt      : "" keeps the source type, or "jpg"/"webp"/"png".
+    Output defaults to ``<name>_compressed.<ext>`` (auto-numbered ``-2``…).
+    Returns (True, {"out", "before", "after"}) or (False, message).
+    """
+    Image = get_pillow()
+    if not Image:
+        return False, "Pillow not available"
+    try:
+        if not os.path.isfile(path):
+            return False, f"File not found: {path}"
+        quality = max(1, min(95, int(quality or 70)))
+        max_edge = max(0, int(max_edge or 0))
+        base, src_ext = os.path.splitext(path)
+        src_key = src_ext.lower().lstrip(".")
+
+        fmt = (fmt or "").lower().lstrip(".")
+        if fmt:
+            if fmt not in ("jpg", "jpeg", "webp", "png"):
+                return False, f"Unsupported output format: {fmt}"
+            pil_fmt, ext = _IMG_FMT_ALIASES[fmt]
+            if src_key in ("jpg", "jpeg") and pil_fmt == "JPEG":
+                ext = src_ext  # keep .jpeg vs .jpg as the user had it
+        elif src_key in ("jpg", "jpeg", "png", "webp"):
+            pil_fmt, ext = _IMG_FMT_ALIASES[src_key][0], src_ext
+        else:
+            # BMP / TIFF / GIF don't compress meaningfully in place → JPEG
+            pil_fmt, ext = "JPEG", ".jpg"
+
+        img, dpi = _load_oriented(path)
+        if max_edge and max(img.size) > max_edge:
+            img.thumbnail((max_edge, max_edge), Image.LANCZOS)
+
+        if out_path:
+            if os.path.abspath(out_path) == os.path.abspath(path):
+                return False, "Refusing to overwrite the original image"
+        else:
+            out_path = _free_image_path(base, "_compressed", ext)
+
+        _save_image_as(img, out_path, pil_fmt, quality, dpi)
+        return True, {
+            "out": out_path,
+            "before": os.path.getsize(path),
+            "after": os.path.getsize(out_path),
+        }
+    except Exception as exc:
+        return False, str(exc)
+
+
+def compress_images(paths: list, quality: int = 70, max_edge: int = 0, fmt: str = "") -> dict:
+    """Batch :func:`compress_image`. Returns {"results", "before", "after", "saved"}."""
+    results = []
+    before = after = 0
+    for p in paths or []:
+        ok, res = compress_image(p, quality, max_edge, fmt)
+        if ok:
+            before += res["before"]
+            after += res["after"]
+            results.append({"path": p, "ok": True, **res})
+        else:
+            results.append({"path": p, "ok": False, "error": res})
+    return {"results": results, "before": before, "after": after, "saved": before - after}
+
+
+def convert_image(path: str, fmt: str, out_path: str = "") -> tuple:
+    """Convert an image to png/jpg/webp/bmp/tiff. Never overwrites the original.
+
+    Default output is ``<name>.<newext>`` when free, else ``<name>-2.<newext>``…
+    Returns (True, out_path) or (False, message).
+    """
+    Image = get_pillow()
+    if not Image:
+        return False, "Pillow not available"
+    try:
+        key = (fmt or "").lower().lstrip(".")
+        if key not in _IMG_FMT_ALIASES:
+            return False, f"Unsupported format: {fmt}"
+        pil_fmt, ext = _IMG_FMT_ALIASES[key]
+        if not os.path.isfile(path):
+            return False, f"File not found: {path}"
+        img, dpi = _load_oriented(path)
+        if out_path:
+            if os.path.abspath(out_path) == os.path.abspath(path):
+                return False, "Refusing to overwrite the original image"
+        else:
+            base, _ = os.path.splitext(path)
+            out_path = _free_image_path(base, "", ext)
+        _save_image_as(img, out_path, pil_fmt, 92, dpi)
+        return True, out_path
+    except Exception as exc:
+        return False, str(exc)
+
+
 def move_to_folder_root(paths: list, root: str) -> tuple:
     """Move a list of files to the given root folder (top of current workspace)."""
     import shutil
@@ -9112,3 +9467,265 @@ def doc_to_html_excel(path: str, sheet: str = "") -> tuple:
 
     parts.append('</table></body></html>')
     return True, "".join(parts)
+
+
+# =============================================================================
+# Folders: "New folders from a list" + the Copy / Move folder picker tree
+# =============================================================================
+
+_WIN_BAD_NAME_CHARS = '<>:"/\\|?*'
+_WIN_RESERVED_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{i}" for i in range(1, 10)]
+    + [f"LPT{i}" for i in range(1, 10)]
+)
+# CreateDirectory refuses paths of 248+ characters without long-path support.
+_WIN_MAX_DIR_PATH = 247
+_FILE_ATTRIBUTE_HIDDEN = 0x2
+_FILE_ATTRIBUTE_SYSTEM = 0x4
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+_INVISIBLE_EDGE_CHARS = "﻿​‌‍⁠"
+
+
+def split_pasted_names(text: str) -> list[str]:
+    """Names from text pasted from Excel / a list.
+
+    One name per line; a line with tabs (several Excel cells) gives one name
+    per non-empty cell. Cells are trimmed (also non-breaking spaces and
+    zero-width characters), blank cells/lines are skipped, and a cell wrapped
+    in double quotes (Excel's quoting) is unquoted.
+    """
+    out: list[str] = []
+    for line in re.split(r"\r\n|\r|\n", str(text or "")):
+        for cell in line.split("\t"):
+            c = cell.strip().strip(_INVISIBLE_EDGE_CHARS).strip()
+            if len(c) >= 2 and c[0] == '"' and c[-1] == '"':
+                c = c[1:-1].replace('""', '"').strip()
+            if c:
+                out.append(c)
+    return out
+
+
+def folder_name_problem(name: str) -> str:
+    """Why *name* can't be a Windows folder name, or '' when it is fine."""
+    if not name or not name.strip():
+        return "The name is empty"
+    if name in (".", ".."):
+        return "Not a valid folder name"
+    bad = []
+    for ch in name:
+        if ch in _WIN_BAD_NAME_CHARS and ch not in bad:
+            bad.append(ch)
+    has_ctrl = any(ord(ch) < 32 for ch in name)
+    if bad or has_ctrl:
+        what = " ".join(bad)
+        if has_ctrl:
+            what = (what + " or control characters") if what else "control characters"
+        return f"Can't contain {what}"
+    if name[-1] in ". ":
+        return "Can't end with a dot or a space"
+    stem = name.split(".", 1)[0].rstrip(" ").upper()
+    if stem in _WIN_RESERVED_NAMES:
+        return f"“{stem}” is a reserved Windows name"
+    if len(name) > 255:
+        return "Too long (255 characters at most)"
+    return ""
+
+
+def _number_width(start: int, count: int, pad: int) -> int:
+    if pad and pad > 0:
+        return int(pad)
+    return max(1, len(str(max(start, start + max(count, 1) - 1))))
+
+
+def plan_folders_from_list(parent: str, text: str = "", *, names: Sequence[str] | None = None,
+                           prefix: str = "", suffix: str = "", numbering: str = "none",
+                           start: int = 1, pad: int = 0, sep: str = " ") -> dict:
+    """Preview of "New folders from a list" — nothing is created.
+
+    Every pasted name becomes a row ``{index, source, name, path, status,
+    reason}``; *status* is ``ok``, ``invalid`` (not a valid Windows name or
+    the path is too long), ``exists`` (a file or folder with that name is
+    already in *parent*, case-insensitive) or ``duplicate`` (same name as an
+    earlier row, case-insensitive). The final name is
+    ``[number+sep] prefix + name + suffix [sep+number]`` with *numbering*
+    ``"before"`` / ``"after"`` / ``"none"``; numbers follow the list order.
+    """
+    parent = str(parent or "")
+    src = list(names) if names is not None else split_pasted_names(text)
+    try:
+        start = int(start)
+    except (TypeError, ValueError):
+        start = 1
+    try:
+        pad = int(pad or 0)
+    except (TypeError, ValueError):
+        pad = 0
+    numbering = (numbering or "none").lower()
+    width = _number_width(start, len(src), pad)
+    try:
+        taken = {n.casefold() for n in os.listdir(parent)} if parent and os.path.isdir(parent) else set()
+    except OSError:
+        taken = set()
+    seen: dict[str, int] = {}
+    rows = []
+    counts = {"total": len(src), "ok": 0, "invalid": 0, "exists": 0, "duplicate": 0}
+    for i, raw in enumerate(src):
+        num = str(start + i).zfill(width)
+        name = f"{prefix or ''}{raw}{suffix or ''}"
+        if numbering == "before":
+            name = f"{num}{sep}{name}"
+        elif numbering == "after":
+            name = f"{name}{sep}{num}"
+        path = os.path.join(parent, name) if parent else name
+        key = name.casefold()
+        reason = folder_name_problem(name)
+        status = "invalid" if reason else "ok"
+        if status == "ok" and parent and len(os.path.abspath(path)) > _WIN_MAX_DIR_PATH:
+            status, reason = "invalid", "The full path would be too long for Windows"
+        if status == "ok" and key in taken:
+            status, reason = "exists", "Already exists in this folder"
+        if status == "ok" and key in seen:
+            status, reason = "duplicate", f"Same as row {seen[key] + 1}"
+        if status == "ok":
+            seen[key] = i
+        counts[status] += 1
+        rows.append({"index": i, "source": raw, "name": name, "path": path,
+                     "status": status, "reason": reason})
+    return {"parent": parent, "rows": rows, "counts": counts}
+
+
+def create_folders_from_list(parent: str, text: str = "", **opts) -> dict:
+    """Create every ``ok`` row of :func:`plan_folders_from_list` in *parent*.
+
+    Rows with problems are skipped (listed in ``skipped``). Existing folders
+    are never overwritten or merged: ``os.mkdir`` fails for a name that
+    appeared after the preview and that row is skipped too.
+    Returns ``{created: [paths], skipped: [{name, reason}], counts}``.
+    """
+    parent = str(parent or "")
+    if not parent or not os.path.isdir(parent):
+        raise FileNotFoundError(f"Folder not found: {parent}")
+    plan = plan_folders_from_list(parent, text, **opts)
+    created: list[str] = []
+    skipped: list[dict] = []
+    for row in plan["rows"]:
+        if row["status"] != "ok":
+            skipped.append({"name": row["name"], "reason": row["reason"]})
+            continue
+        try:
+            os.mkdir(row["path"])
+            created.append(row["path"])
+        except FileExistsError:
+            skipped.append({"name": row["name"], "reason": "Already exists in this folder"})
+        except OSError as exc:
+            skipped.append({"name": row["name"], "reason": exc.strerror or str(exc)})
+    return {"parent": parent, "created": created, "skipped": skipped, "counts": plan["counts"]}
+
+
+def _skip_dir_entry(entry, show_hidden: bool = False) -> bool:
+    """Folders the picker leaves out: system/hidden ones, $Recycle.Bin and
+    junctions (they loop back, e.g. "Documents and Settings")."""
+    name = entry.name
+    if not show_hidden and (name.startswith("$") or name == "System Volume Information"):
+        return True
+    try:
+        st = entry.stat(follow_symlinks=False)
+        attrs = getattr(st, "st_file_attributes", 0) or 0
+    except OSError:
+        return True
+    if attrs & _FILE_ATTRIBUTE_REPARSE_POINT or entry.is_symlink():
+        return True
+    if not show_hidden and attrs & (_FILE_ATTRIBUTE_HIDDEN | _FILE_ATTRIBUTE_SYSTEM):
+        return True
+    return False
+
+
+def _has_subfolder(path: str, show_hidden: bool = False) -> bool:
+    try:
+        with os.scandir(path) as it:
+            for e in it:
+                try:
+                    if e.is_dir(follow_symlinks=False) and not _skip_dir_entry(e, show_hidden):
+                        return True
+                except OSError:
+                    continue
+    except OSError:
+        return False
+    return False
+
+
+def list_subfolders(path: str, show_hidden: bool = False, probe_limit: int = 400) -> list[dict]:
+    """Immediate subfolders of *path* (natural sort) for the folder picker:
+    ``[{path, name, has_children}]``. ``has_children`` is checked for the
+    first *probe_limit* folders and assumed True after that."""
+    if isinstance(path, str) and re.fullmatch(r"[A-Za-z]:", path.strip()):
+        path = path.strip() + "\\"
+    out = []
+    with os.scandir(path) as it:
+        for e in it:
+            try:
+                if not e.is_dir(follow_symlinks=False) or _skip_dir_entry(e, show_hidden):
+                    continue
+            except OSError:
+                continue
+            out.append({"path": e.path, "name": e.name})
+    out.sort(key=lambda d: filesystem_natural_sort_key(d["name"]))
+    for i, d in enumerate(out):
+        d["has_children"] = _has_subfolder(d["path"], show_hidden) if i < probe_limit else True
+    return out
+
+
+def find_folders(root: str, query: str, limit: int = 200, time_budget: float = 2.5,
+                 max_depth: int = 16, prefer: str = "") -> dict:
+    """Folders under *root* whose name contains every word of *query*
+    (case-insensitive), breadth-first so shallow matches come first.
+    With *prefer* (a folder under *root*, e.g. the one the user is in) that
+    folder's subtree is searched first, then the rest of *root* — a whole
+    drive can take longer than the time budget.
+    Stops after *limit* matches or *time_budget* seconds:
+    ``{results: [{path, name, parent}], truncated}``."""
+    import time as _time
+    words = [w.casefold() for w in str(query or "").split() if w]
+    if not words or not root or not os.path.isdir(root):
+        return {"results": [], "truncated": False}
+    deadline = _time.monotonic() + max(0.1, float(time_budget))
+    results: list[dict] = []
+
+    def norm(p: str) -> str:
+        return os.path.normcase(os.path.abspath(p)).rstrip("\\/")
+    phases = [(root, "")]
+    if prefer and os.path.isdir(prefer) and norm(prefer).startswith(norm(root) + os.sep):
+        phases = [(prefer, ""), (root, norm(prefer))]
+    for start, skip in phases:
+        queue: list[tuple[str, int]] = [(start, 0)]
+        qi = 0
+        while qi < len(queue):
+            if _time.monotonic() > deadline:
+                return {"results": results, "truncated": True}
+            folder, depth = queue[qi]
+            qi += 1
+            try:
+                with os.scandir(folder) as it:
+                    subs = []
+                    for e in it:
+                        try:
+                            if not e.is_dir(follow_symlinks=False) or _skip_dir_entry(e):
+                                continue
+                        except OSError:
+                            continue
+                        if skip and norm(e.path) == skip:
+                            continue        # already searched first
+                        subs.append(e)
+            except OSError:
+                continue
+            subs.sort(key=lambda e: filesystem_natural_sort_key(e.name))
+            for e in subs:
+                low = e.name.casefold()
+                if all(w in low for w in words):
+                    results.append({"path": e.path, "name": e.name, "parent": folder})
+                    if len(results) >= limit:
+                        return {"results": results, "truncated": True}
+                if depth + 1 < max_depth:
+                    queue.append((e.path, depth + 1))
+    return {"results": results, "truncated": False}

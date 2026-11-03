@@ -1,0 +1,150 @@
+/* rename-templates.css — template suggestion dropdown (command-palette style)
+   + templates manager. Tokens and shared components from style.css only. */
+
+/* ── Suggestion dropdown under the rename input ───────────────────────── */
+.rename-suggestions.rt-dropdown {
+  /* position/size are set by rename-templates.js (fixed, beside the input) */
+  right: 0;
+  min-width: 300px;
+  max-height: 340px;
+  z-index: 8000 !important;
+  overflow-y: auto;
+  margin-top: 2px;
+  padding: 0;
+  border-radius: var(--radius-lg);
+}
+.rt-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; gap: var(--space-1); align-items: center;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+.rt-head-icon { display: inline-flex; color: var(--text-muted); }
+.rt-head .rt-lang-select {
+  flex: 1; min-width: 0; width: auto;
+  height: var(--control-h-sm); font-size: var(--fs-sm);
+  border-color: transparent; background-color: transparent;
+}
+.rt-head .rt-lang-select:hover { background-color: var(--bg-hover); }
+.rt-manage { flex-shrink: 0; }
+.rt-section {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.rt-dropdown .rt-item {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin: 0 var(--space-1); padding: 6px var(--space-2);
+  border-radius: var(--radius); line-height: var(--lh-tight);
+}
+.rt-item-icon { display: inline-flex; color: var(--text-muted); flex-shrink: 0; }
+.rt-item.active .rt-item-icon { color: var(--accent-text); }
+.rt-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rt-label { font-size: var(--fs-base); color: var(--text-primary); overflow-wrap: anywhere; }
+.rt-label .rt-tag { margin-left: 4px; vertical-align: 1px; }
+.rt-target { font-size: var(--fs-xs); color: var(--text-muted); overflow-wrap: anywhere; display: flex; align-items: center; gap: 4px; }
+.rt-item.active .rt-target, .rt-item:hover .rt-target { color: var(--text-secondary); }
+.rt-enter { flex-shrink: 0; opacity: 0; }
+.rt-item.active .rt-enter { opacity: 1; }
+.rt-keys { display: inline-flex; gap: 2px; flex-shrink: 0; }
+.rt-save { margin-top: var(--space-1) !important; }
+.rt-save .rt-item-icon { color: var(--green); }
+.rt-save .rt-label { font-weight: var(--fw-medium); }
+.rt-tag { height: 16px; padding: 0 6px; font-size: 10px; }
+.rt-empty { padding: var(--space-3); font-size: var(--fs-sm); color: var(--text-muted); display: flex; align-items: center; gap: var(--space-2); }
+.rt-hints { position: sticky; bottom: 0; margin-top: var(--space-1); }
+
+/* ── Templates manager (two panes) ─────────────────────────────────────── */
+.rt-manager { width: min(820px, 96vw); max-width: 96vw; }
+.rt-manager .modal-body { gap: var(--space-3); }
+.rt-top { display: grid; grid-template-columns: auto 260px 1fr; gap: var(--space-3); align-items: center; }
+.rt-top .rt-hint { line-height: var(--lh); }
+.rt-panes { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-4); min-height: 0; }
+.rt-left { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.rt-list {
+  height: 320px; overflow-y: auto; padding: var(--space-1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  outline: none;
+}
+.rt-list:focus-visible { border-color: var(--border-focus); box-shadow: var(--focus-ring); }
+.rt-list-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  height: 30px; padding: 0 var(--space-2); font-size: var(--fs-base); cursor: pointer;
+  color: var(--text-primary); border-radius: var(--radius-sm);
+}
+.rt-list-row:hover { background: var(--bg-hover); }
+.rt-list-row.active { background: var(--bg-selected); }
+.rt-row-icon { display: inline-flex; color: var(--text-muted); flex-shrink: 0; }
+.rt-list-row.active .rt-row-icon { color: var(--accent-text); }
+.rt-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt-count { font-size: var(--fs-xs); color: var(--text-muted); }
+.rt-right {
+  display: flex; flex-direction: column; gap: var(--space-3); min-width: 0;
+  padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-xl);
+  background: var(--bg-surface-2);
+}
+.rt-fields { display: flex; flex-direction: column; gap: var(--space-3); }
+.rt-fields-title { font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.rt-fields-title + .field-hint { margin-top: calc(-1 * var(--space-2)); }
+.rt-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.rt-actions #rt-remove { margin-left: auto; }
+.rt-file {
+  margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--border);
+  font-size: var(--fs-xs); color: var(--text-muted); display: flex; gap: 6px; align-items: center; min-width: 0;
+}
+.rt-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.rt-file:empty { display: none; }
+
+@media (max-width: 680px) {
+  .rt-panes, .rt-top { grid-template-columns: 1fr; }
+}
+
+/* ── Inline rename in the file list (file-tree.js) ─────────────────────── */
+.file-item .name.is-editing { overflow: visible; text-overflow: clip; display: flex; align-items: center; }
+.inline-rename {
+  width: 100%; min-width: 0;
+  height: 24px; margin: 0 0 0 -5px; padding: 0 4px;
+  font: inherit; font-size: var(--fs-base); font-weight: var(--fw-regular); line-height: 22px;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+[data-theme="light"] .inline-rename { background: var(--bg-surface); }
+.inline-rename::selection { background: var(--accent); color: var(--text-on-accent); }
+.thumb-tile .thumb-name.is-editing { overflow: visible; white-space: normal; }
+.inline-rename-thumb {
+  display: block; height: auto; margin: 0; padding: 2px 4px;
+  font-size: var(--fs-xs); line-height: var(--lh-tight); text-align: center;
+  resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.inline-rename-suggestions.rt-dropdown { z-index: 8000 !important; }
+
+/* Windows-style balloon tip (invalid characters, name clash, errors) */
+.inline-rename-tip {
+  position: fixed; z-index: 8100; display: none;
+  gap: var(--space-2); align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popup);
+  font-size: var(--fs-sm); color: var(--text-primary);
+  pointer-events: none;
+}
+.inline-rename-tip.show { display: flex; }
+.inline-rename-tip-icon { display: inline-flex; color: var(--yellow); flex-shrink: 0; margin-top: 1px; }
+.inline-rename-tip-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.inline-rename-tip-title { font-weight: var(--fw-medium); line-height: var(--lh-tight); }
+.inline-rename-tip-text { color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+
+/* Yes / No question (extension change, name clash) */
+.ir-ask { display: flex; flex-direction: column; gap: var(--space-2); }
+.ir-ask p { margin: 0; line-height: var(--lh); }
+.ir-ask-text { color: var(--text-primary); }
+.ir-ask-detail { color: var(--text-secondary); overflow-wrap: anywhere; }

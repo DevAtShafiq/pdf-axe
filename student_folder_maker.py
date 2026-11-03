@@ -51,6 +51,7 @@ from tkinter import (
 from tkinter import ttk
 
 import file_ops as fo
+import features as _features
 import excel_grid
 import qr_screen_capture as qrcap
 
@@ -417,9 +418,11 @@ _DOCUMENT_RENAME_USER_PAIRS: list[tuple[str, str]] = []
 
 
 def document_rename_user_file_path() -> str:
-    """Portable: next to the .exe when frozen, else next to this script."""
+    """Portable: next to the .exe when frozen (the user's data folder when
+    installed), else next to this script."""
+    from app_paths import data_dir
     if getattr(sys, "frozen", False):
-        base = os.path.dirname(sys.executable)
+        base = data_dir(os.path.dirname(sys.executable))
     else:
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "document_name_templates.txt")
@@ -433,9 +436,11 @@ import json as _json
 
 
 def _settings_path() -> str:
-    """Path to the JSON settings file (next to exe when frozen, else next to script)."""
+    """Path to the JSON settings file (next to exe when frozen — the user's data
+    folder when installed — else next to script)."""
+    from app_paths import data_dir
     if getattr(sys, "frozen", False):
-        base = os.path.dirname(sys.executable)
+        base = data_dir(os.path.dirname(sys.executable))
     else:
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "sfm_settings.json")
@@ -6043,6 +6048,8 @@ class FilesWorkspaceFrame(ttk.Frame):
             ("AI photo…",    self._open_ai_photo_editor,                "AI-powered photo editor"),
             ("Apostille…",   self._open_apostille_matcher,              "Fetch apostille page, read & match local PDF"),
         ):
+            if _tb_cmd == self._open_ai_photo_editor and not _features.AI_SUIT_ENABLED:
+                continue
             _b = ttk.Button(_thumb_tb_inner, text=_tb_text, command=_tb_cmd)
             _b.pack(side=LEFT, padx=(0, SP_2))
             Tooltip(_b, _tb_tip)
@@ -6497,6 +6504,8 @@ class FilesWorkspaceFrame(ttk.Frame):
             ("AI photo…", self._open_ai_photo_editor),
             ("Apostille…", self._open_apostille_matcher),
         ):
+            if _cmd == self._open_ai_photo_editor and not _features.AI_SUIT_ENABLED:
+                continue
             _sidebar_btn(_txt, _cmd)
 
         # Rename row (full width under preview + sidebar)
@@ -23251,6 +23260,8 @@ class FilesWorkspaceFrame(ttk.Frame):
         return str(ctx["working_input_path"]) if ctx else None
 
     def _open_ai_photo_editor(self) -> None:
+        if not _features.AI_SUIT_ENABLED:
+            return
         if self._preview_notebook_is_dual():
             messagebox.showinfo(
                 "AI photo",

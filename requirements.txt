@@ -7,6 +7,9 @@ openai>=1.40.0
 openpyxl>=3.1.0
 mss>=9.0.0
 pyzbar>=0.1.9
+# Password-protected (AES-256) ZIPs — optional: without it plain zip/unzip still works
+pyzipper>=0.3.6
+pycryptodomex>=3.19
 
 # ── Windows-only ─────────────────────────────────────────────────────────────
 pywin32>=306; sys_platform == "win32"

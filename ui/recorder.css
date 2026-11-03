@@ -1,0 +1,122 @@
+/* recorder.css — screen recorder + screenshots (js/recorder.js).
+   Tokens only (see DESIGN.md). */
+
+/* ── setup dialog ─────────────────────────────────────────────── */
+.rec-cards-3 { grid-template-columns: repeat(3, 1fr); }
+.rec-cards-3 .option-card { padding: var(--space-2) var(--space-3); }
+.rec-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.rec-row > .segmented { flex: 1; min-width: 0; }
+.rec-row-between { justify-content: space-between; }
+.rec-modal .field > .switch + .switch { margin-top: var(--space-1); }
+.rec-modal .field > .switch { display: flex; }
+
+.rec-meter {
+  width: 96px; height: 8px; flex-shrink: 0; border-radius: var(--radius-full);
+  background: var(--bg-active); border: 1px solid var(--border); overflow: hidden;
+}
+.rec-meter-bar {
+  height: 100%; width: 0%; border-radius: inherit; background: var(--green);
+  transition: width 80ms linear;
+}
+
+.rec-cam-opts { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.rec-cam-opts.is-dim { opacity: .5; }
+.rec-cam-select { width: 200px; }
+.rec-corner-select { width: 130px; }
+.rec-cam-preview {
+  margin-top: var(--space-2); display: flex;
+}
+.rec-cam-preview[data-corner="br"], .rec-cam-preview[data-corner="tr"] { justify-content: flex-end; }
+.rec-cam-preview video {
+  width: 88px; height: 88px; object-fit: cover; border-radius: 50%;
+  border: 2px solid var(--border-strong); background: var(--bg-panel); box-shadow: var(--shadow-sm);
+}
+
+.rec-shot {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+.rec-shot-text { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.rec-shot .card-title { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--fs-base); }
+
+.rec-list {
+  display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  max-height: 210px; overflow-y: auto; background: var(--bg-panel);
+}
+.rec-item {
+  display: flex; align-items: center; gap: var(--space-3); padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border); min-height: 40px;
+}
+.rec-item:last-child { border-bottom: 0; }
+.rec-item:hover { background: var(--bg-hover); }
+.rec-item-icon { display: inline-flex; color: var(--ft-media); flex-shrink: 0; }
+.rec-item-icon.image { color: var(--ft-img); }
+.rec-item-warn .rec-item-icon { color: var(--yellow); }
+.rec-item-name { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rec-item-name small { font-size: var(--fs-xs); color: var(--text-muted); }
+.rec-item-actions { display: flex; gap: var(--space-1); flex-shrink: 0; }
+.rec-empty { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); }
+.rec-kbd { display: inline-flex; align-items: center; gap: 3px; }
+.rec-more-title { padding: var(--space-3) var(--space-2) var(--space-0); }
+
+/* ── saved toast ──────────────────────────────────────────────── */
+.toast.rec-toast { max-width: 420px; }
+.rec-toast-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.rec-toast-title { font-weight: var(--fw-semibold); }
+.rec-toast-name { font-size: var(--fs-sm); word-break: break-all; }
+.rec-toast-actions { display: flex; gap: var(--space-1); margin-top: var(--space-1); }
+
+/* ── countdown ────────────────────────────────────────────────── */
+.rec-countdown {
+  position: fixed; inset: 0; z-index: 10100; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-overlay); pointer-events: auto;
+}
+.rec-countdown-box {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-1);
+  padding: var(--space-5) var(--space-6); border-radius: var(--radius-xl);
+  background: var(--bg-surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow-popup);
+  min-width: 220px;
+}
+.rec-countdown-num {
+  font-family: var(--font-display); font-size: 72px; line-height: 1; font-weight: var(--fw-bold);
+  color: var(--red); font-variant-numeric: tabular-nums; animation: rec-pop 1s var(--ease) infinite;
+}
+.rec-countdown-text { font-size: var(--fs-md); font-weight: var(--fw-semibold); }
+.rec-countdown-hint { font-size: var(--fs-xs); color: var(--text-muted); }
+@keyframes rec-pop { 0% { transform: scale(1.15); opacity: .6; } 25% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); } }
+
+/* ── floating control bar ─────────────────────────────────────── */
+.rec-bar {
+  position: fixed; left: 50%; bottom: calc(var(--h-statusbar, 24px) + 16px); transform: translateX(-50%);
+  z-index: 9500; display: flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: var(--radius-full);
+  box-shadow: var(--shadow-popup); color: var(--text-primary); user-select: none;
+}
+.rec-grip {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: var(--control-h);
+  color: var(--text-muted); cursor: grab; border-radius: var(--radius-full); touch-action: none;
+}
+.rec-grip:active { cursor: grabbing; }
+.rec-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: var(--red); flex-shrink: 0;
+  animation: rec-blink 1.2s ease-in-out infinite; margin: 0 var(--space-1);
+}
+.rec-bar.is-paused .rec-dot { animation: none; background: var(--yellow); }
+.rec-bar.is-saving .rec-dot { animation: none; background: var(--text-muted); }
+.rec-bar.is-saving button { pointer-events: none; opacity: .5; }
+@keyframes rec-blink { 50% { opacity: .25; } }
+.rec-status { display: flex; flex-direction: column; line-height: var(--lh-tight); min-width: 64px; }
+.rec-time { font-family: var(--font-mono); font-size: var(--fs-md); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+.rec-size { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rec-sep { width: 1px; height: 20px; background: var(--border); margin: 0 var(--space-1); }
+.rec-bar .icon-btn { border-radius: var(--radius-full); }
+.rec-bar .icon-btn.is-muted { color: var(--red); background: var(--red-subtle); }
+.rec-bar .rec-stop { border-radius: var(--radius-full); }
+.rec-bar-flash { animation: rec-flash .6s var(--ease) 2; }
+@keyframes rec-flash { 50% { box-shadow: var(--shadow-popup), 0 0 0 4px var(--accent-ring); } }
+
+@media (max-width: 720px) {
+  .rec-cards-3 { grid-template-columns: 1fr; }
+  .rec-shot { flex-direction: column; align-items: stretch; }
+}

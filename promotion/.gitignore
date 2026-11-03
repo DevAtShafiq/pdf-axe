@@ -1,0 +1,5 @@
+work/
+__pycache__/
+# full-quality renders are too big for GitHub (>100 MB); kept locally
+office-axe-demo-1440p.mp4
+office-axe-demo-1080p.mp4
