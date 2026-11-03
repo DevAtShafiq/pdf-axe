@@ -15,6 +15,10 @@ config.py — portal settings, all from environment variables (see README).
     OFFICEAXE_DOWNLOAD_URL       where the Download button goes, or
     OFFICEAXE_DOWNLOAD_FILE      a file the portal serves itself
                                  default: <data>/downloads/OfficeAxe.zip if present
+    OFFICEAXE_INSTALLER_VERSION  version of the installer deployed with the site;
+    OFFICEAXE_INSTALLER_URL      when it is newer than the live release, the portal
+    OFFICEAXE_INSTALLER_SIZE     publishes it on its own (prepare.py sets these)
+    OFFICEAXE_INSTALLER_SHA256
     OFFICEAXE_VIDEO_FILE         the demo video on the landing page
                                  default: promotion/office-axe-demo.mp4
     OFFICEAXE_COOKIE_NAME        admin session cookie (Firebase Hosting: __session)
@@ -61,6 +65,10 @@ class Config:
     trust_proxy: bool = field(default_factory=lambda: _flag("OFFICEAXE_TRUST_PROXY"))
     download_url: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_DOWNLOAD_URL") or "")
     download_file: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_DOWNLOAD_FILE") or "")
+    installer_version: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_INSTALLER_VERSION") or "")
+    installer_url: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_INSTALLER_URL") or "")
+    installer_size: int = field(default_factory=lambda: int(os.environ.get("OFFICEAXE_INSTALLER_SIZE") or 0))
+    installer_sha256: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_INSTALLER_SHA256") or "")
     video_file: str = field(default_factory=lambda: os.environ.get("OFFICEAXE_VIDEO_FILE") or os.path.join(
         os.path.dirname(HERE), "promotion", "office-axe-demo.mp4"))
     # Firebase Hosting passes only a cookie named "__session" on to the server

@@ -180,6 +180,7 @@ def test_login_rate_limit_on_firestore(app, monkeypatch):
 def test_prepare_builds_the_hosting_and_function_bundle(tmp_path, monkeypatch):
     import prepare
     monkeypatch.setattr(prepare, "BUILD", str(tmp_path / "build"))
+    monkeypatch.setattr(prepare, "VERSION_FILE", str(tmp_path / "no-version.txt"))
     out = prepare.build(download_url="https://example.com/OfficeAxe.zip")
     fn, pub = out["functions"], out["public"]
     for f in ("main.py", "requirements.txt", "license_keys.py", "ed25519_pure.py", "revoked_keys.json",
@@ -191,6 +192,19 @@ def test_prepare_builds_the_hosting_and_function_bundle(tmp_path, monkeypatch):
     cfg = json.load(open(os.path.join(ROOT, "webportal", "firebase", "firebase.json"), encoding="utf-8"))
     assert cfg["hosting"]["rewrites"][0]["function"]["functionId"] == "portal"
     assert "venv" in cfg["functions"][0]["ignore"]
+
+
+def test_prepare_passes_the_installer_on_for_auto_release(tmp_path, monkeypatch):
+    import hashlib
+    import prepare
+    (tmp_path / "version.txt").write_text("1.2.0\n", encoding="utf-8")
+    setup = tmp_path / "OfficeAxe-Setup.exe"
+    setup.write_bytes(b"MZ setup")
+    monkeypatch.setattr(prepare, "VERSION_FILE", str(tmp_path / "version.txt"))
+    env = prepare.installer_env(str(setup))
+    assert env == {"OFFICEAXE_INSTALLER_VERSION": "1.2.0", "OFFICEAXE_INSTALLER_URL": prepare.INSTALLER_URL,
+                   "OFFICEAXE_INSTALLER_SIZE": 8, "OFFICEAXE_INSTALLER_SHA256": hashlib.sha256(b"MZ setup").hexdigest()}
+    assert prepare.installer_env(str(tmp_path / "missing.exe")) == {}
 
 
 def test_download_button_follows_the_published_release(app):

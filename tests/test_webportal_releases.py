@@ -156,3 +156,47 @@ def test_admin_publishes_and_the_public_pages_follow(site):
     assert _req(app, "POST", "/admin/releases", {"version": "1.6.0", "notes": "n"}, cookie)["status"] == 403
     # our audit log records it
     assert any(a["action"] == "release_publish" for a in app.store.activity(20))
+
+
+SETUP_URL = "https://officeaxe-8a44f.web.app/files/OfficeAxe-Setup.exe"
+
+
+def test_auto_release_publishes_a_newer_deployed_installer():
+    rm = ReleaseManager(MiniFirestore())
+    old = rm.create("1.0.0", "Old", "https://e.com/OfficeAxe.exe", False, "admin", publish=True)
+    r = rm.auto_release("1.1.0", SETUP_URL, "Windows installer 1.1.0.", 55046180, "ab" * 32)
+    cur = rm.current()
+    assert r and cur["version"] == "1.1.0" and cur["downloadUrl"] == SETUP_URL
+    assert cur["fileName"] == "OfficeAxe-Setup.exe" and cur["fileSize"] == 55046180 and cur["sha256"] == "ab" * 32
+    assert rm.get(old["id"])["isCurrent"] is False
+    # every later start of the portal: already live, nothing changes
+    assert rm.auto_release("1.1.0", SETUP_URL, "again") is None
+    assert len(rm.list()) == 2
+
+
+def test_auto_release_never_goes_backwards_or_publishes_junk():
+    rm = ReleaseManager(MiniFirestore())
+    rm.create("1.2.0", "Live", "https://e.com/a.exe", False, "admin", publish=True)
+    assert rm.auto_release("1.1.0", SETUP_URL, "older") is None
+    assert rm.auto_release("not-a-version", SETUP_URL, "x") is None
+    assert rm.auto_release("1.3.0", "", "no link") is None
+    assert rm.current()["version"] == "1.2.0"
+
+
+def test_auto_release_reuses_a_draft_of_the_same_version():
+    rm = ReleaseManager(MiniFirestore())
+    d = rm.create("1.1.0", "Draft made by hand", "", False, "admin")
+    r = rm.auto_release("1.1.0", SETUP_URL, "Windows installer 1.1.0.")
+    assert r["id"] == d["id"] and rm.current()["releaseId"] == d["id"]
+    assert rm.current()["releaseNotes"] == "Draft made by hand"
+
+
+def test_portal_auto_releases_once_on_start(tmp_path, monkeypatch):
+    monkeypatch.setenv("OFFICEAXE_INSTALLER_VERSION", "1.1.0")
+    monkeypatch.setenv("OFFICEAXE_INSTALLER_URL", SETUP_URL)
+    monkeypatch.setenv("OFFICEAXE_INSTALLER_SIZE", "123")
+    app = make_app(Config(data_dir=str(tmp_path), seed=bytes(32)))
+    assert app.releases.current() == {}
+    app.auto_release()
+    assert app.releases.current()["version"] == "1.1.0"
+    assert app.download().status.startswith("30")

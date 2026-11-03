@@ -315,9 +315,28 @@ class Portal:
         else:
             from minidb import MiniFirestore
             self.releases = ReleaseManager(MiniFirestore(os.path.join(self.cfg.data_dir, "releases.json")))
+        self._auto_release_done = False
+
+    def auto_release(self) -> None:
+        """Once per start: publish the installer deployed with the site if it is
+        newer than the live release, so no admin step is needed after a deploy."""
+        if self._auto_release_done:
+            return
+        self._auto_release_done = True
+        c = self.cfg
+        if not (c.installer_version and c.installer_url):
+            return
+        try:
+            self.releases.auto_release(c.installer_version, c.installer_url,
+                                       f"Windows installer {c.installer_version}.",
+                                       c.installer_size, c.installer_sha256)
+        except Exception as exc:
+            import logging
+            logging.getLogger("portal").exception("auto release failed: %s", exc)
 
     # WSGI entry
     def __call__(self, environ, start_response):
+        self.auto_release()
         req = Request(environ, self.cfg.trust_proxy)
         try:
             res = self.route(req)

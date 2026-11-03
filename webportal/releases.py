@@ -238,6 +238,25 @@ class ReleaseManager:
         b.commit()
         return self.get(rid)
 
+    def auto_release(self, version: str, url: str, notes: str, file_size: int = 0, sha256: str = "",
+                     email: str = "auto-release") -> Optional[dict]:
+        """Publish the installer that was deployed with the site, when it is newer
+        than the live release. Returns the release it published, else None."""
+        v = parse_version(version)
+        if not v or check_url(url, required=True):
+            return None
+        if int(self.current().get("versionCode") or 0) >= v["versionCode"]:
+            return None
+        found = [s.id for s in self.db.collection("releases").where("version", "==", v["version"]).stream()]
+        if found:
+            rid = found[0]
+        else:
+            rid = self.create(v["version"], notes, url, False, email)["id"]
+        self._r(rid).update({"downloadUrl": url, "fileName": file_name_from_url(url),
+                             "fileSize": int(file_size or 0), "sha256": str(sha256 or ""),
+                             "updatedAt": self._now(), "updatedBy": email})
+        return self.publish(rid, email)
+
     def delete(self, rid: str) -> str:
         """Remove a release record (and meta/current if it was live). An installer
         in Firebase Storage is left there; returns a note about it."""
