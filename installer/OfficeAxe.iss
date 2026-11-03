@@ -1,7 +1,7 @@
 ; Office Axe — Windows Setup (Inno Setup 6)
 ;
 ; Build (from the repo root, after PyInstaller; SourceDir is relative to this file):
-;   ISCC.exe /DSourceDir="..\dist\build-YYYYMMDD-HHMM\OfficeAxe" /DAppVersion=2026.11.3 installer\OfficeAxe.iss
+;   ISCC.exe /DSourceDir="..\dist\build-YYYYMMDD-HHMM\OfficeAxe" installer\OfficeAxe.iss
 ; Output: installer\Output\OfficeAxe-Setup.exe
 ;
 ; Installs the whole PyInstaller folder (OfficeAxe.exe + _internal). An installed
@@ -12,7 +12,10 @@
   #define SourceDir "..\dist\OfficeAxe"
 #endif
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  ; installer\VERSION is also what the website announces (auto release)
+  #define VerFile FileOpen(AddBackslash(SourcePath) + "VERSION")
+  #define AppVersion Trim(FileRead(VerFile))
+  #expr FileClose(VerFile)
 #endif
 
 #define AppName "Office Axe"

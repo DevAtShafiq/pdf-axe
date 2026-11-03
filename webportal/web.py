@@ -34,6 +34,33 @@ from releases import ReleaseError, ReleaseManager, as_dt
 from store import Store, iso
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Written by firebase/prepare.py when the deploy ships files/OfficeAxe-Setup.exe:
+# {"version": "1.1.0", "downloadUrl": "/files/OfficeAxe-Setup.exe"}.
+BUNDLED_RELEASE = os.path.join(HERE, "bundled_release.json")
+
+
+def _ver(v) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", str(v or ""))[:4])
+
+
+def bundled_release(path: str = "") -> dict:
+    """The installer this deploy ships with, or {} when there is none."""
+    try:
+        with open(path or BUNDLED_RELEASE, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not (isinstance(d, dict) and _ver(d.get("version")) and str(d.get("downloadUrl") or "").startswith("/")):
+        return {}
+    return {"version": str(d["version"]), "downloadUrl": str(d["downloadUrl"]), "bundled": True}
+
+
+def newest_release(live: dict, bundled: dict) -> dict:
+    """The live release from the release manager, unless the deploy ships a newer
+    installer: then that one (auto release, no admin step needed)."""
+    if bundled and (not live.get("downloadUrl") or _ver(bundled["version"]) > _ver(live.get("version"))):
+        return bundled
+    return live
 STATIC = os.path.join(HERE, "static")
 MAX_BODY = 256 * 1024
 
@@ -315,6 +342,7 @@ class Portal:
         else:
             from minidb import MiniFirestore
             self.releases = ReleaseManager(MiniFirestore(os.path.join(self.cfg.data_dir, "releases.json")))
+        self.bundled_path = BUNDLED_RELEASE     # tests point this elsewhere
 
     # WSGI entry
     def __call__(self, environ, start_response):
@@ -380,11 +408,15 @@ class Portal:
     # Each card keeps its screenshot number (static/feat/NN.webp).
     FEATURES = [(n, k, t, d) for n, (k, t, d) in enumerate(_ALL_FEATURES, 1) if t not in ("AI suit and tie",)]
 
-    def landing(self) -> Response:
+    def current_release(self) -> dict:
         try:
-            cur = self.releases.current()
+            live = self.releases.current() or {}
         except Exception:
-            cur = {}
+            live = {}
+        return newest_release(live, bundled_release(self.bundled_path))
+
+    def landing(self) -> Response:
+        cur = self.current_release()
         ver = str(cur.get("version") or "")
         feats = "".join(f"""
           <article class="feat" tabindex="0" role="button" data-shot="/static/feat/{n:02d}.webp"
@@ -580,10 +612,7 @@ class Portal:
                                                                       "2 PCs per subscription, all 16 tools."))
 
     def _release_strip(self) -> str:
-        try:
-            cur = self.releases.current()
-        except Exception:
-            cur = {}
+        cur = self.current_release()
         if not cur.get("version"):
             return ""
         when = as_dt(cur.get("publishedAt"))
@@ -648,15 +677,11 @@ class Portal:
 </section>"""
 
     def download(self) -> Response:
-        cur = {}
-        try:
-            cur = self.releases.current()      # the live release (release manager)
-        except Exception:
-            pass
+        cur = self.current_release()          # live release, or the newer installer this deploy ships
         url = str(cur.get("downloadUrl") or "") or self.cfg.download_url
-        if url and url.startswith(("https://", "http://")):
+        if url and (url.startswith(("https://", "http://")) or re.fullmatch(r"/files/[A-Za-z0-9._-]+", url)):
             self.store.count_download(iso(self.lic._now()))
-            if cur.get("downloadUrl"):
+            if cur.get("downloadUrl") and not cur.get("bundled"):
                 try:
                     self.releases.log_download(cur)
                 except Exception:

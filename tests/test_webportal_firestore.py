@@ -193,6 +193,17 @@ def test_prepare_builds_the_hosting_and_function_bundle(tmp_path, monkeypatch):
     assert "venv" in cfg["functions"][0]["ignore"]
 
 
+def test_prepare_records_the_shipped_installer_for_auto_release(tmp_path, monkeypatch):
+    import prepare
+    monkeypatch.setattr(prepare, "BUILD", str(tmp_path / "build"))
+    monkeypatch.setattr(prepare, "installer_version", lambda: "1.1.0")
+    os.makedirs(tmp_path / "build" / "public" / "files")
+    (tmp_path / "build" / "public" / "files" / "OfficeAxe-Setup.exe").write_bytes(b"MZ")
+    fn = prepare.build()["functions"]
+    with open(os.path.join(fn, "webportal", "bundled_release.json"), encoding="utf-8") as fh:
+        assert json.load(fh) == {"version": "1.1.0", "downloadUrl": "/files/OfficeAxe-Setup.exe"}
+
+
 def test_download_button_follows_the_published_release(app):
     portal, db = app
     assert _call(portal, "GET", "/download")["status"] == 200          # nothing published: "coming soon"

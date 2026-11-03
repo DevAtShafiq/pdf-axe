@@ -11,6 +11,11 @@ prepare.py — put together what Firebase deploys, in webportal/firebase/build/:
 
     python webportal/firebase/prepare.py [--download-url URL] [--venv]
 
+Auto release: when the installer is shipped, build/functions/webportal/
+bundled_release.json records its version (installer/VERSION). The website's
+Download button then serves it whenever it is newer than the release live in
+the admin's Releases page, so no admin step is needed after a deploy.
+
 --venv also creates build/functions/venv with the requirements installed
 (the Firebase CLI needs it to read the function before deploying).
 Existing files in build/ are overwritten, never removed.
@@ -18,6 +23,7 @@ Existing files in build/ are overwritten, never removed.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -36,6 +42,14 @@ ROOT_FILES = ["license_keys.py", "ed25519_pure.py", "revoked_keys.json"]
 def _copy(src: str, dst: str) -> None:
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.copy2(src, dst)
+
+
+def installer_version() -> str:
+    try:
+        with open(os.path.join(ROOT, "installer", "VERSION"), encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
 
 
 def build(download_url: str = "", venv: bool = False) -> dict:
@@ -62,6 +76,10 @@ def build(download_url: str = "", venv: bool = False) -> dict:
                     ignore=shutil.ignore_patterns("*.jpg", "*.png"))
     for f in ROOT_FILES:
         _copy(os.path.join(ROOT, f), os.path.join(fn, f))
+    ver = installer_version()
+    if ver and os.path.isfile(os.path.join(pub, "files", "OfficeAxe-Setup.exe")):
+        with open(os.path.join(fn, "webportal", "bundled_release.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": ver, "downloadUrl": "/files/OfficeAxe-Setup.exe"}, fh)
     with open(os.path.join(fn, ".env"), "w", encoding="utf-8") as fh:      # public settings only
         fh.write(f"OFFICEAXE_DOWNLOAD_URL={download_url}\n")
     if venv and not os.path.isdir(os.path.join(fn, "venv")):

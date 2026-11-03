@@ -406,3 +406,47 @@ def test_forged_server_answers_are_not_trusted(portal, tmp_path):
     with pytest.raises(license_client.Offline):
         license_client.call("check", row["key"], {"id": "dev"}, transport=evil, url="https://x",
                             public_key=ed25519_pure.public_key(seed))
+
+
+# ── auto release: the deploy's own installer wins when it is newer ────────────
+
+def _bundle(tmp_path, version):
+    p = tmp_path / "bundled_release.json"
+    p.write_text(json.dumps({"version": version, "downloadUrl": "/files/OfficeAxe-Setup.exe"}), encoding="utf-8")
+    return str(p)
+
+
+def test_bundled_installer_is_served_when_nothing_is_live(portal, tmp_path):
+    app, _ = portal
+    app.bundled_path = _bundle(tmp_path, "1.1.0")
+    r = Client(app).get("/download")
+    assert r["status"] == 303 and r["location"] == "/files/OfficeAxe-Setup.exe"
+    assert "v1.1.0" in Client(app).get("/")["body"]
+
+
+def test_bundled_installer_beats_an_older_live_release(portal, tmp_path):
+    app, _ = portal
+    app.releases.create("1.0.0", "First", "https://example.com/OfficeAxe.exe", False, "a@b.c", publish=True)
+    app.bundled_path = _bundle(tmp_path, "1.1.0")
+    assert Client(app).get("/download")["location"] == "/files/OfficeAxe-Setup.exe"
+    body = Client(app).get("/")["body"]
+    assert "v1.1.0" in body and "v1.0.0" not in body
+
+
+def test_a_newer_or_equal_live_release_still_wins(portal, tmp_path):
+    app, _ = portal
+    app.releases.create("1.1.0", "Same", "https://example.com/Setup-110.exe", False, "a@b.c", publish=True)
+    app.bundled_path = _bundle(tmp_path, "1.1.0")
+    assert Client(app).get("/download")["location"] == "https://example.com/Setup-110.exe"
+    app.bundled_path = _bundle(tmp_path, "1.0.9")
+    assert Client(app).get("/download")["location"] == "https://example.com/Setup-110.exe"
+
+
+def test_a_broken_bundle_file_is_ignored(portal, tmp_path):
+    app, _ = portal
+    p = tmp_path / "bundled_release.json"
+    for text in ("not json", json.dumps({"version": "", "downloadUrl": "/files/x.exe"}),
+                 json.dumps({"version": "2.0", "downloadUrl": "https://evil.example/x.exe"})):
+        p.write_text(text, encoding="utf-8")
+        app.bundled_path = str(p)
+        assert Client(app).get("/download")["status"] == 200        # "coming soon", nothing configured
