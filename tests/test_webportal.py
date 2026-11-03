@@ -342,7 +342,25 @@ def test_app_learns_about_revocation_at_the_next_check(portal, tmp_path):
     assert m.recheck_online()["access"]
 
 
-def test_app_works_offline_for_seven_days_then_asks_for_a_check(portal, tmp_path):
+def test_app_keeps_working_when_the_portal_is_gone(portal, tmp_path):
+    """A lost or moved portal must not lock paying customers out: the key works
+    until its own expiry, and a revoke still lands once the portal answers."""
+    app, seed = portal
+    clock = {"t": datetime.now(timezone.utc)}
+    row = app.lic.issue("full", "Client", days=60, max_devices=2)
+    m, net = _app_manager(tmp_path, app, seed, clock)
+    assert m.activate_key(row["key"])["ok"]
+    net["up"] = False
+    clock["t"] += timedelta(days=45)
+    m._last_online_try = -1e9
+    assert m.state()["access"]
+    clock["t"] += timedelta(days=16)                 # past the key's own expiry
+    m._last_online_try = -1e9
+    assert not m.state()["access"]
+
+
+def test_app_works_offline_for_seven_days_then_asks_for_a_check(portal, tmp_path, monkeypatch):
+    monkeypatch.setattr(license_client, "LOCK_WHEN_UNREACHABLE", True)     # the strict mode
     app, seed = portal
     clock = {"t": datetime.now(timezone.utc)}
     row = app.lic.issue("full", "Client", days=60, max_devices=5)

@@ -394,7 +394,7 @@ class Portal:
         faq = [
             ("Which computers does it run on?", "Windows 10 and Windows 11 PCs."),
             ("Does it need the internet?", "No — your files are handled on your own PC. A license key is checked online "
-             "now and then; without internet Office Axe keeps working for 7 days after the last check."),
+             "now and then; without internet Office Axe keeps working until your plan ends."),
             ("How many PCs can I use?", "Buy one, get one: one subscription covers 2 PCs. A review or trial key may allow 1."),
             ("Are my documents uploaded anywhere?", "No. Office Axe works on the files on your PC."),
             ("How do updates work?", "When a new version is published, the installed app shows “Update Now”."),

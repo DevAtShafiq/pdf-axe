@@ -378,7 +378,7 @@ class SubscriptionManager:
                     grace = _parse((sub.get("online") or {}).get("grace_until"))
                     if block:
                         key_problem = block.get("message") or "This license key can’t be used any more."
-                    elif grace and grace <= now:
+                    elif grace and grace <= now and license_client.LOCK_WHEN_UNREACHABLE:
                         check_needed = True
                         key_problem = ("Office Axe couldn’t confirm your license key for "
                                        f"{license_client.GRACE_DAYS} days. Connect to the internet "
